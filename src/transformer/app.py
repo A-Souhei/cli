@@ -15,6 +15,8 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from sentence_transformers import SentenceTransformer
 from nlp_tasks import analyze_sentiment, summarize_text
+from embedding_similarity import calculate_similarity
+import numpy as np
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -227,6 +229,96 @@ def summarize():
         return handle_error(e)
 
 
+@app.route('/similarity', methods=['GET'])
+def compare_similarity():
+    """
+    Compare the similarity between two texts using embeddings.
+
+    Query Parameters:
+    - text1: First text to compare
+    - text2: Second text to compare
+    - metric: Distance metric (default: cosine). Options: cosine, euclidean, dot_product
+
+    Returns:
+    - similarity: Similarity score between the two texts
+    - metric: The metric used for comparison
+    - text1: First text
+    - text2: Second text
+    """
+    try:
+        text1 = request.args.get('text1')
+        text2 = request.args.get('text2')
+
+        if not text1 or not text2:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing text1 or text2 parameter'
+            }), 400
+
+        metric = request.args.get('metric', 'cosine')
+        
+        # Validate metric
+        valid_metrics = ['cosine', 'euclidean', 'dot_product']
+        if metric not in valid_metrics:
+            return jsonify({
+                'status': 'error',
+                'message': f'Invalid metric. Must be one of: {", ".join(valid_metrics)}'
+            }), 400
+
+        # Get the model and generate embeddings
+        embedding_model = get_model()
+        embedding1 = embedding_model.encode(text1)
+        embedding2 = embedding_model.encode(text2)
+
+        # Convert to numpy arrays if needed
+        vec1 = np.array(embedding1)
+        vec2 = np.array(embedding2)
+
+        # Calculate similarity
+        similarity = calculate_similarity(vec1, vec2, metric=metric)
+
+        return jsonify({
+            'status': 'success',
+            'text1': text1,
+            'text2': text2,
+            'metric': metric,
+            'similarity': float(similarity),
+            'interpretation': _interpret_similarity(similarity, metric)
+        }), 200
+
+    except Exception as e:
+        return handle_error(e)
+
+
+def _interpret_similarity(score: float, metric: str) -> str:
+    """Helper function to interpret similarity scores."""
+    if metric == 'cosine':
+        if score > 0.9:
+            return 'Very similar'
+        elif score > 0.7:
+            return 'Similar'
+        elif score > 0.5:
+            return 'Somewhat similar'
+        elif score > 0.3:
+            return 'Slightly similar'
+        else:
+            return 'Not similar'
+    elif metric == 'dot_product':
+        # Interpretation depends on embedding normalization
+        return 'Higher values indicate more similarity'
+    elif metric == 'euclidean':
+        # For euclidean, we return inverse (1/(1+distance)) so higher is better
+        if score > 0.8:
+            return 'Very similar'
+        elif score > 0.6:
+            return 'Similar'
+        elif score > 0.4:
+            return 'Somewhat similar'
+        else:
+            return 'Not similar'
+    return 'Unknown'
+
+
 # Global error handler for uncaught exceptions
 @app.errorhandler(Exception)
 def handle_uncaught_exception(e):
@@ -246,6 +338,7 @@ if __name__ == '__main__':
     print("  GET  /embed/batch?texts=<json_array> - Generate embeddings for multiple texts")
     print("  GET  /sentiment?text=<text> - Analyze sentiment")
     print("  GET  /summarize?text=<text> - Summarize text")
+    print("  GET  /similarity?text1=<text>&text2=<text> - Compare similarity between two texts")
     print()
 
     # Run the app
