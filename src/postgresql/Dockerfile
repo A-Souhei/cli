@@ -3,8 +3,14 @@ FROM ubuntu:22.04
 # Avoid prompts from apt
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install PostgreSQL and Python dependencies
-RUN apt-get update && apt-get install -y \
+# Keep apt cache for faster rebuilds
+RUN rm -f /etc/apt/apt.conf.d/docker-clean; \
+    echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
+
+# Install PostgreSQL and Python dependencies with cache mount
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y \
     postgresql-14 \
     postgresql-client-14 \
     postgresql-contrib-14 \
@@ -24,8 +30,9 @@ RUN git clone --branch v0.7.4 https://github.com/pgvector/pgvector.git /tmp/pgve
     make install && \
     rm -rf /tmp/pgvector
 
-# Install Flask and related packages
-RUN pip3 install --no-cache-dir \
+# Install Flask and related packages with cache mount
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    pip3 install --no-cache-dir \
     flask \
     flask-sqlalchemy \
     psycopg2-binary \
@@ -47,7 +54,7 @@ ENV PYTHONPATH="/app/src_shared:${PYTHONPATH}"
 
 # Copy initialization SQL script
 COPY src/postgresql/init.sql /docker-entrypoint-initdb.d/init.sql
-COPY src/postgresql/init-db.sh /docker-entrypoint-initdb.d/init-db.shb.sh
+COPY src/postgresql/init-db.sh /docker-entrypoint-initdb.d/init-db.sh
 RUN chmod +x /docker-entrypoint-initdb.d/init-db.sh
 
 # Copy Flask application

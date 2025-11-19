@@ -114,6 +114,26 @@ services:
     networks:
       - vuhitra-network
 
+  # Bugsink - Self-hosted error tracking
+  bugsink:
+    image: bugsink/bugsink:latest
+    container_name: vuhitra-bugsink
+    restart: always
+    environment:
+      - SECRET_KEY=${BUGSINK_SECRET_KEY:-Plx41LNO5AAov9UPsZB0NrObuSHEla0RI7rqLyHiFL09mnc7kl}
+      - CREATE_SUPERUSER=${BUGSINK_SUPERUSER:-admin:admin}
+      - PORT=8000
+    volumes:
+      - bugsink_data:/data
+    networks:
+      - vuhitra-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
 networks:
   vuhitra-network:
     driver: bridge
@@ -129,3 +149,6 @@ volumes:
   transformer_models:
     driver: local
     name: vuhitra-transformer-models
+  bugsink_data:
+    driver: local
+    name: vuhitra-bugsink-data
