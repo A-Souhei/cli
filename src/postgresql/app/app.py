@@ -1,17 +1,18 @@
 """Flask API for PostgreSQL interaction."""
 
+from datetime import datetime
+from sqlalchemy.dialects.postgresql import JSON
+from sqlalchemy import Integer, Text, DateTime, CheckConstraint
+from flask_sqlalchemy import SQLAlchemy
+from flask import Flask, jsonify, request
+from sentry_config import configure_sentry, capture_exception
 import sys
 import os
-from flask import Flask, jsonify, request
-from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import Integer, String, Text, DateTime, CheckConstraint
-from sqlalchemy.dialects.postgresql import JSON
-from datetime import datetime
-import sentry_sdk
+import json
 
 # Add shared source directory to path
 sys.path.insert(0, '/app/src_shared')
-from sentry_config import configure_sentry
+
 
 # Configure Sentry
 configure_sentry(service_name="postgres-flask")
@@ -24,16 +25,27 @@ db_password = os.getenv('POSTGRES_PASSWORD', 'postgres')
 db_name = os.getenv('POSTGRES_DB', 'vuhitra')
 db_host = 'localhost'  # PostgreSQL runs on same container
 
-app.config['SQLALCHEMY_DATABASE_URI'] = f'postgresql://{db_user}:{db_password}@{db_host}:5432/{db_name}'
+app.config['SQLALCHEMY_DATABASE_URI'] = (
+    f'postgresql://{db_user}:{db_password}@{db_host}:5432/{db_name}'
+)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
 
+def handle_error(e, status_code=500):
+    """Centralized error handler that logs to Sentry."""
+    capture_exception(e)
+    return jsonify({
+        'status': 'error',
+        'message': str(e)
+    }), status_code
+
+
 # Define the ConversationRating model
 class ConversationRating(db.Model):
     __tablename__ = 'conversation_ratings'
-    
+
     id = db.Column(Integer, primary_key=True)
     user_rating = db.Column(Integer, CheckConstraint('user_rating >= 0 AND user_rating <= 10'))
     prompt_text = db.Column(Text)
@@ -56,8 +68,7 @@ def test_db():
         db.session.execute('SELECT 1')
         return jsonify({'status': 'success', 'message': 'Database connection successful'}), 200
     except Exception as e:
-        sentry_sdk.capture_exception(e)
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return handle_error(e)
 
 
 @app.route('/ratings/create', methods=['GET'])
@@ -65,26 +76,25 @@ def create_rating():
     """Create a new conversation rating."""
     try:
         data = request.args.to_dict()
-        
+
         # Parse tags if provided as JSON string
         tags = {}
         if 'tags' in data:
-            import json
             try:
                 tags = json.loads(data['tags'])
-            except:
+            except json.JSONDecodeError:
                 tags = {}
-        
+
         rating = ConversationRating(
             user_rating=int(data.get('user_rating', 0)),
             prompt_text=data.get('prompt_text'),
             response_text=data.get('response_text'),
             tags=tags
         )
-        
+
         db.session.add(rating)
         db.session.commit()
-        
+
         return jsonify({
             'status': 'success',
             'id': rating.id,
@@ -92,8 +102,7 @@ def create_rating():
         }), 201
     except Exception as e:
         db.session.rollback()
-        sentry_sdk.capture_exception(e)
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return handle_error(e)
 
 
 @app.route('/ratings', methods=['GET'])
@@ -101,13 +110,13 @@ def get_ratings():
     """Get all conversation ratings."""
     try:
         min_rating = request.args.get('min_rating', type=int)
-        
+
         query = ConversationRating.query
         if min_rating is not None:
             query = query.filter(ConversationRating.user_rating >= min_rating)
-        
+
         ratings = query.order_by(ConversationRating.created_at.desc()).all()
-        
+
         return jsonify({
             'status': 'success',
             'count': len(ratings),
@@ -121,8 +130,7 @@ def get_ratings():
             } for r in ratings]
         }), 200
     except Exception as e:
-        sentry_sdk.capture_exception(e)
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return handle_error(e)
 
 
 @app.route('/ratings/<int:rating_id>', methods=['GET'])
@@ -130,7 +138,7 @@ def get_rating(rating_id):
     """Get a specific conversation rating."""
     try:
         rating = ConversationRating.query.get_or_404(rating_id)
-        
+
         return jsonify({
             'status': 'success',
             'rating': {
@@ -144,8 +152,7 @@ def get_rating(rating_id):
             }
         }), 200
     except Exception as e:
-        sentry_sdk.capture_exception(e)
-        return jsonify({'status': 'error', 'message': str(e)}), 404
+        return handle_error(e, status_code=404)
 
 
 @app.route('/ratings/<int:rating_id>/tags', methods=['GET'])
@@ -153,26 +160,25 @@ def update_rating_tags(rating_id):
     """Update tags for a specific conversation rating."""
     try:
         rating = ConversationRating.query.get_or_404(rating_id)
-        
+
         tags_param = request.args.get('tags')
         if not tags_param:
             return jsonify({
                 'status': 'error',
                 'message': 'Missing tags query parameter'
             }), 400
-        
-        import json
+
         try:
             tags = json.loads(tags_param)
-        except:
+        except json.JSONDecodeError:
             return jsonify({
                 'status': 'error',
                 'message': 'Invalid JSON format for tags'
             }), 400
-        
+
         rating.tags = tags
         db.session.commit()
-        
+
         return jsonify({
             'status': 'success',
             'message': 'Tags updated successfully',
@@ -184,8 +190,7 @@ def update_rating_tags(rating_id):
         }), 200
     except Exception as e:
         db.session.rollback()
-        sentry_sdk.capture_exception(e)
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return handle_error(e)
 
 
 @app.route('/ratings/purge', methods=['GET'])
@@ -195,28 +200,22 @@ def purge_ratings():
         count = ConversationRating.query.count()
         ConversationRating.query.delete()
         db.session.commit()
-        
+
         return jsonify({
             'status': 'success',
             'message': f'Purged {count} ratings'
         }), 200
     except Exception as e:
         db.session.rollback()
-        sentry_sdk.capture_exception(e)
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return handle_error(e)
 
 
 # Global error handler for uncaught exceptions
 @app.errorhandler(Exception)
 def handle_uncaught_exception(e):
     """Handle any uncaught exceptions and send to Sentry."""
-    sentry_sdk.capture_exception(e)
-    return jsonify({
-        'status': 'error',
-        'message': 'Internal server error'
-    }), 500
+    return handle_error(e)
 
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
-

@@ -6,7 +6,7 @@ sentiment analysis and text summarization.
 """
 
 from transformers import pipeline
-from typing import Dict, List, Any
+from typing import Dict, Any
 
 
 # Lazy load pipelines
@@ -39,12 +39,12 @@ def get_summarization_pipeline():
 def analyze_sentiment(text: str) -> Dict[str, Any]:
     """
     Analyze the sentiment of the given text.
-    
+
     Parameters:
     -----------
     text : str
         The text to analyze
-    
+
     Returns:
     --------
     dict
@@ -54,7 +54,7 @@ def analyze_sentiment(text: str) -> Dict[str, Any]:
     """
     sentiment_analyzer = get_sentiment_pipeline()
     result = sentiment_analyzer(text)[0]
-    
+
     return {
         'label': result['label'],
         'score': float(result['score'])
@@ -64,7 +64,7 @@ def analyze_sentiment(text: str) -> Dict[str, Any]:
 def summarize_text(text: str, max_length: int = 130, min_length: int = 30) -> Dict[str, Any]:
     """
     Summarize the given text.
-    
+
     Parameters:
     -----------
     text : str
@@ -73,7 +73,7 @@ def summarize_text(text: str, max_length: int = 130, min_length: int = 30) -> Di
         Maximum length of the summary (default: 130)
     min_length : int
         Minimum length of the summary (default: 30)
-    
+
     Returns:
     --------
     dict
@@ -83,7 +83,7 @@ def summarize_text(text: str, max_length: int = 130, min_length: int = 30) -> Di
         - summary_length: Length of summary
     """
     summarizer = get_summarization_pipeline()
-    
+
     # Ensure text is long enough to summarize
     if len(text.split()) < min_length:
         return {
@@ -92,16 +92,16 @@ def summarize_text(text: str, max_length: int = 130, min_length: int = 30) -> Di
             'summary_length': len(text),
             'note': 'Text too short to summarize, returned original'
         }
-    
+
     result = summarizer(
         text,
         max_length=max_length,
         min_length=min_length,
         do_sample=False
     )[0]
-    
+
     summary = result['summary_text']
-    
+
     return {
         'summary': summary,
         'original_length': len(text),

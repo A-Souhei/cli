@@ -2,20 +2,19 @@
 
 import os
 import sentry_sdk
-from typing import Optional
 
 
 def configure_sentry(service_name: str = "unknown-service") -> None:
     """
     Configure Sentry error tracking for the application.
-    
+
     Args:
         service_name: Name of the service for tagging in Sentry
     """
     # Get configuration from environment variables
     sentry_dsn = os.getenv('SENTRY_DSN', '')
     environment = os.getenv('ENVIRONMENT', 'DEV')
-    
+
     # Only configure Sentry if DSN is provided
     if sentry_dsn:
         sentry_sdk.init(
@@ -28,10 +27,10 @@ def configure_sentry(service_name: str = "unknown-service") -> None:
                 "profiles_sample_rate": 1.0 if environment == 'DEV' else 0.1,
             },
         )
-        
+
         # Set service tag
         sentry_sdk.set_tag("service", service_name)
-        
+
         print(f"Sentry configured for {service_name} in {environment} environment")
     else:
         print(f"Sentry not configured (no DSN provided) for {service_name}")
@@ -45,3 +44,16 @@ def get_environment() -> str:
 def is_dev_environment() -> bool:
     """Check if running in development environment."""
     return get_environment() == 'DEV'
+
+
+def capture_exception(exception: Exception) -> None:
+    """
+    Capture and log an exception to Sentry.
+
+    This function ensures exceptions are always captured regardless of
+    whether Sentry is configured or not.
+
+    Args:
+        exception: The exception to capture
+    """
+    sentry_sdk.capture_exception(exception)
