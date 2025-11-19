@@ -2,16 +2,19 @@
 NLP Task Functions
 
 This module provides functions for various NLP tasks including
-sentiment analysis and text summarization.
+sentiment analysis, text summarization, and keyword extraction.
 """
 
 from transformers import pipeline
-from typing import Dict, Any
+from typing import Dict, Any, List
+from keybert import KeyBERT
+from sentence_transformers import SentenceTransformer
 
 
 # Lazy load pipelines
 _sentiment_pipeline = None
 _summarization_pipeline = None
+_keyword_model = None
 
 
 def get_sentiment_pipeline():
@@ -106,4 +109,57 @@ def summarize_text(text: str, max_length: int = 130, min_length: int = 30) -> Di
         'summary': summary,
         'original_length': len(text),
         'summary_length': len(summary)
+    }
+
+
+def get_keyword_model():
+    """Lazy load the keyword extraction model."""
+    global _keyword_model
+    if _keyword_model is None:
+        # Use the same embedding model for consistency
+        _keyword_model = KeyBERT(model='all-MiniLM-L6-v2')
+    return _keyword_model
+
+
+def extract_keywords(text: str, top_n: int = 5, keyphrase_ngram_range: tuple = (1, 2)) -> Dict[str, Any]:
+    """
+    Extract keywords and keyphrases from the given text.
+
+    Parameters:
+    -----------
+    text : str
+        The text to extract keywords from
+    top_n : int
+        Number of top keywords to extract (default: 5)
+    keyphrase_ngram_range : tuple
+        Range of n-grams to consider (default: (1, 2) for unigrams and bigrams)
+
+    Returns:
+    --------
+    dict
+        Dictionary containing:
+        - keywords: List of extracted keywords with their scores
+        - count: Number of keywords extracted
+    """
+    keyword_model = get_keyword_model()
+
+    # Extract keywords
+    keywords = keyword_model.extract_keywords(
+        text,
+        keyphrase_ngram_range=keyphrase_ngram_range,
+        stop_words='english',
+        top_n=top_n,
+        use_maxsum=True,
+        nr_candidates=20
+    )
+
+    # Format results
+    keyword_list = [
+        {'keyword': kw, 'score': float(score)}
+        for kw, score in keywords
+    ]
+
+    return {
+        'keywords': keyword_list,
+        'count': len(keyword_list)
     }

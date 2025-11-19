@@ -194,6 +194,50 @@ def update_rating_tags(rating_id):
         return handle_error(e)
 
 
+@app.route('/ratings/<int:rating_id>/update', methods=['GET'])
+def update_rating(rating_id):
+    """Update a specific conversation rating."""
+    try:
+        rating = ConversationRating.query.get_or_404(rating_id)
+
+        # Update fields if provided
+        if 'user_rating' in request.args:
+            rating.user_rating = int(request.args.get('user_rating'))
+
+        if 'response_text' in request.args:
+            rating.response_text = request.args.get('response_text')
+
+        if 'prompt_text' in request.args:
+            rating.prompt_text = request.args.get('prompt_text')
+
+        if 'tags' in request.args:
+            try:
+                rating.tags = json.loads(request.args.get('tags'))
+            except json.JSONDecodeError:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Invalid JSON format for tags'
+                }), 400
+
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Rating updated successfully',
+            'rating': {
+                'id': rating.id,
+                'user_rating': rating.user_rating,
+                'prompt_text': rating.prompt_text,
+                'response_text': rating.response_text,
+                'tags': rating.tags,
+                'updated_at': rating.updated_at.isoformat()
+            }
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return handle_error(e)
+
+
 @app.route('/ratings/purge', methods=['GET'])
 def purge_ratings():
     """Delete all conversation ratings."""
