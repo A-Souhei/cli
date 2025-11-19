@@ -77,7 +77,6 @@ services:
       - ENVIRONMENT=${ENVIRONMENT:-DEV}
     volumes:
       - postgres_data:/var/lib/postgresql/14/main
-      - ./postgresql/app:/app
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 10s

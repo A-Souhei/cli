@@ -144,7 +144,7 @@ def test_transformer_health():
     """Test Transformer Flask service health endpoint."""
     print("\nTesting Transformer health endpoint...")
     
-    transformer_url = os.getenv('TRANSFORMER_API_URL', 'http://localhost:5050')
+    transformer_url = os.getenv('TRANSFORMER_API_URL', 'http://localhost:16050')
     
     try:
         response = requests.get(f"{transformer_url}/health", timeout=5)
@@ -161,7 +161,7 @@ def test_transformer_endpoints():
     """Test Transformer Flask service endpoints."""
     print("\nTesting Transformer endpoints...")
     
-    transformer_url = os.getenv('TRANSFORMER_API_URL', 'http://localhost:5050')
+    transformer_url = os.getenv('TRANSFORMER_API_URL', 'http://localhost:16050')
     
     try:
         # Test embed endpoint
