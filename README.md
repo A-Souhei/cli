@@ -11,7 +11,21 @@ A minimal, modular AI command-line interface that connects to Ollama services (l
 - 📝 Conversation context management
 - 🎯 Modular architecture with separated features
 - 🐳 Docker Compose setup for Ollama
-- 🚀 Easy setup with automated shell script
+- 🚀 Easy setup with automated scripts and Makefile
+
+## Quick Start
+
+```bash
+# Automated setup (recommended)
+make setup
+
+# Or manually
+./setup.sh
+
+# Run the CLI
+make run
+# Or: ./start.sh
+```
 
 ## Project Structure
 
@@ -19,9 +33,11 @@ A minimal, modular AI command-line interface that connects to Ollama services (l
 cli/
 ├── config.yaml              # Configuration file for Ollama and chat settings
 ├── docker-compose.yml       # Docker Compose for Ollama service
+├── Makefile                # Build automation and commands
+├── setup.sh                # Automated setup script
+├── start.sh                # CLI startup script
 ├── .env.example            # Environment variables template
 ├── requirements.txt         # Python dependencies
-├── start.sh                # Shell script to setup and run the CLI
 ├── main.py                 # Main entry point
 └── src/
     ├── config/             # Configuration management module
@@ -36,10 +52,25 @@ cli/
 
 - Python 3.7 or higher
 - Docker and Docker Compose (for running Ollama in a container)
+- Make (optional, for using Makefile commands)
 
 ## Installation
 
-### Option 1: Using Docker Compose (Recommended)
+### Quick Setup (Recommended)
+
+```bash
+# Run automated setup
+make setup
+# Or: ./setup.sh
+
+# This will:
+# - Create Python virtual environment
+# - Install all dependencies
+# - Create .env file
+# - Optionally start Docker containers
+```
+
+### Option 1: Using Docker Compose
 
 1. **Clone the repository:**
    ```bash
@@ -144,7 +175,73 @@ You: exit
 Goodbye!
 ```
 
+## Makefile Commands
+
+The project includes a Makefile for easy management:
+
+```bash
+# Show all available commands
+make help
+
+# Setup everything (venv + dependencies + Docker)
+make setup
+
+# Run the CLI
+make run
+
+# Create virtual environment
+make venv
+
+# Install Python dependencies
+make install
+
+# Start Docker containers
+make up
+
+# Stop Docker containers
+make down
+
+# Restart Docker containers
+make restart
+
+# View container logs
+make logs
+
+# Show container status
+make status
+
+# Run tests
+make test
+
+# Pull a specific model
+make pull-model MODEL=llama2
+
+# List available models
+make list-models
+
+# Clean up (remove venv and volumes)
+make clean
+```
+
 ## Docker Compose Management
+
+### Using Makefile (Recommended):
+
+```bash
+# Start Ollama
+make up
+
+# Stop Ollama
+make down
+
+# View logs
+make logs
+
+# Check status
+make status
+```
+
+### Using Docker Compose directly:
 
 ### Start Ollama service:
 ```bash

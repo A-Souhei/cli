@@ -20,7 +20,7 @@ def test_config_manager():
     config = ConfigManager()
     
     assert config.get_ollama_url() == "http://localhost:11434", "Ollama URL mismatch"
-    assert config.get_ollama_model() == "llama2", "Model name mismatch"
+    assert config.get_ollama_model() == "tinyllama", "Model name mismatch"
     assert config.get_temperature() == 0.7, "Temperature mismatch"
     assert config.get_stream_enabled() is True, "Stream setting mismatch"
     assert config.get_max_context_length() == 10, "Max context length mismatch"
