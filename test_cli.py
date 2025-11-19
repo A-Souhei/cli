@@ -72,13 +72,9 @@ def test_module_imports():
 
 
 def test_postgresql_health():
-    """Test PostgreSQL Flask service health endpoint."""
-    print("\nTesting PostgreSQL health endpoint...")
-    
-    postgres_url = os.getenv('POSTGRES_API_URL', 'http://localhost:5000')
-    
+    """Test PostgreSQL Flask API health endpoint."""
     try:
-        response = requests.get(f"{postgres_url}/health", timeout=5)
+        response = requests.get('http://localhost:15000/health', timeout=5)
         assert response.status_code == 200, f"Expected 200, got {response.status_code}"
         data = response.json()
         assert data.get('status') == 'healthy', "PostgreSQL service should be healthy"
@@ -89,19 +85,16 @@ def test_postgresql_health():
 
 
 def test_postgresql_endpoints():
-    """Test PostgreSQL Flask service endpoints."""
-    print("\nTesting PostgreSQL endpoints...")
-    
-    postgres_url = os.getenv('POSTGRES_API_URL', 'http://localhost:5000')
-    
+    """Test PostgreSQL Flask API endpoints."""
+    base_url = 'http://localhost:15000'
     try:
         # Test purge endpoint
-        response = requests.get(f"{postgres_url}/ratings/purge", timeout=5)
+        response = requests.get(f"{base_url}/ratings/purge", timeout=5)
         assert response.status_code == 200, "Purge should return 200"
         
         # Test create rating
         response = requests.get(
-            f"{postgres_url}/ratings/create",
+            f"{base_url}/ratings/create",
             params={
                 'user_rating': 8,
                 'prompt_text': 'Test prompt',
@@ -116,20 +109,20 @@ def test_postgresql_endpoints():
         rating_id = data.get('id')
         
         # Test get all ratings
-        response = requests.get(f"{postgres_url}/ratings", timeout=5)
+        response = requests.get(f"{base_url}/ratings", timeout=5)
         assert response.status_code == 200, "Get ratings should return 200"
         data = response.json()
         assert data.get('count') >= 1, "Should have at least one rating"
         
         # Test get specific rating
-        response = requests.get(f"{postgres_url}/ratings/{rating_id}", timeout=5)
+        response = requests.get(f"{base_url}/ratings/{rating_id}", timeout=5)
         assert response.status_code == 200, "Get rating should return 200"
         data = response.json()
         assert data.get('rating', {}).get('id') == rating_id, "Should return correct rating"
         
         # Test update tags
         response = requests.get(
-            f"{postgres_url}/ratings/{rating_id}/tags",
+            f"{base_url}/ratings/{rating_id}/tags",
             params={'tags': '{"category": "updated"}'},
             timeout=5
         )
