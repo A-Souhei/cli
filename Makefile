@@ -52,10 +52,18 @@ install: venv ## Install Python dependencies
 	@echo "$(GREEN)✓ Dependencies installed$(NC)"
 
 build: ## Build Docker images
-	@echo "$(YELLOW)Building Docker images...$(NC)"
-	@$(DOCKER_COMPOSE) build postgres
+	@echo "$(YELLOW)Building PostgreSQL Docker image...$(NC)"
+	@docker build -f src/postgresql/Dockerfile -t cli-postgres:latest .
 	@echo "$(GREEN)✓ PostgreSQL + Flask image built$(NC)"
-	@echo "$(GREEN)✓ Using pre-built ollama/ollama:latest and curlimages/curl:latest$(NC)"
+
+build-transformer: ## Build transformer Docker image
+	@echo "$(YELLOW)Building Transformer Docker image...$(NC)"
+	@docker build -f src/transformer/Dockerfile -t cli-transformer:latest .
+	@echo "$(GREEN)✓ Transformer image built$(NC)"
+
+build-all: build build-transformer ## Build all Docker images
+	@echo "$(GREEN)✓ All images built$(NC)"
+	@echo "$(GREEN)✓ Using pre-built ollama/ollama:latest$(NC)"
 
 up: ## Start Docker containers (Ollama + PostgreSQL + Flask)
 	@echo "$(YELLOW)Starting all containers...$(NC)"

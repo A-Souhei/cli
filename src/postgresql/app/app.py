@@ -7,6 +7,7 @@ from flask_sqlalchemy import SQLAlchemy
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import Integer, String, Text, DateTime, CheckConstraint
 from datetime import datetime
+import sentry_sdk
 
 # Add shared source directory to path
 sys.path.insert(0, '/app/src_shared')
@@ -56,6 +57,7 @@ def test_db():
         db.session.execute('SELECT 1')
         return jsonify({'status': 'success', 'message': 'Database connection successful'}), 200
     except Exception as e:
+        sentry_sdk.capture_exception(e)
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
@@ -83,6 +85,7 @@ def create_rating():
         }), 201
     except Exception as e:
         db.session.rollback()
+        sentry_sdk.capture_exception(e)
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
@@ -110,6 +113,7 @@ def get_ratings():
             } for r in ratings]
         }), 200
     except Exception as e:
+        sentry_sdk.capture_exception(e)
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
@@ -131,7 +135,19 @@ def get_rating(rating_id):
             }
         }), 200
     except Exception as e:
+        sentry_sdk.capture_exception(e)
         return jsonify({'status': 'error', 'message': str(e)}), 404
+
+
+# Global error handler for uncaught exceptions
+@app.errorhandler(Exception)
+def handle_uncaught_exception(e):
+    """Handle any uncaught exceptions and send to Sentry."""
+    sentry_sdk.capture_exception(e)
+    return jsonify({
+        'status': 'error',
+        'message': 'Internal server error'
+    }), 500
 
 
 if __name__ == '__main__':

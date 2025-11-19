@@ -16,8 +16,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better layer caching
-COPY transformer/requirements-base.txt .
-COPY transformer/requirements.txt .
+COPY src/transformer/requirements-base.txt .
+COPY src/transformer/requirements.txt .
 
 # Install base dependencies first (numpy with version constraint)
 # This layer is separate to avoid invalidating torch cache when numpy constraints change
@@ -54,7 +54,7 @@ RUN python3 -c "from sentence_transformers import SentenceTransformer; \
     print('Model downloaded successfully')"
 
 # Copy application code
-COPY transformer/ .
+COPY src/transformer/ .
 
 # Copy shared source code from parent directory (only sentry_config.py)
 COPY src/sentry_config.py /app/src_shared/sentry_config.py

@@ -42,13 +42,16 @@ RUN mkdir -p /app /app/src_shared
 WORKDIR /app
 
 # Copy shared source code from parent directory
-COPY src /app/src_shared
+COPY src/sentry_config.py /app/src_shared/sentry_config.py
 ENV PYTHONPATH="/app/src_shared:${PYTHONPATH}"
 
 # Copy initialization SQL script
-COPY init.sql /docker-entrypoint-initdb.d/init.sql
-COPY init-db.sh /docker-entrypoint-initdb.d/init-db.sh
+COPY src/postgresql/init.sql /docker-entrypoint-initdb.d/init.sql
+COPY src/postgresql/init-db.sh /docker-entrypoint-initdb.d/init-db.shb.sh
 RUN chmod +x /docker-entrypoint-initdb.d/init-db.sh
+
+# Copy Flask application
+COPY src/postgresql/app /app
 
 # Expose PostgreSQL and Flask ports
 EXPOSE 5432 5000
@@ -57,7 +60,7 @@ EXPOSE 5432 5000
 VOLUME ["/var/lib/postgresql/14/main"]
 
 # Copy supervisor configuration
-COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY src/postgresql/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 # Start supervisor to manage both PostgreSQL and Flask
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

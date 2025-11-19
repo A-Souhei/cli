@@ -63,8 +63,8 @@ services:
   # PostgreSQL database with Flask API
   postgres:
     build:
-      context: ./postgresql
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: src/postgresql/Dockerfile
     container_name: vuhitra-postgres
     ports:
       - "${POSTGRES_HOST_PORT:-5432}:5432"
@@ -91,7 +91,7 @@ services:
   transformer:
     build:
       context: .
-      dockerfile: transformer/Dockerfile
+      dockerfile: src/transformer/Dockerfile
     image: vuhitra-transformer:latest
     container_name: vuhitra-transformer
     profiles:

@@ -212,8 +212,14 @@ def extract_keywords():
         })
 
     except Exception as e:
-        print(f"Error in extract_keywords: {e}")
-        return jsonify({'error': str(e)}), 500
+        error_handler.handle_exception(
+            e,
+            context={
+                "endpoint": "/api/extract-keywords",
+                "has_data": request.data is not None
+            }
+        )
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @app.route('/api/compact-text', methods=['POST'])
@@ -258,8 +264,14 @@ def compact_text():
         return jsonify(result)
 
     except Exception as e:
-        print(f"Error in compact_text: {e}")
-        return jsonify({'error': str(e)}), 500
+        error_handler.handle_exception(
+            e,
+            context={
+                "endpoint": "/api/compact-text",
+                "has_data": request.data is not None
+            }
+        )
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @app.route('/api/compact-prompt', methods=['POST'])
@@ -302,8 +314,14 @@ def compact_prompt():
         return jsonify(result)
 
     except Exception as e:
-        print(f"Error in compact_prompt: {e}")
-        return jsonify({'error': str(e)}), 500
+        error_handler.handle_exception(
+            e,
+            context={
+                "endpoint": "/api/compact-prompt",
+                "has_data": request.data is not None
+            }
+        )
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @app.route('/api/compact-heuristics', methods=['POST'])
@@ -343,8 +361,14 @@ def compact_heuristics():
         return jsonify(result)
 
     except Exception as e:
-        print(f"Error in compact_heuristics: {e}")
-        return jsonify({'error': str(e)}), 500
+        error_handler.handle_exception(
+            e,
+            context={
+                "endpoint": "/api/compact-heuristics",
+                "has_data": request.data is not None
+            }
+        )
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @app.route('/api/create-matrix-context', methods=['POST'])
@@ -444,10 +468,14 @@ def create_matrix_context():
         return jsonify(matrix)
 
     except Exception as e:
-        print(f"Error in create_matrix_context: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        error_handler.handle_exception(
+            e,
+            context={
+                "endpoint": "/api/create-matrix-context",
+                "has_data": request.data is not None
+            }
+        )
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @app.route('/api/analyze-sentiment', methods=['POST'])
@@ -521,10 +549,14 @@ def analyze_sentiment():
             return jsonify({'error': 'Missing required field: text or texts'}), 400
 
     except Exception as e:
-        print(f"Error in analyze_sentiment: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        error_handler.handle_exception(
+            e,
+            context={
+                "endpoint": "/api/analyze-sentiment",
+                "has_data": request.data is not None
+            }
+        )
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @app.route('/api/fix-typos', methods=['POST'])
@@ -565,8 +597,14 @@ def fix_typos():
         })
 
     except Exception as e:
-        print(f"Error in fix_typos: {e}")
-        return jsonify({'error': str(e)}), 500
+        error_handler.handle_exception(
+            e,
+            context={
+                "endpoint": "/api/fix-typos",
+                "has_data": request.data is not None
+            }
+        )
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @app.route('/api/generate-embedding', methods=['POST'])
