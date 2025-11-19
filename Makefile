@@ -51,21 +51,28 @@ install: venv ## Install Python dependencies
 	@touch $(VENV_DIR)/.requirements_installed
 	@echo "$(GREEN)✓ Dependencies installed$(NC)"
 
-build: ## Build Docker images (no-op for this project, but kept for consistency)
-	@echo "$(YELLOW)No custom images to build$(NC)"
+build: ## Build Docker images
+	@echo "$(YELLOW)Building Docker images...$(NC)"
+	@$(DOCKER_COMPOSE) build postgres
+	@echo "$(GREEN)✓ PostgreSQL + Flask image built$(NC)"
 	@echo "$(GREEN)✓ Using pre-built ollama/ollama:latest and curlimages/curl:latest$(NC)"
 
-up: ## Start Docker containers (Ollama service)
-	@echo "$(YELLOW)Starting Ollama containers...$(NC)"
+up: ## Start Docker containers (Ollama + PostgreSQL + Flask)
+	@echo "$(YELLOW)Starting all containers...$(NC)"
 	@if [ ! -f ".env" ] && [ -f ".env.example" ]; then \
 		cp .env.example .env; \
 		echo "$(GREEN)✓ Created .env from .env.example$(NC)"; \
 	fi
 	@$(DOCKER_COMPOSE) --profile $(PROFILE) up -d
-	@echo "$(GREEN)✓ Ollama containers started$(NC)"
+	@echo "$(GREEN)✓ All containers started$(NC)"
 	@echo ""
 	@echo "Monitor setup progress with: make logs"
 	@echo "Or: docker compose logs -f ollama-setup"
+	@echo ""
+	@echo "Services:"
+	@echo "  - Ollama: http://localhost:11434"
+	@echo "  - PostgreSQL: localhost:5432"
+	@echo "  - Flask API: http://localhost:5000"
 
 down: ## Stop and remove Docker containers
 	@echo "$(YELLOW)Stopping containers...$(NC)"
@@ -101,7 +108,18 @@ test: venv ## Run tests
 	@echo "$(GREEN)✓ Tests completed$(NC)"
 
 # Additional convenience targets
-.PHONY: exec-ollama pull-model list-models
+.PHONY: exec-ollama pull-model list-models build-postgres exec-postgres flask-logs
+
+build-postgres: ## Build PostgreSQL + Flask image
+	@echo "$(YELLOW)Building PostgreSQL + Flask image...$(NC)"
+	@$(DOCKER_COMPOSE) build postgres
+	@echo "$(GREEN)✓ PostgreSQL + Flask image built$(NC)"
+
+exec-postgres: ## Execute psql in PostgreSQL container
+	@$(DOCKER_COMPOSE) exec postgres su - postgres -c "psql -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-vuhitra}"
+
+flask-logs: ## Show Flask application logs
+	@$(DOCKER_COMPOSE) exec postgres tail -f /var/log/flask.out.log
 
 exec-ollama: ## Execute command in Ollama container (usage: make exec-ollama CMD="ollama list")
 	@$(DOCKER_COMPOSE) exec ollama $(CMD)
