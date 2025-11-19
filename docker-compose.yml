@@ -1,0 +1,69 @@
+services:
+  # Ollama service - AI model runtime
+  ollama:
+    image: ollama/ollama:latest
+    container_name: vuhitra-ollama
+    profiles:
+      - ollama
+    ports:
+      - "${OLLAMA_HOST_PORT:-11434}:${OLLAMA_CONTAINER_PORT:-11434}"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - ai-cli-network
+    # Optional: GPU support (uncomment if NVIDIA GPU available)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # Ollama model initialization - pulls tinyllama on first start
+  ollama-setup:
+    image: curlimages/curl:latest
+    container_name: vuhitra-ollama-setup
+    profiles:
+      - ollama
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: /bin/sh
+    command: >
+      -c "
+      echo 'Waiting for Ollama service to be ready...' &&
+      sleep 5 &&
+      echo 'Pulling tinyllama model (lightweight, ~1GB, CPU-friendly)...' &&
+      curl -X POST http://ollama:${OLLAMA_CONTAINER_PORT:-11434}/api/pull -d '{\"name\":\"tinyllama\"}' &&
+      echo '' &&
+      echo 'Model pull request sent successfully!' &&
+      echo 'Waiting for model to finish downloading...' &&
+      sleep 30 &&
+      echo 'Testing model with a simple prompt...' &&
+      curl -X POST http://ollama:${OLLAMA_CONTAINER_PORT:-11434}/api/generate -d '{\"model\":\"tinyllama\",\"prompt\":\"Say hello\",\"stream\":false}' &&
+      echo '' &&
+      echo 'Ollama setup complete!'
+      "
+    networks:
+      - ai-cli-network
+    restart: "no"
+
+networks:
+  ai-cli-network:
+    driver: bridge
+    name: ai-cli-network
+
+volumes:
+  ollama_data:
+    driver: local
+    name: vuhitra-ollama-data

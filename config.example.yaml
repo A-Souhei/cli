@@ -1,10 +1,10 @@
 # Example configuration for AI CLI
 # This shows different configuration options you can use
 
-# Example 1: Default local setup
+# Example 1: Default Docker Compose setup
 ollama:
   url: "http://localhost:11434"
-  model: "llama2"
+  model: "tinyllama"
   timeout: 120
 
 chat:
@@ -52,6 +52,7 @@ chat:
 ---
 
 # Available Ollama models (examples):
+# - tinyllama: Lightweight model (~1GB, CPU-friendly) - Default in Docker setup
 # - llama2: General-purpose model
 # - mistral: Fast and efficient model
 # - codellama: Specialized for code
@@ -59,5 +60,6 @@ chat:
 # - neural-chat: Conversational model
 # - starling-lm: Instruction-following model
 # 
-# To pull a model: ollama pull <model-name>
-# To list available models: use the 'models' command in the CLI
+# Docker Compose: docker compose exec ollama ollama pull <model-name>
+# Local installation: ollama pull <model-name>
+# CLI command: use 'models' to list available models

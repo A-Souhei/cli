@@ -5,8 +5,8 @@ ollama:
   # Ollama service URL (local or remote)
   url: "http://localhost:11434"
   
-  # Model to use (e.g., llama2, mistral, codellama, etc.)
-  model: "llama2"
+  # Model to use (e.g., tinyllama, llama2, mistral, codellama, etc.)
+  model: "tinyllama"
   
   # Optional: Request timeout in seconds
   timeout: 120
