@@ -1,0 +1,26 @@
+# Ollama AI CLI Configuration
+
+# Ollama service configuration
+ollama:
+  # Ollama service URL (local or remote)
+  url: "http://localhost:11434"
+  
+  # Model to use (e.g., tinyllama, llama2, mistral, codellama, etc.)
+  model: "tinyllama"
+  
+  # Optional: Request timeout in seconds
+  timeout: 120
+
+# Chat configuration
+chat:
+  # System prompt (optional)
+  system_prompt: "You are a helpful AI assistant."
+  
+  # Maximum context length
+  max_context_length: 10
+  
+  # Temperature for response generation (0.0 - 1.0)
+  temperature: 0.7
+  
+  # Stream responses (true/false)
+  stream: true
