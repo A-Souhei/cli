@@ -11,6 +11,8 @@ services:
       - ollama_data:/root/.ollama
     environment:
       - OLLAMA_HOST=0.0.0.0
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - ENVIRONMENT=${ENVIRONMENT:-DEV}
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 30s
@@ -19,7 +21,7 @@ services:
       start_period: 60s
     restart: unless-stopped
     networks:
-      - ai-cli-network
+      - vuhitra-network
     # Optional: GPU support (uncomment if NVIDIA GPU available)
     # deploy:
     #   resources:
@@ -55,7 +57,7 @@ services:
       echo 'Ollama setup complete!'
       "
     networks:
-      - ai-cli-network
+      - vuhitra-network
     restart: "no"
 
   # PostgreSQL database with Flask API
@@ -71,6 +73,8 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
       - POSTGRES_DB=${POSTGRES_DB:-vuhitra}
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - ENVIRONMENT=${ENVIRONMENT:-DEV}
     volumes:
       - postgres_data:/var/lib/postgresql/14/main
       - ./postgresql/app:/app
@@ -81,12 +85,39 @@ services:
       retries: 5
     restart: unless-stopped
     networks:
-      - ai-cli-network
+      - vuhitra-network
+
+  # Transformer service for embeddings
+  transformer:
+    build:
+      context: .
+      dockerfile: transformer/Dockerfile
+    image: vuhitra-transformer:latest
+    container_name: vuhitra-transformer
+    profiles:
+      - app
+    ports:
+      - "${TRANSFORMER_HOST_PORT:-16050}:${TRANSFORMER_CONTAINER_PORT:-5050}"
+    volumes:
+      - transformer_models:/root/.cache/huggingface
+    environment:
+      - FLASK_DEBUG=false
+      - ENVIRONMENT=${ENVIRONMENT:-DEV}
+      - SENTRY_DSN=${SENTRY_DSN:-}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${TRANSFORMER_CONTAINER_PORT:-5050}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    restart: unless-stopped
+    networks:
+      - vuhitra-network
 
 networks:
-  ai-cli-network:
+  vuhitra-network:
     driver: bridge
-    name: ai-cli-network
+    name: vuhitra-network
 
 volumes:
   ollama_data:
@@ -95,3 +126,6 @@ volumes:
   postgres_data:
     driver: local
     name: vuhitra-postgres-data
+  transformer_models:
+    driver: local
+    name: vuhitra-transformer-models
