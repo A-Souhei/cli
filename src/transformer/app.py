@@ -1,14 +1,18 @@
-"""
-Transformer NLP Service
+"""Transformer NLP Service
 
 A minimal Flask-based microservice ready for future NLP capabilities.
 """
 
 import os
+import sys
+from pathlib import Path
+
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from sentry_config import configure_sentry, capture_exception
+
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-import sentry_sdk
-from sentry_sdk.integrations.flask import FlaskIntegration
 from sentence_transformers import SentenceTransformer
 from nlp_tasks import analyze_sentiment, summarize_text
 
@@ -16,8 +20,12 @@ from nlp_tasks import analyze_sentiment, summarize_text
 app = Flask(__name__)
 CORS(app)
 
+# Configure Sentry
+configure_sentry(service_name="transformer-nlp")
+
 # Load embedding model
 model = None
+
 
 def get_model():
     """Lazy load the embedding model."""
@@ -27,19 +35,14 @@ def get_model():
         model = SentenceTransformer(model_name)
     return model
 
-# Configure Sentry for error tracking
-sentry_dsn = os.getenv('SENTRY_DSN', '')
-environment = os.getenv('ENVIRONMENT', 'DEV')
 
-if sentry_dsn:
-    sentry_sdk.init(
-        dsn=sentry_dsn,
-        integrations=[FlaskIntegration()],
-        environment=environment.lower(),
-        traces_sample_rate=1.0 if environment == 'DEV' else 0.1,
-        send_default_pii=False,
-        attach_stacktrace=True,
-    )
+def handle_error(e, status_code=500):
+    """Centralized error handler that logs to Sentry."""
+    capture_exception(e)
+    return jsonify({
+        'status': 'error',
+        'message': str(e)
+    }), status_code
 
 
 @app.route('/', methods=['GET'])
@@ -66,51 +69,46 @@ def health_check():
 def embed_text():
     """
     Embed text and return the embedding vector.
-    
+
     Query Parameters:
     - text: The text to embed
-    
+
     Returns:
     - embedding: List of float values representing the text embedding
     - dimension: Size of the embedding vector
     """
     try:
         text = request.args.get('text')
-        
+
         if not text:
             return jsonify({
                 'status': 'error',
                 'message': 'Missing text parameter'
             }), 400
-        
+
         # Get the model and generate embedding
         embedding_model = get_model()
         embedding = embedding_model.encode(text)
-        
+
         return jsonify({
             'status': 'success',
             'text': text,
             'embedding': embedding.tolist(),
             'dimension': len(embedding)
         }), 200
-        
+
     except Exception as e:
-        if sentry_dsn:
-            sentry_sdk.capture_exception(e)
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
+        return handle_error(e)
 
 
 @app.route('/embed/batch', methods=['GET'])
 def embed_batch():
     """
     Embed a batch of texts and return their embedding vectors.
-    
+
     Query Parameters:
     - texts: JSON array of texts to embed (e.g., ["text1", "text2", "text3"])
-    
+
     Returns:
     - embeddings: List of embedding vectors
     - count: Number of texts embedded
@@ -118,13 +116,13 @@ def embed_batch():
     """
     try:
         texts_param = request.args.get('texts')
-        
+
         if not texts_param:
             return jsonify({
                 'status': 'error',
                 'message': 'Missing texts parameter'
             }), 400
-        
+
         # Parse JSON array
         import json
         try:
@@ -134,17 +132,17 @@ def embed_batch():
                 'status': 'error',
                 'message': 'Invalid JSON format for texts parameter'
             }), 400
-        
+
         if not isinstance(texts, list) or not texts:
             return jsonify({
                 'status': 'error',
                 'message': 'texts parameter must be a non-empty JSON array'
             }), 400
-        
+
         # Get the model and generate embeddings
         embedding_model = get_model()
         embeddings = embedding_model.encode(texts)
-        
+
         return jsonify({
             'status': 'success',
             'texts': texts,
@@ -152,64 +150,54 @@ def embed_batch():
             'count': len(texts),
             'dimension': len(embeddings[0])
         }), 200
-        
+
     except Exception as e:
-        if sentry_dsn:
-            sentry_sdk.capture_exception(e)
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
+        return handle_error(e)
 
 
 @app.route('/sentiment', methods=['GET'])
 def sentiment_analysis():
     """
     Analyze sentiment of the given text.
-    
+
     Query Parameters:
     - text: The text to analyze
-    
+
     Returns:
     - label: Sentiment label (POSITIVE or NEGATIVE)
     - score: Confidence score (0-1)
     """
     try:
         text = request.args.get('text')
-        
+
         if not text:
             return jsonify({
                 'status': 'error',
                 'message': 'Missing text parameter'
             }), 400
-        
+
         result = analyze_sentiment(text)
-        
+
         return jsonify({
             'status': 'success',
             'text': text,
             'sentiment': result
         }), 200
-        
+
     except Exception as e:
-        if sentry_dsn:
-            sentry_sdk.capture_exception(e)
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
+        return handle_error(e)
 
 
 @app.route('/summarize', methods=['GET'])
 def summarize():
     """
     Summarize the given text.
-    
+
     Query Parameters:
     - text: The text to summarize
     - max_length: Maximum length of summary (default: 130)
     - min_length: Minimum length of summary (default: 30)
-    
+
     Returns:
     - summary: The summarized text
     - original_length: Length of original text
@@ -217,41 +205,33 @@ def summarize():
     """
     try:
         text = request.args.get('text')
-        
+
         if not text:
             return jsonify({
                 'status': 'error',
                 'message': 'Missing text parameter'
             }), 400
-        
+
         max_length = request.args.get('max_length', type=int, default=130)
         min_length = request.args.get('min_length', type=int, default=30)
-        
+
         result = summarize_text(text, max_length=max_length, min_length=min_length)
-        
+
         return jsonify({
             'status': 'success',
             'text': text,
             **result
         }), 200
-        
+
     except Exception as e:
-        if sentry_dsn:
-            sentry_sdk.capture_exception(e)
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
+        return handle_error(e)
 
 
 # Global error handler for uncaught exceptions
 @app.errorhandler(Exception)
 def handle_uncaught_exception(e):
     """Handle any uncaught exceptions."""
-    if sentry_dsn:
-        sentry_sdk.capture_exception(e)
-    
-    return jsonify({'error': 'Internal server error'}), 500
+    return handle_error(e)
 
 
 if __name__ == '__main__':
