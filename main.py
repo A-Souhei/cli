@@ -12,6 +12,7 @@ from src.chat import ChatManager
 POSTGRES_API_URL = "http://localhost:15000"
 TRANSFORMER_API_URL = "http://localhost:16050"
 SIMILARITY_THRESHOLD = 0.7  # Cosine similarity threshold for considering prompts similar
+SATISFACTORY_RATING_THRESHOLD = 7  # Rating >= 7 is considered satisfactory
 
 
 def get_all_ratings():
@@ -151,6 +152,59 @@ def process_rating(user_rating, prompt_text, response_text):
             print("[Rating] Failed to save new rating")
 
 
+def get_prompt_guidance(prompt_text):
+    """
+    Get guidance for the LLM based on similar past prompts and their ratings.
+
+    Returns a guidance string to inject into the conversation, or None if no guidance.
+    """
+    # Get all existing ratings
+    existing_ratings = get_all_ratings()
+
+    if not existing_ratings:
+        return None
+
+    # Find the most similar prompt
+    best_match = None
+    best_similarity = 0
+
+    for rating in existing_ratings:
+        stored_prompt = rating.get('prompt_text', '')
+        if stored_prompt:
+            similarity = check_similarity(prompt_text, stored_prompt)
+            if similarity > best_similarity:
+                best_similarity = similarity
+                best_match = rating
+
+    # Check if we found a similar prompt
+    if best_match and best_similarity >= SIMILARITY_THRESHOLD:
+        stored_rating = best_match.get('user_rating', 0)
+        tags = best_match.get('tags', {})
+        keywords = tags.get('keywords', []) if isinstance(tags, dict) else []
+
+        if not keywords:
+            return None
+
+        keywords_str = ', '.join(keywords)
+
+        if stored_rating >= SATISFACTORY_RATING_THRESHOLD:
+            # Satisfactory response - use these keywords
+            guidance = (
+                f"[Context: A similar question was previously answered satisfactorily. "
+                f"Consider incorporating these relevant concepts: {keywords_str}]"
+            )
+        else:
+            # Unsatisfactory response - avoid these keywords
+            guidance = (
+                f"[Context: A similar question was previously answered unsatisfactorily. "
+                f"Consider avoiding or improving upon these concepts: {keywords_str}]"
+            )
+
+        return guidance
+
+    return None
+
+
 def print_banner():
     """Print CLI banner."""
     print("\n" + "=" * 50)
@@ -221,8 +275,19 @@ def main():
                 if not user_input:
                     continue
 
+                # Get guidance based on similar past prompts
+                guidance = get_prompt_guidance(user_input)
+
                 # Add user message to context
                 chat_manager.add_user_message(user_input)
+
+                # Get messages and inject guidance if available
+                messages = chat_manager.get_messages()
+                if guidance:
+                    # Insert guidance as a system message before the last user message
+                    guidance_message = {'role': 'system', 'content': guidance}
+                    # Insert before the last message (which is the user's current message)
+                    messages = messages[:-1] + [guidance_message, messages[-1]]
 
                 # Get AI response
                 print("AI: ", end='', flush=True)
@@ -231,7 +296,7 @@ def main():
                     # Stream response
                     full_response = ""
                     for chunk in ollama_client.chat(
-                        messages=chat_manager.get_messages(),
+                        messages=messages,
                         stream=True,
                         temperature=temperature
                     ):
@@ -265,7 +330,7 @@ def main():
                 else:
                     # Non-streaming response
                     response = ollama_client.chat(
-                        messages=chat_manager.get_messages(),
+                        messages=messages,
                         stream=False,
                         temperature=temperature
                     )
