@@ -24,14 +24,16 @@ from prompt_toolkit import prompt
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.formatted_text import FormattedText
 
+# Apply nest_asyncio once globally to allow nested event loops
+import nest_asyncio
+nest_asyncio.apply()
+
 
 def run_async(coro):
     """
     Run an async coroutine safely, handling nested event loop scenarios.
-    Uses nest_asyncio to allow asyncio.run() even when a loop is running.
+    Uses nest_asyncio which has been applied globally.
     """
-    import nest_asyncio
-    nest_asyncio.apply()
     return asyncio.run(coro)
 
 # Create custom theme
@@ -631,11 +633,13 @@ def main(verbose=False):
                 # Handle special commands
                 if user_input.lower() in ['exit', 'quit']:
                     # Cleanup MCP client
+                    console.print("\n👋 [bold]Goodbye![/bold]")
                     try:
                         run_async(mcp_client.cleanup())
-                    except Exception as e:
-                        debug_print(f"Error cleaning up MCP client: {e}", icon="⚠️")
-                    console.print("\n👋 [bold]Goodbye![/bold]")
+                    except (Exception, KeyboardInterrupt) as e:
+                        # Suppress cleanup errors on exit
+                        if verbose:
+                            debug_print(f"Cleanup: {e}", icon="🧹")
                     break
 
                 if user_input.lower() == 'clear':
@@ -791,11 +795,13 @@ def main(verbose=False):
 
             except KeyboardInterrupt:
                 # Cleanup MCP client
+                console.print("\n\n👋 [bold]Goodbye![/bold]")
                 try:
                     run_async(mcp_client.cleanup())
-                except Exception as e:
-                    debug_print(f"Error cleaning up MCP client: {e}", icon="⚠️")
-                console.print("\n\n👋 [bold]Goodbye![/bold]")
+                except (Exception, KeyboardInterrupt) as e:
+                    # Suppress cleanup errors on exit
+                    if verbose:
+                        debug_print(f"Cleanup: {e}", icon="🧹")
                 break
             except Exception as e:
                 console.print(f"\n❌ [red]Error: {e}[/red]")
