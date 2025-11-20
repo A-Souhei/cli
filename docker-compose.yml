@@ -141,6 +141,8 @@ services:
   redis:
     image: redis:7-alpine
     container_name: vuhitra-redis
+    profiles:
+      - app
     ports:
       - "${REDIS_HOST_PORT:-26379}:6379"
     command: redis-server --appendonly yes
@@ -161,6 +163,8 @@ services:
       context: .
       dockerfile: src/redis/flask-app/Dockerfile
     container_name: vuhitra-redis-api
+    profiles:
+      - app
     ports:
       - "${REDIS_API_PORT:-17000}:5000"
     environment:

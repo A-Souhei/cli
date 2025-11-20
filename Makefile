@@ -1,4 +1,6 @@
 .PHONY: help setup run run-verbose venv install build up down restart logs status clean test
+.PHONY: exec-ollama pull-model list-models build-postgres exec-postgres flask-logs update-schema migrate-session
+.PHONY: build-redis build-all-services up-redis up-all redis-logs redis-cli redis-clear
 
 # Default target
 .DEFAULT_GOAL := help
@@ -14,6 +16,7 @@ PROFILE := ollama
 # Colors for output
 GREEN := \033[0;32m
 YELLOW := \033[1;33m
+RED := \033[0;31m
 NC := \033[0m
 
 help: ## Show this help message
@@ -66,26 +69,65 @@ build-transformer: ## Build transformer Docker image
 	@docker build -f src/transformer/Dockerfile -t cli-transformer:latest .
 	@echo "$(GREEN)✓ Transformer image built$(NC)"
 
-build-all: build build-transformer ## Build all Docker images
-	@echo "$(GREEN)✓ All images built$(NC)"
-	@echo "$(GREEN)✓ Using pre-built ollama/ollama:latest$(NC)"
+build-redis: ## Build Redis API image
+	@echo "$(YELLOW)Building Redis API image...$(NC)"
+	@$(DOCKER_COMPOSE) build redis-api
+	@echo "$(GREEN)✓ Redis API image built$(NC)"
 
-up: ## Start Docker containers (Ollama + PostgreSQL + Flask)
-	@echo "$(YELLOW)Starting all containers...$(NC)"
+build-all: build build-transformer build-redis ## Build all Docker images
+	@echo "$(GREEN)✓ All images built$(NC)"
+	@echo "$(GREEN)✓ Using pre-built ollama/ollama:latest and redis:7-alpine$(NC)"
+
+build-all-services: build build-transformer build-redis ## Build all service images (alias for build-all)
+	@echo "$(GREEN)✓ All service images built$(NC)"
+
+up: ## Start Docker containers (Ollama profile only)
+	@echo "$(YELLOW)Starting Ollama containers...$(NC)"
 	@if [ ! -f ".env" ] && [ -f ".env.example" ]; then \
 		cp .env.example .env; \
 		echo "$(GREEN)✓ Created .env from .env.example$(NC)"; \
 	fi
 	@$(DOCKER_COMPOSE) --profile $(PROFILE) up -d
-	@echo "$(GREEN)✓ All containers started$(NC)"
+	@echo "$(GREEN)✓ Ollama containers started$(NC)"
 	@echo ""
 	@echo "Monitor setup progress with: make logs"
 	@echo "Or: docker compose logs -f ollama-setup"
 	@echo ""
 	@echo "Services:"
 	@echo "  - Ollama: http://localhost:11434"
+
+up-redis: ## Start Redis services (Redis + Redis API + Transformer)
+	@echo "$(YELLOW)Starting Redis services...$(NC)"
+	@if [ ! -f ".env" ] && [ -f ".env.example" ]; then \
+		cp .env.example .env; \
+		echo "$(GREEN)✓ Created .env from .env.example$(NC)"; \
+	fi
+	@$(DOCKER_COMPOSE) --profile app up -d redis redis-api transformer
+	@echo "$(GREEN)✓ Redis services started$(NC)"
+	@echo ""
+	@echo "Services:"
+	@echo "  - Redis: localhost:26379"
+	@echo "  - Redis API: http://localhost:17000"
+	@echo "  - Transformer: http://localhost:16050"
+
+up-all: ## Start all Docker containers (Ollama + PostgreSQL + Redis + Transformer)
+	@echo "$(YELLOW)Starting all containers...$(NC)"
+	@if [ ! -f ".env" ] && [ -f ".env.example" ]; then \
+		cp .env.example .env; \
+		echo "$(GREEN)✓ Created .env from .env.example$(NC)"; \
+	fi
+	@$(DOCKER_COMPOSE) --profile ollama --profile app up -d
+	@echo "$(GREEN)✓ All containers started$(NC)"
+	@echo ""
+	@echo "Monitor setup progress with: make logs"
+	@echo ""
+	@echo "Services:"
+	@echo "  - Ollama: http://localhost:11434"
 	@echo "  - PostgreSQL: localhost:25432"
-	@echo "  - Flask API: http://localhost:5000"
+	@echo "  - Flask API: http://localhost:15000"
+	@echo "  - Redis: localhost:26379"
+	@echo "  - Redis API: http://localhost:17000"
+	@echo "  - Transformer: http://localhost:16050"
 
 down: ## Stop and remove Docker containers
 	@echo "$(YELLOW)Stopping containers...$(NC)"
@@ -121,7 +163,9 @@ test: install ## Run tests
 	@echo "$(GREEN)✓ Tests completed$(NC)"
 
 # Additional convenience targets
-.PHONY: exec-ollama pull-model list-models build-postgres exec-postgres flask-logs update-schema migrate-session
+.PHONY: build-postgres exec-postgres flask-logs update-schema migrate-session
+.PHONY: exec-ollama pull-model list-models
+.PHONY: redis-logs redis-cli redis-clear redis-info redis-api-health transformer-health
 
 build-postgres: ## Build PostgreSQL + Flask image
 	@echo "$(YELLOW)Building PostgreSQL + Flask image...$(NC)"
@@ -160,3 +204,38 @@ pull-model: ## Pull a model (usage: make pull-model MODEL=llama2)
 
 list-models: ## List available models in Ollama container
 	@$(DOCKER_COMPOSE) exec ollama ollama list
+
+# Redis-specific targets
+redis-logs: ## Show Redis API logs
+	@$(DOCKER_COMPOSE) logs -f redis-api
+
+redis-cli: ## Execute Redis CLI in Redis container
+	@echo "$(YELLOW)Connecting to Redis CLI...$(NC)"
+	@echo "$(GREEN)Tip: Use 'KEYS *' to list all keys, 'GET key' to get value$(NC)"
+	@$(DOCKER_COMPOSE) exec redis redis-cli
+
+redis-clear: ## Clear all Redis data (WARNING: Deletes all cached contexts)
+	@echo "$(YELLOW)WARNING: This will delete ALL Redis data including RAG contexts!$(NC)"
+	@read -p "Are you sure? (y/N) " -n 1 -r; \
+	echo; \
+	if [ "$$REPLY" = "y" ] || [ "$$REPLY" = "Y" ]; then \
+		$(DOCKER_COMPOSE) exec redis redis-cli FLUSHALL; \
+		echo "$(GREEN)✓ Redis data cleared$(NC)"; \
+	else \
+		echo "$(YELLOW)Cancelled$(NC)"; \
+	fi
+
+redis-info: ## Show Redis information and statistics
+	@echo "$(YELLOW)Redis Server Information:$(NC)"
+	@$(DOCKER_COMPOSE) exec redis redis-cli INFO server | grep -E "redis_version|uptime_in_seconds|used_memory_human"
+	@echo ""
+	@echo "$(YELLOW)Database Statistics:$(NC)"
+	@$(DOCKER_COMPOSE) exec redis redis-cli INFO keyspace
+
+redis-api-health: ## Check Redis API health
+	@echo "$(YELLOW)Checking Redis API health...$(NC)"
+	@curl -s http://localhost:17000/health | python3 -m json.tool || echo "$(RED)Redis API not responding$(NC)"
+
+transformer-health: ## Check Transformer service health
+	@echo "$(YELLOW)Checking Transformer service health...$(NC)"
+	@curl -s http://localhost:16050/health | python3 -m json.tool || echo "$(RED)Transformer service not responding$(NC)"
