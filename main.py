@@ -9,6 +9,7 @@ from pathlib import Path
 from src.config import ConfigManager
 from src.ollama_client import OllamaClient
 from src.chat import ChatManager
+from src.selector import InteractiveSelector
 from rich.console import Console, Group
 from rich.markdown import Markdown, CodeBlock
 from rich.panel import Panel
@@ -282,6 +283,7 @@ def print_banner():
     console.print("  Type [bold]'exit'[/bold] or [bold]'quit'[/bold] to exit")
     console.print("  Type [bold]'clear'[/bold] to clear chat history")
     console.print("  Type [bold]'models'[/bold] to list available models")
+    console.print("  Type [bold]'switch'[/bold] to change model")
     console.print()
 
 
@@ -315,7 +317,7 @@ def main(verbose=False):
         console.clear()
 
         print_banner()
-        console.print(f"  📦 Model: [bold]{config.get_ollama_model()}[/bold]")
+        console.print(f"  📦 Model: [bold]{ollama_client.model}[/bold]")
         console.print(f"  🔗 Server: [dim]{config.get_ollama_url()}[/dim]")
         console.print()
 
@@ -346,13 +348,41 @@ def main(verbose=False):
                     try:
                         models = ollama_client.list_models()
                         for model in models:
-                            if model == config.get_ollama_model():
+                            if model == ollama_client.model:
                                 console.print(f"  • {model} [cyan](current)[/cyan]")
                             else:
                                 console.print(f"  • {model}")
                     except Exception as e:
                         console.print(f"❌ [red]Error listing models: {e}[/red]")
                     console.print()
+                    continue
+
+                if user_input.lower() == 'switch':
+                    console.print()
+                    try:
+                        models = ollama_client.list_models()
+                        if not models:
+                            console.print("❌ [red]No models available[/red]\n")
+                            continue
+
+                        # Show interactive selector
+                        selector = InteractiveSelector(
+                            title="🔄 Select Model",
+                            choices=models,
+                            current=ollama_client.model
+                        )
+                        selected = selector.show()
+
+                        if selected and selected != ollama_client.model:
+                            # Update the model
+                            ollama_client.model = selected
+                            console.print(f"\n✓ [green]Switched to model:[/green] [bold]{selected}[/bold]\n")
+                        elif selected:
+                            console.print(f"\n[dim]Already using {selected}[/dim]\n")
+                        else:
+                            console.print("\n[dim]Cancelled[/dim]\n")
+                    except Exception as e:
+                        console.print(f"\n❌ [red]Error switching model: {e}[/red]\n")
                     continue
 
                 # Skip empty input
