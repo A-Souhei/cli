@@ -808,6 +808,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 "status": "success",
                 "message": f"Added file context: {file_path}",
                 "file_path": file_path,
+                "content": content,
                 "content_size": len(content),
                 "session_id": session_id if session_id else "temporary"
             }, indent=2))]
@@ -869,6 +870,8 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             "message": f"Added {len(added_files)} files from directory: {dir_path}",
             "dir_path": dir_path,
             "added_files": added_files,
+            "files_content": files_content,
+            "tree_output": tree_output,
             "tree_added": tree_result.get('status') == 'success',
             "tree_stats": tree_stats,
             "errors": errors,

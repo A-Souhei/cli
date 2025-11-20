@@ -811,6 +811,9 @@ def main(verbose=False):
                 at_context = extract_at_context(user_input, os.getcwd())
                 context_added = False
 
+                # Collect file and directory contents to inject into conversation
+                injected_context_parts = []
+
                 # Add file contexts to Redis (with session if active)
                 session_id = session_manager.get_session_id() if session_manager.is_active() else None
 
@@ -825,6 +828,17 @@ def main(verbose=False):
                             args['session_id'] = session_id
 
                         result = run_async(mcp_client.call_tool('coder', 'add_file_context', args))
+
+                        # Parse result to extract file content
+                        try:
+                            result_data = json.loads(result)
+                            if result_data.get('status') == 'success' and result_data.get('content'):
+                                # Add file content to injected context
+                                file_content = result_data['content']
+                                injected_context_parts.append(f"File: {file_path}\n```\n{file_content}\n```")
+                        except:
+                            pass
+
                         debug_print(f"Added file context: {file_path}", icon="📄", style="cyan")
                         context_added = True
                     except Exception as e:
@@ -843,15 +857,28 @@ def main(verbose=False):
 
                         result = run_async(mcp_client.call_tool('coder', 'add_directory_context', args))
 
-                        # Parse result to show tree
+                        # Parse result to show tree and extract contents
                         try:
                             result_data = json.loads(result)
                             if result_data.get('tree_added'):
                                 tree_stats = result_data.get('tree_stats', {})
                                 console.print(f"\n[cyan]📁 Directory Structure Added: {dir_path}[/cyan]")
                                 console.print(f"[dim]  Files: {tree_stats.get('files', 0)} | Directories: {tree_stats.get('directories', 0)}[/dim]\n")
-                        except:
-                            pass
+
+                                # Add tree structure to injected context
+                                tree_output = result_data.get('tree_output', '')
+                                if tree_output:
+                                    injected_context_parts.append(f"Directory Structure: {dir_path}\n```\n{tree_output}\n```")
+
+                                # Add all file contents from directory
+                                files_content = result_data.get('files_content', [])
+                                for file_info in files_content:
+                                    file_path_rel = file_info.get('path', '')
+                                    file_content = file_info.get('content', '')
+                                    if file_content:
+                                        injected_context_parts.append(f"File: {file_path_rel}\n```\n{file_content}\n```")
+                        except Exception as parse_err:
+                            debug_print(f"Failed to parse directory result: {parse_err}", icon="⚠️", style="yellow")
 
                         debug_print(f"Added directory context: {dir_path}", icon="📁", style="cyan")
                         context_added = True
@@ -894,6 +921,14 @@ def main(verbose=False):
 
                 # Collect all system messages to inject before the user's message
                 system_messages_to_inject = []
+
+                # Inject file/directory context from @ prefix
+                if injected_context_parts:
+                    context_content = "\n\n".join(injected_context_parts)
+                    system_messages_to_inject.append({
+                        'role': 'system',
+                        'content': f"The user has provided the following files/directories as context:\n\n{context_content}"
+                    })
 
                 # If target file is specified, instruct LLM to generate code for that file
                 if target_file:
