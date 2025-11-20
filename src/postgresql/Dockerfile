@@ -44,6 +44,15 @@ RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
 RUN echo "host all all 0.0.0.0/0 md5" >> /etc/postgresql/14/main/pg_hba.conf && \
     echo "listen_addresses='*'" >> /etc/postgresql/14/main/postgresql.conf
 
+# Initialize PostgreSQL database with simple credentials
+RUN rm -rf /var/lib/postgresql/14/main && \
+    su - postgres -c "/usr/lib/postgresql/14/bin/initdb -D /var/lib/postgresql/14/main" && \
+    su - postgres -c "/usr/lib/postgresql/14/bin/pg_ctl -D /var/lib/postgresql/14/main -o '-c config_file=/etc/postgresql/14/main/postgresql.conf' start" && \
+    sleep 5 && \
+    su - postgres -c "psql -c \"ALTER USER postgres WITH PASSWORD 'postgres';\"" && \
+    su - postgres -c "psql -c \"CREATE DATABASE vuhitra;\"" && \
+    su - postgres -c "/usr/lib/postgresql/14/bin/pg_ctl -D /var/lib/postgresql/14/main stop"
+
 # Create directory for Flask app
 RUN mkdir -p /app /app/src_shared
 WORKDIR /app
@@ -54,11 +63,15 @@ ENV PYTHONPATH="/app/src_shared:${PYTHONPATH}"
 
 # Copy initialization SQL script
 COPY src/postgresql/init.sql /docker-entrypoint-initdb.d/init.sql
-COPY src/postgresql/init-db.sh /docker-entrypoint-initdb.d/init-db.sh
-RUN chmod +x /docker-entrypoint-initdb.d/init-db.sh
 
 # Copy Flask application
 COPY src/postgresql/app /app
+
+# Run initialization SQL
+RUN su - postgres -c "/usr/lib/postgresql/14/bin/pg_ctl -D /var/lib/postgresql/14/main -o '-c config_file=/etc/postgresql/14/main/postgresql.conf' start" && \
+    sleep 5 && \
+    su - postgres -c "psql -d vuhitra -f /docker-entrypoint-initdb.d/init.sql" && \
+    su - postgres -c "/usr/lib/postgresql/14/bin/pg_ctl -D /var/lib/postgresql/14/main stop"
 
 # Expose PostgreSQL and Flask ports
 EXPOSE 5432 5000

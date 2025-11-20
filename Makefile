@@ -79,7 +79,7 @@ up: ## Start Docker containers (Ollama + PostgreSQL + Flask)
 	@echo ""
 	@echo "Services:"
 	@echo "  - Ollama: http://localhost:11434"
-	@echo "  - PostgreSQL: localhost:5432"
+	@echo "  - PostgreSQL: localhost:25432"
 	@echo "  - Flask API: http://localhost:5000"
 
 down: ## Stop and remove Docker containers
