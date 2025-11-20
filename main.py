@@ -978,8 +978,8 @@ def main(verbose=False):
                                 # Add file content to injected context
                                 file_content = result_data['content']
                                 injected_context_parts.append(f"File: {file_path}\n```\n{file_content}\n```")
-                        except:
-                            pass
+                        except json.JSONDecodeError as e:
+                            debug_print(f"Failed to parse file context result for {file_path}: {e}", icon="⚠️", style="yellow")
 
                         debug_print(f"Added file context: {file_path}", icon="📄", style="cyan")
                         context_added = True
@@ -1033,6 +1033,11 @@ def main(verbose=False):
                     # Take the first non-existing file as the target
                     target_file = at_context['non_existing'][0]
                     debug_print(f"Target file for output: {target_file}", icon="🎯", style="magenta")
+
+                    # Warn if multiple new files were specified
+                    if len(at_context['non_existing']) > 1:
+                        other_files = ', '.join(at_context['non_existing'][1:])
+                        console.print(f"[yellow]⚠️  Multiple new files specified. Only '{target_file}' will be created. Ignored: {other_files}[/yellow]")
 
                 # Remove @ prefixed paths from user input for cleaner prompt
                 clean_user_input = remove_at_prefixed_paths(user_input)
@@ -1302,7 +1307,7 @@ Ensure all imports are correct, syntax is valid, and the code runs without error
                                     console.print("\n[dim]Skipping verification run[/dim]\n")
                     elif target_file:
                         # Write code to target file
-                        write_result = run_async(handle_code_file_writing(mcp_client, full_response, target_file))
+                        run_async(handle_code_file_writing(mcp_client, full_response, target_file))
                     else:
                         # Execute code (with user confirmation)
                         exec_result = run_async(handle_code_execution(mcp_client, full_response))

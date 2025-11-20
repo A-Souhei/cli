@@ -166,13 +166,23 @@ def add_context_to_redis(file_path: str, content: str, session_id: Optional[str]
     """
     redis_api_url = get_redis_api_url()
 
+    # Get timestamp safely - skip for special markers like __TREE__
+    timestamp = None
+    if '__TREE__' not in file_path:
+        try:
+            file_path_obj = Path(file_path)
+            if file_path_obj.exists():
+                timestamp = str(file_path_obj.stat().st_mtime)
+        except OSError:
+            pass  # File may not exist or be inaccessible
+
     payload = {
         'context_type': context_type,
         'path': file_path,
         'content': content,
         'metadata': {
             'size': len(content),
-            'timestamp': str(Path(file_path).stat().st_mtime) if Path(file_path).exists() else None
+            'timestamp': timestamp
         }
     }
 
@@ -300,6 +310,7 @@ def read_directory_recursive(dir_path: str, working_dir: str) -> tuple[bool, str
 
         # Recursively read all files
         files_content = []
+        skipped_files = []
         for file_path in path.rglob('*'):
             if file_path.is_file():
                 try:
@@ -311,11 +322,18 @@ def read_directory_recursive(dir_path: str, working_dir: str) -> tuple[bool, str
                             'full_path': str(file_path),
                             'content': content
                         })
-                except Exception as e:
-                    # Skip files that can't be read
-                    continue
+                except (OSError, UnicodeDecodeError) as e:
+                    # Track files that can't be read
+                    skipped_files.append(str(file_path.relative_to(path)))
 
-        return True, f"Read {len(files_content)} files from {dir_path}", files_content
+        message = f"Read {len(files_content)} files from {dir_path}"
+        if skipped_files:
+            message += f" ({len(skipped_files)} files skipped: {', '.join(skipped_files[:5])}"
+            if len(skipped_files) > 5:
+                message += f" and {len(skipped_files) - 5} more"
+            message += ")"
+
+        return True, message, files_content
 
     except Exception as e:
         return False, f"Error reading directory: {str(e)}", []

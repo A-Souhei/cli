@@ -45,6 +45,11 @@ def handle_error(e, status_code=500):
 
 def get_embedding(text):
     """Get embedding from transformer service."""
+    # Validate input
+    if not text or not text.strip():
+        print("Warning: Empty or whitespace-only text provided for embedding")
+        return None
+
     try:
         response = requests.get(
             f"{TRANSFORMER_API_URL}/embed",
@@ -93,6 +98,22 @@ def health():
         }), 503
 
 
+def cleanup_expired_temp_contexts():
+    """
+    Remove expired entries from temp:contexts sorted set.
+    Removes all entries with score (expiration timestamp) less than current time.
+    """
+    try:
+        current_time = datetime.utcnow().timestamp()
+        # Remove all entries with expiration time < current time
+        removed_count = redis_client.zremrangebyscore("temp:contexts", 0, current_time)
+        return removed_count
+    except Exception as e:
+        # Log error but don't fail the calling operation
+        print(f"Error cleaning up expired contexts: {e}")
+        return 0
+
+
 @app.route('/context/store', methods=['POST'])
 def store_context():
     """
@@ -107,6 +128,8 @@ def store_context():
         "metadata": {"key": "value"}
     }
     """
+    # Cleanup expired contexts before storing new ones
+    cleanup_expired_temp_contexts()
     try:
         data = request.get_json()
 
@@ -149,14 +172,23 @@ def store_context():
             redis_client.sadd(f"session:{session_id}:contexts", path)
         else:
             key = f"temp:context:{path}"
-            # Add to temporary set
-            redis_client.sadd("temp:contexts", path)
+            # Add to temporary sorted set with expiration timestamp
+            # This allows automatic cleanup of expired entries
+            expiration_time = datetime.utcnow().timestamp() + 3600  # 1 hour from now
+            redis_client.zadd("temp:contexts", {path: expiration_time})
 
-        redis_client.set(key, json.dumps(context_entry))
+        # Store in Redis with specific error handling
+        try:
+            redis_client.set(key, json.dumps(context_entry))
 
-        # Set TTL for temporary contexts (1 hour)
-        if not session_id:
-            redis_client.expire(key, 3600)
+            # Set TTL for temporary contexts (1 hour)
+            if not session_id:
+                redis_client.expire(key, 3600)
+        except redis.exceptions.ConnectionError as e:
+            return jsonify({
+                'status': 'error',
+                'message': f'Redis connection failed: {str(e)}'
+            }), 503
 
         return jsonify({
             'status': 'success',
@@ -164,6 +196,11 @@ def store_context():
             'key': key
         }), 201
 
+    except redis.exceptions.ConnectionError as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Redis connection failed: {str(e)}'
+        }), 503
     except Exception as e:
         return handle_error(e)
 

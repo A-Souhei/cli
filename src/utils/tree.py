@@ -1,8 +1,7 @@
 """Directory tree generation utility."""
 
-import os
 from pathlib import Path
-from typing import List, Set
+from typing import Set
 
 
 def generate_tree(
@@ -113,7 +112,8 @@ def generate_tree(
                 size = entry.stat().st_size
                 size_str = format_size(size)
                 result.append(f"{prefix}{current_prefix}{entry.name} ({size_str})\n")
-            except:
+            except OSError:
+                # File may be inaccessible or deleted
                 result.append(f"{prefix}{current_prefix}{entry.name}\n")
 
     return "".join(result)
@@ -226,7 +226,8 @@ def count_items(directory: str, max_depth: int = 10, current_depth: int = 0, exc
                 files += 1
                 try:
                     total_size += entry.stat().st_size
-                except:
+                except OSError:
+                    # File may be inaccessible
                     pass
     except PermissionError:
         pass

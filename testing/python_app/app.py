@@ -1,7 +1,6 @@
 """Main application file for the Python test app."""
 
 from services import UserService, ProductService
-from models import User, Product
 
 
 def main():

@@ -1,7 +1,6 @@
 """File and directory completer for @ prefix in CLI."""
 
 import os
-from pathlib import Path
 from typing import Iterable
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
@@ -50,9 +49,6 @@ class AtPrefixFileCompleter(Completer):
 
         # Get the text after the last @
         path_text = text[last_at + 1:]
-
-        # Get the word before the cursor (the part we're completing)
-        word_before_cursor = document.get_word_before_cursor(WORD=True)
 
         # Determine the directory to search in
         if '/' in path_text:
