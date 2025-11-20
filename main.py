@@ -14,6 +14,7 @@ from src.ollama_client import OllamaClient
 from src.chat import ChatManager
 from src.selector import InteractiveSelector
 from src.mcp import MCPClient
+from src.session import SessionManager
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -151,7 +152,7 @@ def extract_keywords(text, top_n=5):
         return []
 
 
-def create_rating(user_rating, prompt_text, response_text, tags):
+def create_rating(user_rating, prompt_text, response_text, tags, session_id=None):
     """Create a new rating in the postgres-api."""
     try:
         params = {
@@ -160,6 +161,8 @@ def create_rating(user_rating, prompt_text, response_text, tags):
             'response_text': response_text,
             'tags': json.dumps({'keywords': tags})
         }
+        if session_id:
+            params['session_id'] = session_id
         response = requests.get(
             f"{POSTGRES_API_URL}/ratings/create",
             params=params,
@@ -215,7 +218,7 @@ def find_similar_prompt(prompt_text, existing_ratings):
     return best_match, best_similarity
 
 
-def process_rating(user_rating, prompt_text, response_text):
+def process_rating(user_rating, prompt_text, response_text, session_id=None):
     """
     Process the user rating by:
     1. Getting all existing ratings
@@ -245,7 +248,7 @@ def process_rating(user_rating, prompt_text, response_text):
             debug_print(f"Rating skipped - Stored rating higher ({stored_rating} > {user_rating})", icon="⏭️", style="yellow")
     else:
         # No similar prompt found, create new entry
-        if create_rating(user_rating, prompt_text, response_text, keywords):
+        if create_rating(user_rating, prompt_text, response_text, keywords, session_id):
             debug_print(f"New prompt stored with rating {user_rating}", icon="💾", style="green")
             debug_print(f"Keywords: {', '.join(keywords)}", icon="🏷️", style="cyan")
         else:
@@ -548,6 +551,8 @@ def print_banner():
     console.print("  Type [bold]'switch'[/bold] to change model")
     console.print("  Type [bold]'mcps'[/bold] to list system MCPs")
     console.print("  Type [bold]'mcp-tools <name>'[/bold] to list tools in an MCP")
+    console.print("  Type [bold]'session start'[/bold] to start a context session")
+    console.print("  Type [bold]'session end'[/bold] to end the current session")
     console.print()
 
 
@@ -572,6 +577,9 @@ def main(verbose=False):
             system_prompt=config.get_system_prompt(),
             max_context_length=config.get_max_context_length()
         )
+
+        # Initialize session manager
+        session_manager = SessionManager()
 
         # Initialize MCP client
         system_mcps_dir = Path(__file__).parent / "system_mcps"
@@ -692,12 +700,46 @@ def main(verbose=False):
                             console.print(f"❌ [red]Error: {e}[/red]\n")
                     continue
 
+                # Handle session commands
+                if user_input.lower() == 'session start':
+                    if session_manager.is_active():
+                        console.print("\n⚠️  [yellow]Session already active. End current session first.[/yellow]\n")
+                    else:
+                        session_id = session_manager.start_session()
+                        console.print()
+                    continue
+
+                if user_input.lower() == 'session end':
+                    summary = session_manager.end_session()
+                    if summary:
+                        console.print()
+                    continue
+
+                if user_input.lower() == 'session info':
+                    info = session_manager.get_session_info()
+                    if info:
+                        console.print("\n📊 [bold]Session Info:[/bold]")
+                        console.print(f"  • Session ID: [cyan]{info['session_id'][:16]}...[/cyan]")
+                        console.print(f"  • Duration: [cyan]{int(info['duration_seconds'])}s[/cyan]")
+                        console.print(f"  • Interactions: [cyan]{info['num_interactions']}[/cyan]")
+                        console.print()
+                    else:
+                        console.print("\n⚠️  [yellow]No active session[/yellow]\n")
+                    continue
+
                 # Skip empty input
                 if not user_input:
                     continue
 
                 # Get guidance based on similar past prompts
                 guidance = get_prompt_guidance(user_input)
+
+                # Get session context if active
+                session_context = None
+                if session_manager.is_active():
+                    session_context = session_manager.get_session_context(max_interactions=5)
+                    if session_context:
+                        debug_print(f"Session active: {len(session_manager.get_session_history())} interactions in context", icon="📝", style="cyan")
 
                 # Add user message to context
                 chat_manager.add_user_message(user_input)
@@ -717,6 +759,11 @@ def main(verbose=False):
                     )
                 }
                 messages = messages[:-1] + [code_exec_instruction, messages[-1]]
+
+                # Inject session context if available
+                if session_context:
+                    session_message = {'role': 'system', 'content': session_context}
+                    messages = messages[:-1] + [session_message, messages[-1]]
 
                 if guidance:
                     # Insert guidance as a system message before the last user message
@@ -752,6 +799,14 @@ def main(verbose=False):
                 # Add assistant response to context
                 chat_manager.add_assistant_message(full_response)
 
+                # Add interaction to session history if session is active
+                if session_manager.is_active():
+                    session_manager.add_interaction(
+                        prompt=user_input,
+                        response=full_response,
+                        metadata={'model': ollama_client.model, 'temperature': temperature}
+                    )
+
                 console.print()  # Extra line for readability
 
                 # Check for code and offer to execute
@@ -770,7 +825,9 @@ def main(verbose=False):
                         try:
                             rating = int(rating_input)
                             if 0 <= rating <= 10:
-                                process_rating(rating, user_input, full_response)
+                                # Pass session_id if session is active
+                                session_id = session_manager.get_session_id()
+                                process_rating(rating, user_input, full_response, session_id)
                             else:
                                 console.print("❌ [red]Invalid rating. Enter 0-10.[/red]")
                         except ValueError:
