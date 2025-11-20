@@ -507,6 +507,9 @@ async def handle_file_modifications(mcp_client: MCPClient, response_text: str, f
         if results['errors']:
             console.print(f"  [yellow]Errors: {len(results['errors'])}[/yellow]")
 
+        # Add affected files to results for verification
+        results['affected_files'] = results['created'] + results['modified']
+
     return results
 
 
@@ -1253,6 +1256,8 @@ Ensure all imports are correct, syntax is valid, and the code runs without error
                         if mod_result and mod_result.get('affected_files'):
                             affected_files = mod_result['affected_files']
                             runnable_files = [f for f in affected_files if f.endswith(('.py', '.r', '.R'))]
+
+                            debug_print(f"Verification: {len(runnable_files)} runnable files found", icon="🔍", style="cyan")
 
                             if runnable_files:
                                 console.print()
