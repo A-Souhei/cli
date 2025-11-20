@@ -371,6 +371,119 @@ async def handle_code_file_writing(mcp_client: MCPClient, response_text: str, ta
     return result
 
 
+async def handle_file_modifications(mcp_client: MCPClient, response_text: str, files_to_modify: list, files_to_create: list):
+    """
+    Parse LLM response for multiple file modifications and apply them.
+
+    Args:
+        mcp_client: MCP client instance
+        response_text: The LLM response text
+        files_to_modify: List of existing files mentioned by user
+        files_to_create: List of files to create mentioned by user
+
+    Returns:
+        Dict with results for each file
+    """
+    import re
+
+    results = {
+        'modified': [],
+        'created': [],
+        'errors': []
+    }
+
+    # Pattern to match file paths followed by code blocks
+    # Matches: models/base.py or base.py followed by ```python or ```
+    file_code_pattern = r'(?:^|\n)(?:models/|src/|testing/)?(\w+(?:/\w+)*\.(?:py|r|R))\s*\n+```(?:python|r)?\n(.*?)\n```'
+    matches = re.findall(file_code_pattern, response_text, re.DOTALL | re.MULTILINE)
+
+    if not matches:
+        debug_print("No file+code patterns found in response", icon="ℹ️", style="yellow")
+        return results
+
+    debug_print(f"Found {len(matches)} file+code blocks to process", icon="📝", style="cyan")
+
+    for file_path, code in matches:
+        try:
+            # Clean up file path
+            file_path = file_path.strip()
+            code = code.strip()
+
+            # Determine full path
+            full_path = os.path.join(os.getcwd(), file_path)
+            file_exists = os.path.exists(full_path)
+
+            # Determine language and tool
+            if file_path.endswith('.py'):
+                language = "python"
+                tool_name = "edit_python_code" if file_exists else "write_python_code"
+            elif file_path.endswith(('.r', '.R')):
+                language = "r"
+                tool_name = "edit_r_code" if file_exists else "write_r_code"
+            else:
+                debug_print(f"Unsupported file type: {file_path}", icon="⚠️", style="yellow")
+                results['errors'].append(f"{file_path}: Unsupported file type")
+                continue
+
+            # Inform user
+            action = "Updating" if file_exists else "Creating"
+            console.print(f"[cyan]{action} {file_path}...[/cyan]")
+
+            # Call MCP tool
+            result = await mcp_client.call_tool(
+                mcp_name="coder",
+                tool_name=tool_name,
+                arguments={
+                    "file_path": file_path,
+                    "code": code,
+                    "working_dir": os.getcwd()
+                }
+            )
+
+            # Parse result
+            try:
+                result_data = json.loads(result)
+                if result_data.get('status') == 'success':
+                    console.print(f"✓ [green]{action} {file_path} successfully[/green]")
+                    if file_exists:
+                        results['modified'].append(file_path)
+                    else:
+                        results['created'].append(file_path)
+                else:
+                    error_msg = result_data.get('message', 'Unknown error')
+                    console.print(f"✗ [red]Failed to {action.lower()} {file_path}: {error_msg}[/red]")
+                    results['errors'].append(f"{file_path}: {error_msg}")
+            except json.JSONDecodeError:
+                # Result might be plain text error
+                if "success" in result.lower():
+                    console.print(f"✓ [green]{action} {file_path} successfully[/green]")
+                    if file_exists:
+                        results['modified'].append(file_path)
+                    else:
+                        results['created'].append(file_path)
+                else:
+                    console.print(f"✗ [red]Failed to {action.lower()} {file_path}[/red]")
+                    results['errors'].append(f"{file_path}: {result}")
+
+        except Exception as e:
+            error_msg = str(e)
+            console.print(f"✗ [red]Error processing {file_path}: {error_msg}[/red]")
+            results['errors'].append(f"{file_path}: {error_msg}")
+            debug_print(f"Error processing {file_path}: {e}", icon="❌", style="red")
+
+    # Summary
+    if results['created'] or results['modified']:
+        console.print(f"\n[bold green]✓ File Operations Complete[/bold green]")
+        if results['created']:
+            console.print(f"  Created: {', '.join(results['created'])}")
+        if results['modified']:
+            console.print(f"  Modified: {', '.join(results['modified'])}")
+        if results['errors']:
+            console.print(f"  [yellow]Errors: {len(results['errors'])}[/yellow]")
+
+    return results
+
+
 async def handle_code_execution(mcp_client: MCPClient, response_text: str):
     """
     Detect and execute code from LLM response.
@@ -930,6 +1043,49 @@ def main(verbose=False):
                         'content': f"The user has provided the following files/directories as context:\n\n{context_content}"
                     })
 
+                # Detect file modification actions (refactor, update, create, etc.)
+                action_keywords = ['refactor', 'create', 'update', 'modify', 'edit', 'change', 'rewrite', 'add']
+                user_input_lower = clean_user_input.lower()
+                has_action = any(keyword in user_input_lower for keyword in action_keywords)
+
+                # If action keywords present with @ prefixed files, instruct to use MCP tools
+                if has_action and (at_context['files'] or at_context['non_existing']):
+                    tool_instructions = []
+
+                    # For existing files, use edit tools
+                    if at_context['files']:
+                        tool_instructions.append(
+                            f"The user wants to MODIFY these existing files: {', '.join(at_context['files'])}. "
+                            f"You MUST use the MCP tools 'edit_python_code' or 'edit_r_code' to update these files. "
+                            f"Do NOT just show the code - actually call the tools to apply changes."
+                        )
+
+                    # For non-existing files, use write tools
+                    if at_context['non_existing']:
+                        tool_instructions.append(
+                            f"The user wants to CREATE these new files: {', '.join(at_context['non_existing'])}. "
+                            f"You MUST use the MCP tools 'write_python_code' or 'write_r_code' to create these files. "
+                            f"Do NOT just show the code - actually call the tools to write the files."
+                        )
+
+                    # Look for additional files to create mentioned in the prompt (like "create base.py")
+                    import re
+                    create_pattern = r'create\s+(\w+\.(?:py|r|R))'
+                    create_matches = re.findall(create_pattern, user_input_lower)
+                    if create_matches:
+                        files_to_create = [f for f in create_matches if f not in at_context['non_existing']]
+                        if files_to_create:
+                            tool_instructions.append(
+                                f"The user also wants to CREATE: {', '.join(files_to_create)}. "
+                                f"You MUST use 'write_python_code' or 'write_r_code' to create these files."
+                            )
+
+                    if tool_instructions:
+                        system_messages_to_inject.append({
+                            'role': 'system',
+                            'content': "\n\n".join(tool_instructions)
+                        })
+
                 # If target file is specified, instruct LLM to generate code for that file
                 if target_file:
                     file_ext = os.path.splitext(target_file)[1]
@@ -1025,7 +1181,15 @@ def main(verbose=False):
 
                 # Check for code and offer to execute or write to file
                 try:
-                    if target_file:
+                    if has_action and (at_context['files'] or at_context['non_existing']):
+                        # Handle file modifications (refactor, update, create, etc.)
+                        mod_result = run_async(handle_file_modifications(
+                            mcp_client,
+                            full_response,
+                            at_context['files'],
+                            at_context['non_existing']
+                        ))
+                    elif target_file:
                         # Write code to target file
                         write_result = run_async(handle_code_file_writing(mcp_client, full_response, target_file))
                     else:
