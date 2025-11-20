@@ -1,4 +1,4 @@
-.PHONY: help setup run venv install build up down restart logs status clean test
+.PHONY: help setup run run-verbose venv install build up down restart logs status clean test
 
 # Default target
 .DEFAULT_GOAL := help
@@ -34,6 +34,11 @@ run: venv ## Run the AI CLI
 	@echo "$(YELLOW)Starting AI CLI...$(NC)"
 	@chmod +x start.sh
 	@./start.sh
+
+run-verbose: venv ## Run the AI CLI in verbose mode
+	@echo "$(YELLOW)Starting AI CLI (verbose mode)...$(NC)"
+	@chmod +x start.sh
+	@./start.sh --verbose
 
 venv: ## Create Python virtual environment
 	@if [ ! -d "$(VENV_DIR)" ]; then \
