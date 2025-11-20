@@ -8,6 +8,13 @@ import urllib.parse
 from src.config import ConfigManager
 from src.ollama_client import OllamaClient
 from src.chat import ChatManager
+from rich.console import Console
+from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.text import Text
+
+# Initialize rich console
+console = Console()
 
 # API Configuration
 POSTGRES_API_URL = "http://localhost:15000"
@@ -19,10 +26,10 @@ SATISFACTORY_RATING_THRESHOLD = 7  # Rating >= 7 is considered satisfactory
 VERBOSE = False
 
 
-def debug_print(message):
+def debug_print(message, style="dim", icon="🔍"):
     """Print message only if verbose mode is enabled."""
     if VERBOSE:
-        print(message)
+        console.print(f"{icon} {message}", style=style)
 
 
 def get_all_ratings():
@@ -149,19 +156,19 @@ def process_rating(user_rating, prompt_text, response_text):
         # Update if current rating is higher or equal
         if user_rating >= stored_rating:
             if update_rating(best_match['id'], user_rating, response_text, keywords):
-                debug_print(f"[Rating updated] Similar prompt found (similarity: {best_similarity:.2f}), updated rating from {stored_rating} to {user_rating}")
-                debug_print(f"[Keywords] {', '.join(keywords)}")
+                debug_print(f"Rating updated - Similar prompt (similarity: {best_similarity:.2f}), {stored_rating} → {user_rating}", "green", "✅")
+                debug_print(f"Keywords: {', '.join(keywords)}", "cyan", "🏷️")
             else:
-                debug_print("[Rating] Failed to update existing rating")
+                debug_print("Failed to update existing rating", "red", "❌")
         else:
-            debug_print(f"[Rating skipped] Similar prompt found with higher rating ({stored_rating} > {user_rating})")
+            debug_print(f"Rating skipped - Stored rating higher ({stored_rating} > {user_rating})", "yellow", "⏭️")
     else:
         # No similar prompt found, create new entry
         if create_rating(user_rating, prompt_text, response_text, keywords):
-            debug_print(f"[Rating saved] New prompt stored with rating {user_rating}")
-            debug_print(f"[Keywords] {', '.join(keywords)}")
+            debug_print(f"New prompt stored with rating {user_rating}", "green", "💾")
+            debug_print(f"Keywords: {', '.join(keywords)}", "cyan", "🏷️")
         else:
-            debug_print("[Rating] Failed to save new rating")
+            debug_print("Failed to save new rating", "red", "❌")
 
 
 def get_prompt_guidance(prompt_text):
@@ -219,13 +226,16 @@ def get_prompt_guidance(prompt_text):
 
 def print_banner():
     """Print CLI banner."""
-    print("\n" + "=" * 50)
-    print("  AI CLI - Powered by Ollama")
-    print("=" * 50)
-    print("Type 'exit' or 'quit' to exit")
-    print("Type 'clear' to clear chat history")
-    print("Type 'models' to list available models")
-    print("=" * 50 + "\n")
+    banner_text = Text()
+    banner_text.append("🤖 AI CLI", style="bold cyan")
+    banner_text.append(" - Powered by Ollama", style="dim")
+
+    console.print()
+    console.print(Panel(banner_text, border_style="cyan"))
+    console.print("  Type [bold]'exit'[/bold] or [bold]'quit'[/bold] to exit")
+    console.print("  Type [bold]'clear'[/bold] to clear chat history")
+    console.print("  Type [bold]'models'[/bold] to list available models")
+    console.print()
 
 
 def main(verbose=False):
@@ -255,35 +265,38 @@ def main(verbose=False):
         stream = config.get_stream_enabled()
 
         print_banner()
-        print(f"Using model: {config.get_ollama_model()}")
-        print(f"Connected to: {config.get_ollama_url()}\n")
+        console.print(f"  📦 Model: [bold]{config.get_ollama_model()}[/bold]")
+        console.print(f"  🔗 Server: [dim]{config.get_ollama_url()}[/dim]")
+        console.print()
 
         # Main chat loop
         while True:
             try:
                 # Get user input
-                user_input = input("You: ").strip()
+                user_input = console.input("👤 [bold green]You:[/bold green] ").strip()
 
                 # Handle special commands
                 if user_input.lower() in ['exit', 'quit']:
-                    print("\nGoodbye!")
+                    console.print("\n👋 [bold]Goodbye![/bold]")
                     break
 
                 if user_input.lower() == 'clear':
                     chat_manager.clear_history()
-                    print("\n[Chat history cleared]\n")
+                    console.print("\n🗑️ [yellow]Chat history cleared[/yellow]\n")
                     continue
 
                 if user_input.lower() == 'models':
-                    print("\nAvailable models:")
+                    console.print("\n📋 [bold]Available models:[/bold]")
                     try:
                         models = ollama_client.list_models()
                         for model in models:
-                            marker = " (current)" if model == config.get_ollama_model() else ""
-                            print(f"  - {model}{marker}")
+                            if model == config.get_ollama_model():
+                                console.print(f"  • {model} [cyan](current)[/cyan]")
+                            else:
+                                console.print(f"  • {model}")
                     except Exception as e:
-                        print(f"Error listing models: {e}")
-                    print()
+                        console.print(f"❌ [red]Error listing models: {e}[/red]")
+                    console.print()
                     continue
 
                 # Skip empty input
@@ -303,10 +316,10 @@ def main(verbose=False):
                     guidance_message = {'role': 'system', 'content': guidance}
                     # Insert before the last message (which is the user's current message)
                     messages = messages[:-1] + [guidance_message, messages[-1]]
-                    debug_print(f"\n{guidance}\n")
+                    debug_print(guidance, "magenta", "🧠")
 
                 # Get AI response
-                print("AI: ", end='', flush=True)
+                console.print("🤖 [bold cyan]AI:[/bold cyan]")
 
                 if stream:
                     # Stream response
@@ -320,14 +333,18 @@ def main(verbose=False):
                         full_response += chunk
                     print()  # New line after streaming
 
+                    # Render as markdown
+                    console.print()
+                    console.print(Markdown(full_response))
+
                     # Add assistant response to context
                     chat_manager.add_assistant_message(full_response)
 
-                    print()  # Extra line for readability
+                    console.print()  # Extra line for readability
 
                     # Ask for rating
                     try:
-                        rating_input = input("Rate this response (0-10, or press Enter to skip): ").strip()
+                        rating_input = console.input("⭐ [dim]Rate (0-10, Enter to skip):[/dim] ").strip()
 
                         if rating_input:  # User provided input
                             try:
@@ -335,14 +352,14 @@ def main(verbose=False):
                                 if 0 <= rating <= 10:
                                     process_rating(rating, user_input, full_response)
                                 else:
-                                    print("[Rating] Invalid rating. Please enter a number between 0 and 10.")
+                                    console.print("❌ [red]Invalid rating. Enter 0-10.[/red]")
                             except ValueError:
-                                print("[Rating] Invalid input. Please enter a number between 0 and 10.")
+                                console.print("❌ [red]Invalid input. Enter a number.[/red]")
                         # If empty input (Enter pressed), do nothing - silently skip
                     except EOFError:
                         pass  # Handle piped input gracefully
 
-                    print()  # Extra line for readability
+                    console.print()  # Extra line for readability
                 else:
                     # Non-streaming response
                     response = ollama_client.chat(
@@ -351,16 +368,18 @@ def main(verbose=False):
                         temperature=temperature
                     )
                     full_response = response.get('message', {}).get('content', '')
-                    print(full_response)
+
+                    # Render as markdown
+                    console.print(Markdown(full_response))
 
                     # Add assistant response to context
                     chat_manager.add_assistant_message(full_response)
 
-                    print()  # Extra line for readability
+                    console.print()  # Extra line for readability
 
                     # Ask for rating
                     try:
-                        rating_input = input("Rate this response (0-10, or press Enter to skip): ").strip()
+                        rating_input = console.input("⭐ [dim]Rate (0-10, Enter to skip):[/dim] ").strip()
 
                         if rating_input:  # User provided input
                             try:
@@ -368,21 +387,21 @@ def main(verbose=False):
                                 if 0 <= rating <= 10:
                                     process_rating(rating, user_input, full_response)
                                 else:
-                                    print("[Rating] Invalid rating. Please enter a number between 0 and 10.")
+                                    console.print("❌ [red]Invalid rating. Enter 0-10.[/red]")
                             except ValueError:
-                                print("[Rating] Invalid input. Please enter a number between 0 and 10.")
+                                console.print("❌ [red]Invalid input. Enter a number.[/red]")
                         # If empty input (Enter pressed), do nothing - silently skip
                     except EOFError:
                         pass  # Handle piped input gracefully
 
-                    print()  # Extra line for readability
+                    console.print()  # Extra line for readability
 
             except KeyboardInterrupt:
-                print("\n\nGoodbye!")
+                console.print("\n\n👋 [bold]Goodbye![/bold]")
                 break
             except Exception as e:
-                print(f"\nError: {e}")
-                print("Please try again.\n")
+                console.print(f"\n❌ [red]Error: {e}[/red]")
+                console.print("[dim]Please try again.[/dim]\n")
 
     except FileNotFoundError as e:
         print(f"Error: {e}")
