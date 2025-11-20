@@ -115,7 +115,7 @@ clean: ## Remove virtual environment and Docker volumes
 		echo "$(GREEN)✓ Docker volumes removed$(NC)"; \
 	fi
 
-test: venv ## Run tests
+test: install ## Run tests
 	@echo "$(YELLOW)Running tests...$(NC)"
 	@$(VENV_PYTHON) test_cli.py
 	@echo "$(GREEN)✓ Tests completed$(NC)"
