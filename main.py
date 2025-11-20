@@ -749,6 +749,19 @@ def main(verbose=False):
                 # Get messages and inject guidance if available
                 messages = chat_manager.get_messages()
 
+                # If user asks to run/execute code, instruct LLM not to predict output
+                run_keywords = ['run', 'execute', 'exec']
+                if any(keyword in user_input.lower() for keyword in run_keywords):
+                    no_output_instruction = {
+                        'role': 'system',
+                        'content': (
+                            "The user wants to execute code. Provide ONLY the code in a code block. "
+                            "Do NOT predict, guess, or show what the output will be. "
+                            "The code will be automatically executed and the real output will be displayed to the user."
+                        )
+                    }
+                    messages = messages[:-1] + [no_output_instruction, messages[-1]]
+
                 # Inject session context if available
                 if session_context:
                     session_message = {'role': 'system', 'content': session_context}
