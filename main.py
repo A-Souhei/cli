@@ -712,6 +712,20 @@ def main(verbose=False):
 
                 # Get messages and inject guidance if available
                 messages = chat_manager.get_messages()
+
+                # Add system message about code execution to avoid redundancy
+                code_exec_instruction = {
+                    'role': 'system',
+                    'content': (
+                        "IMPORTANT: This system has automatic code execution capability. "
+                        "When the user asks to 'run' or 'execute' code, provide ONLY the code block. "
+                        "Do NOT show example outputs or predict what the output will be. "
+                        "The code will be automatically detected and executed, and the real output will be displayed. "
+                        "Just provide the code and a brief explanation if needed."
+                    )
+                }
+                messages = messages[:-1] + [code_exec_instruction, messages[-1]]
+
                 if guidance:
                     # Insert guidance as a system message before the last user message
                     guidance_message = {'role': 'system', 'content': guidance}
