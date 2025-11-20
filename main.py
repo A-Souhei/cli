@@ -19,7 +19,6 @@ from rich.text import Text
 from rich.syntax import Syntax
 from rich.theme import Theme
 from rich.style import Style
-from rich.table import Table
 from prompt_toolkit import prompt
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.formatted_text import FormattedText
@@ -313,16 +312,10 @@ def list_system_mcps():
         console.print("ℹ️  [yellow]No system MCPs found[/yellow]\n")
         return
 
-    # Create a table
-    table = Table(title="📦 System MCPs", border_style="cyan")
-    table.add_column("Name", style="bold cyan", no_wrap=True)
-    table.add_column("Description", style="dim")
-
+    # Display as simple list
+    console.print("\n📦 [bold]System MCPs:[/bold]")
     for name, description in sorted(mcps):
-        table.add_row(name, description)
-
-    console.print()
-    console.print(table)
+        console.print(f"  • [bold cyan]{name}[/bold cyan] - [dim]{description}[/dim]")
     console.print()
 
 
@@ -393,21 +386,13 @@ async def get_mcp_tools(mcp_name):
                 console.print(f"ℹ️  [yellow]No tools found in MCP '{mcp_name}'[/yellow]\n")
                 return
 
-            # Create a table
-            table = Table(title=f"🔧 Tools in '{mcp_name}' MCP", border_style="cyan")
-            table.add_column("Tool Name", style="bold cyan", no_wrap=True)
-            table.add_column("Description", style="dim")
-
+            # Display as simple list
+            console.print(f"\n🔧 [bold]Tools in '{mcp_name}' MCP:[/bold]")
             for tool in tools:
                 name = tool.get("name", "Unknown")
                 description = tool.get("description", "No description")
-                # Limit description length for table display
-                if len(description) > 100:
-                    description = description[:97] + "..."
-                table.add_row(name, description)
-
-            console.print()
-            console.print(table)
+                console.print(f"  • [bold cyan]{name}[/bold cyan]")
+                console.print(f"    [dim]{description}[/dim]")
             console.print()
         else:
             console.print(f"❌ [red]Failed to get tools from MCP '{mcp_name}'[/red]\n")
