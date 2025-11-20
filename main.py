@@ -375,6 +375,7 @@ def main(verbose=False):
                     debug_print(guidance, "magenta", "🧠")
 
                 # Get AI response
+                console.print()  # Add spacing before AI response
                 console.print("[bold cyan]▶[/bold cyan]")
 
                 # Get response (stream or not) and collect full response
