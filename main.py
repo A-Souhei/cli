@@ -707,7 +707,7 @@ def main(verbose=False):
                     if session_manager.is_active():
                         console.print("\n⚠️  [yellow]Session already active. End current session first.[/yellow]\n")
                     else:
-                        session_id = session_manager.start_session()
+                        session_manager.start_session()
                         console.print()
                     continue
 
@@ -749,30 +749,39 @@ def main(verbose=False):
                 # Get messages and inject guidance if available
                 messages = chat_manager.get_messages()
 
+                # Collect all system messages to inject before the user's message
+                system_messages_to_inject = []
+
                 # If user asks to run/execute code, instruct LLM not to predict output
                 run_keywords = ['run', 'execute', 'exec']
                 if any(keyword in user_input.lower() for keyword in run_keywords):
-                    no_output_instruction = {
+                    system_messages_to_inject.append({
                         'role': 'system',
                         'content': (
                             "The user wants to execute code. Provide ONLY the code in a code block. "
                             "Do NOT predict, guess, or show what the output will be. "
                             "The code will be automatically executed and the real output will be displayed to the user."
                         )
-                    }
-                    messages = messages[:-1] + [no_output_instruction, messages[-1]]
+                    })
 
                 # Inject session context if available
                 if session_context:
-                    session_message = {'role': 'system', 'content': session_context}
-                    messages = messages[:-1] + [session_message, messages[-1]]
+                    system_messages_to_inject.append({
+                        'role': 'system',
+                        'content': session_context
+                    })
 
+                # Add guidance if available
                 if guidance:
-                    # Insert guidance as a system message before the last user message
-                    guidance_message = {'role': 'system', 'content': guidance}
-                    # Insert before the last message (which is the user's current message)
-                    messages = messages[:-1] + [guidance_message, messages[-1]]
+                    system_messages_to_inject.append({
+                        'role': 'system',
+                        'content': guidance
+                    })
                     debug_print(guidance, icon="🧠", style="magenta")
+
+                # Inject all system messages before the last user message
+                if system_messages_to_inject:
+                    messages = messages[:-1] + system_messages_to_inject + [messages[-1]]
 
                 # Get AI response
                 console.print()  # Add spacing before AI response

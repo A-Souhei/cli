@@ -108,7 +108,7 @@ make run
 
 # Start a session
 ▶ session start
-📝 Session started: 12345678...
+📝 Session started at 16:45:10
 
 # Ask related questions
 ▶ What is Python?
@@ -120,7 +120,7 @@ make run
 
 # End the session
 ▶ session end
-✅ Session ended: 12345678... (3 interactions)
+✅ Session ended (started at 16:45:10, 3 interactions)
 ```
 
 ## Full Documentation

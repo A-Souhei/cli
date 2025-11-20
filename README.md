@@ -9,7 +9,7 @@ A minimal, modular AI command-line interface that connects to Ollama services (l
 - ⚙️ Configurable via YAML file
 - 🔄 Streaming and non-streaming response modes
 - 📝 Conversation context management
-- 📚 **Session feature** for context-persistent conversations with history-embedded RAG
+- 📚 **Session feature** for context-persistent conversations with history-based context injection
 - 🎯 Modular architecture with separated features
 - 🐳 Docker Compose setup for Ollama
 - 🚀 Easy setup with automated scripts and Makefile
@@ -162,12 +162,12 @@ Once the CLI starts, you can:
 
 ### Session Feature
 
-The session feature allows you to maintain conversation context across multiple prompts using history-embedded RAG. When a session is active, the last 5 interactions are automatically included as context, enabling coherent multi-turn conversations.
+The session feature allows you to maintain conversation context across multiple prompts by automatically injecting previous interactions as context. When a session is active, the last 5 interactions are automatically included as context, enabling coherent multi-turn conversations.
 
 **Example:**
 ```
 ▶ session start
-📝 Session started: 12345678...
+📝 Session started at 14:30:45
 
 ▶ What is the capital of France?
 ▶ Paris
@@ -177,7 +177,7 @@ The session feature allows you to maintain conversation context across multiple 
 # AI understands "that city" refers to Paris
 
 ▶ session end
-✅ Session ended: 12345678... (2 interactions)
+✅ Session ended (started at 14:30:45, 2 interactions)
 ```
 
 See [docs/SESSION_FEATURE.md](docs/SESSION_FEATURE.md) for detailed documentation.

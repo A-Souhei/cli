@@ -2,7 +2,7 @@
 
 ## Overview
 
-The session feature enables context persistence across multiple prompts within a conversation session. When a session is active, all prompts and responses are tracked and embedded into the conversation context using RAG (Retrieval-Augmented Generation), allowing the AI to maintain awareness of the full conversation history.
+The session feature enables context persistence across multiple prompts within a conversation session. When a session is active, all prompts and responses are tracked and automatically injected into the conversation context, allowing the AI to maintain awareness of the full conversation history.
 
 ## How It Works
 
@@ -62,7 +62,7 @@ Example output:
 
 ```bash
 ▶ session start
-📝 Session started: 12345678...
+📝 Session started at 14:30:45
 
 ▶ What is the capital of France?
 ▶ Paris
@@ -74,7 +74,7 @@ Example output:
 ▶ In Paris, the top tourist attractions include the Eiffel Tower...
 
 ▶ session end
-✅ Session ended: 12345678... (3 interactions)
+✅ Session ended (started at 14:30:45, 3 interactions)
 ```
 
 In this example, the AI understands "that city" refers to Paris because of the session context.
@@ -83,7 +83,7 @@ In this example, the AI understands "that city" refers to Paris because of the s
 
 ```bash
 ▶ session start
-📝 Session started: abcdef12...
+📝 Session started at 09:15:20
 
 ▶ Write a Python function to calculate fibonacci numbers
 ▶ [AI provides fibonacci function]
@@ -95,7 +95,7 @@ In this example, the AI understands "that city" refers to Paris because of the s
 ▶ [AI writes tests for the memoized fibonacci function]
 
 ▶ session end
-✅ Session ended: abcdef12... (3 interactions)
+✅ Session ended (started at 09:15:20, 3 interactions)
 ```
 
 The AI maintains context of the specific function being developed throughout the session.

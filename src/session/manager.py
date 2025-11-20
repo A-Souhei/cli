@@ -2,21 +2,21 @@
 Session Manager for handling context persistence across prompts.
 
 This module provides session management functionality that allows
-maintaining conversation context with embedded RAG across multiple prompts.
+maintaining conversation context across multiple prompts through
+history-based context injection.
 """
 
 import uuid
 from typing import List, Dict, Optional, Any
 from datetime import datetime
-import json
 
 
 class SessionManager:
     """
     Manages user sessions with context persistence.
 
-    In a session, all prompts and responses are tracked and embedded
-    for context-aware RAG retrieval. Without a session, prompts are
+    In a session, all prompts and responses are tracked and injected
+    as conversation history context. Without a session, prompts are
     context-independent.
     """
 
