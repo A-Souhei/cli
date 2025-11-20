@@ -393,31 +393,36 @@ async def handle_file_modifications(mcp_client: MCPClient, response_text: str, f
     }
 
     # Pattern to match file paths followed by code blocks
-    # Format 1: filename.py\n```python\ncode\n```
+    # Format 1: file: path/to/file.py\n```python\ncode\n``` (PRIMARY FORMAT)
     # Format 2: ```python\n# tool - file: path/to/file.py\ncode\n```
-    # Format 3: file: path/to/file.py\n```python\ncode\n```
+    # Format 3: filename.py\n```python\ncode\n```
 
     matches = []
 
-    # Try Format 2 first (most common from LLM): filename in comment inside code block
-    pattern2 = r'```(?:python|r)?\n#\s*(?:write_python_code|edit_python_code|write_r_code|edit_r_code)\s*-\s*file:\s*([^\n]+)\n(.*?)\n```'
-    matches = re.findall(pattern2, response_text, re.DOTALL | re.MULTILINE)
+    # Try Format 1 first (instructed format): "file:" prefix before code block
+    # This pattern is more flexible and handles any file path
+    pattern1 = r'(?:file|File):\s*([^\n]+\.(?:py|r|R))\s*\n+```(?:python|r)?\n(.*?)\n```'
+    matches = re.findall(pattern1, response_text, re.DOTALL | re.MULTILINE)
 
-    # Try Format 1: filename before code block
+    # Try Format 2: filename in comment inside code block
     if not matches:
-        pattern1 = r'(?:^|\n)(?:models/|src/|testing/)?(\w+(?:/\w+)*\.(?:py|r|R))\s*\n+```(?:python|r)?\n(.*?)\n```'
-        matches = re.findall(pattern1, response_text, re.DOTALL | re.MULTILINE)
+        pattern2 = r'```(?:python|r)?\n#\s*(?:write_python_code|edit_python_code|write_r_code|edit_r_code)\s*-\s*file:\s*([^\n]+)\n(.*?)\n```'
+        matches = re.findall(pattern2, response_text, re.DOTALL | re.MULTILINE)
 
-    # Try Format 3: "file:" or "File:" mentioned before code block
+    # Try Format 3: filename before code block (most lenient, any path structure)
     if not matches:
-        pattern3 = r'(?:file|File):\s*([^\n]+\.(?:py|r|R))[^\n]*\n+```(?:python|r)?\n(.*?)\n```'
+        pattern3 = r'(?:^|\n)([^\s:]+\.(?:py|r|R))\s*\n+```(?:python|r)?\n(.*?)\n```'
         matches = re.findall(pattern3, response_text, re.DOTALL | re.MULTILINE)
 
     if not matches:
         debug_print("No file+code patterns found in response", icon="ℹ️", style="yellow")
+        console.print("\n[yellow]⚠️  No file modifications detected in LLM response.[/yellow]")
+        console.print("[dim]The LLM may not have formatted the response correctly.[/dim]")
+        console.print("[dim]Try rephrasing your request or check the LLM output above.[/dim]\n")
         return results
 
     debug_print(f"Found {len(matches)} file+code blocks to process", icon="📝", style="cyan")
+    console.print(f"\n[cyan]📝 Processing {len(matches)} file modification(s)...[/cyan]\n")
 
     for file_path, code in matches:
         try:
@@ -1073,33 +1078,63 @@ def main(verbose=False):
                 if has_action and (at_context['files'] or at_context['non_existing']):
                     tool_instructions = []
 
-                    # For existing files, use edit tools
-                    if at_context['files']:
-                        tool_instructions.append(
-                            f"The user wants to MODIFY these existing files: {', '.join(at_context['files'])}. "
-                            f"You MUST use the MCP tools 'edit_python_code' or 'edit_r_code' to update these files. "
-                            f"Do NOT just show the code - actually call the tools to apply changes."
-                        )
-
-                    # For non-existing files, use write tools
-                    if at_context['non_existing']:
-                        tool_instructions.append(
-                            f"The user wants to CREATE these new files: {', '.join(at_context['non_existing'])}. "
-                            f"You MUST use the MCP tools 'write_python_code' or 'write_r_code' to create these files. "
-                            f"Do NOT just show the code - actually call the tools to write the files."
-                        )
+                    # Collect all files that need to be modified or created
+                    all_files_to_modify = list(at_context['files'])
+                    all_files_to_create = list(at_context['non_existing'])
 
                     # Look for additional files to create mentioned in the prompt (like "create base.py")
                     import re
-                    create_pattern = r'create\s+(\w+\.(?:py|r|R))'
+                    create_pattern = r'create\s+((?:[\w/]+/)?[\w.]+\.(?:py|r|R))'
                     create_matches = re.findall(create_pattern, user_input_lower)
                     if create_matches:
-                        files_to_create = [f for f in create_matches if f not in at_context['non_existing']]
-                        if files_to_create:
-                            tool_instructions.append(
-                                f"The user also wants to CREATE: {', '.join(files_to_create)}. "
-                                f"You MUST use 'write_python_code' or 'write_r_code' to create these files."
-                            )
+                        for matched_file in create_matches:
+                            # Add to create list if not already present
+                            if matched_file not in all_files_to_create and matched_file not in all_files_to_modify:
+                                all_files_to_create.append(matched_file)
+
+                    # Build comprehensive instruction with explicit format requirements
+                    instruction_parts = []
+
+                    if all_files_to_modify:
+                        instruction_parts.append(
+                            f"The user wants to MODIFY these existing files: {', '.join(all_files_to_modify)}"
+                        )
+
+                    if all_files_to_create:
+                        instruction_parts.append(
+                            f"The user wants to CREATE these new files: {', '.join(all_files_to_create)}"
+                        )
+
+                    if instruction_parts:
+                        # Add explicit format instructions
+                        format_instruction = """
+IMPORTANT: For EACH file you need to create or modify, you MUST use this EXACT format:
+
+file: <full_file_path>
+```python
+<complete file code here>
+```
+
+Example:
+file: testing/python_app/models/base.py
+```python
+class BaseModel:
+    pass
+```
+
+file: testing/python_app/models/user.py
+```python
+from .base import BaseModel
+
+class User(BaseModel):
+    pass
+```
+
+Do NOT just explain the changes - provide the COMPLETE code for each file in the format above.
+Each file should have its own "file: <path>" line followed by a code block.
+"""
+                        full_instruction = "\n".join(instruction_parts) + format_instruction
+                        tool_instructions.append(full_instruction)
 
                     if tool_instructions:
                         system_messages_to_inject.append({
