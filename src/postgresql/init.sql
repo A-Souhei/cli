@@ -23,7 +23,29 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
-CREATE TRIGGER update_conversation_ratings_updated_at 
-    BEFORE UPDATE ON conversation_ratings 
-    FOR EACH ROW 
+CREATE TRIGGER update_conversation_ratings_updated_at
+    BEFORE UPDATE ON conversation_ratings
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- Create table for storing MCP tools with embeddings
+CREATE TABLE IF NOT EXISTS mcp_tools (
+    id SERIAL PRIMARY KEY,
+    mcp_name TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    embedding JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(mcp_name, tool_name)
+);
+
+-- Create indexes for MCP tools
+CREATE INDEX IF NOT EXISTS idx_mcp_name ON mcp_tools(mcp_name);
+CREATE INDEX IF NOT EXISTS idx_tool_name ON mcp_tools(tool_name);
+
+-- Create trigger to update updated_at timestamp for mcp_tools
+CREATE TRIGGER update_mcp_tools_updated_at
+    BEFORE UPDATE ON mcp_tools
+    FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();

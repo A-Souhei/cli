@@ -5,11 +5,15 @@ import json
 import argparse
 import requests
 import urllib.parse
+import subprocess
+import asyncio
+import os
 from pathlib import Path
 from src.config import ConfigManager
 from src.ollama_client import OllamaClient
 from src.chat import ChatManager
 from src.selector import InteractiveSelector
+from src.mcp import MCPClient
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -20,6 +24,20 @@ from rich.style import Style
 from prompt_toolkit import prompt
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.formatted_text import FormattedText
+
+# Apply nest_asyncio once globally to allow nested event loops
+import nest_asyncio
+nest_asyncio.apply()
+
+
+def run_async(coro):
+    """
+    Run an async coroutine safely, handling nested event loop scenarios.
+    Uses nest_asyncio which has been applied globally to allow asyncio.run()
+    even when an event loop is already running.
+    """
+    # With nest_asyncio applied globally, asyncio.run() works even in nested contexts
+    return asyncio.run(coro)
 
 # Create custom theme
 custom_theme = Theme({
@@ -73,7 +91,7 @@ SATISFACTORY_RATING_THRESHOLD = 7  # Rating >= 7 is considered satisfactory
 VERBOSE = False
 
 
-def debug_print(message, style="dim", icon="🔍"):
+def debug_print(message, icon="🔍", style="dim"):
     """Print message only if verbose mode is enabled."""
     if VERBOSE:
         console.print(f"{icon} {message}", style=style)
@@ -219,19 +237,19 @@ def process_rating(user_rating, prompt_text, response_text):
         # Update if current rating is higher or equal
         if user_rating >= stored_rating:
             if update_rating(best_match['id'], user_rating, response_text, keywords):
-                debug_print(f"Rating updated - Similar prompt (similarity: {best_similarity:.2f}), {stored_rating} → {user_rating}", "green", "✅")
-                debug_print(f"Keywords: {', '.join(keywords)}", "cyan", "🏷️")
+                debug_print(f"Rating updated - Similar prompt (similarity: {best_similarity:.2f}), {stored_rating} → {user_rating}", icon="✅", style="green")
+                debug_print(f"Keywords: {', '.join(keywords)}", icon="🏷️", style="cyan")
             else:
-                debug_print("Failed to update existing rating", "red", "❌")
+                debug_print("Failed to update existing rating", icon="❌", style="red")
         else:
-            debug_print(f"Rating skipped - Stored rating higher ({stored_rating} > {user_rating})", "yellow", "⏭️")
+            debug_print(f"Rating skipped - Stored rating higher ({stored_rating} > {user_rating})", icon="⏭️", style="yellow")
     else:
         # No similar prompt found, create new entry
         if create_rating(user_rating, prompt_text, response_text, keywords):
-            debug_print(f"New prompt stored with rating {user_rating}", "green", "💾")
-            debug_print(f"Keywords: {', '.join(keywords)}", "cyan", "🏷️")
+            debug_print(f"New prompt stored with rating {user_rating}", icon="💾", style="green")
+            debug_print(f"Keywords: {', '.join(keywords)}", icon="🏷️", style="cyan")
         else:
-            debug_print("Failed to save new rating", "red", "❌")
+            debug_print("Failed to save new rating", icon="❌", style="red")
 
 
 def get_prompt_guidance(prompt_text):
@@ -278,6 +296,244 @@ def get_prompt_guidance(prompt_text):
     return None
 
 
+async def handle_code_execution(mcp_client: MCPClient, response_text: str):
+    """
+    Detect and execute code from LLM response.
+
+    Args:
+        mcp_client: MCP client instance
+        response_text: The LLM response text
+
+    Returns:
+        Execution result or None
+    """
+    # Detect code in the response
+    detected = mcp_client.detect_code(response_text)
+
+    if not detected:
+        debug_print("No code detected in response", icon="ℹ️")
+        return None
+
+    language = detected['language']
+    code = detected['code']
+
+    debug_print(f"Detected {language.upper()} code block", icon="🔍")
+
+    # Determine tool based on language
+    if language == "python":
+        tool_name = "run_python_code"
+        mcp_name = "coder"
+    elif language == "r":
+        tool_name = "run_r_code"
+        mcp_name = "coder"
+    else:
+        debug_print(f"Unsupported language: {language}", icon="⚠️")
+        return None
+
+    # Ask user for confirmation using InteractiveSelector
+    console.print()
+    try:
+        selector = InteractiveSelector(
+            title=f"⚡ Execute {language.upper()} code?",
+            choices=["Yes", "No"],
+            current="No"
+        )
+        choice = selector.show()
+
+        if choice != "Yes":
+            console.print("\n[dim]Code execution cancelled[/dim]\n")
+            return None
+    except (EOFError, KeyboardInterrupt):
+        console.print("\n[dim]Code execution cancelled[/dim]\n")
+        return None
+
+    # Execute the code
+    debug_print(f"Executing {language} code...", icon="⚙️")
+    console.print("[yellow]Executing code...[/yellow]\n")
+
+    result = await mcp_client.call_tool(
+        mcp_name=mcp_name,
+        tool_name=tool_name,
+        arguments={"code": code}
+    )
+
+    return result
+
+
+def display_execution_result(result: str):
+    """
+    Display code execution result in a nice format.
+
+    Args:
+        result: JSON string from MCP tool execution
+    """
+    try:
+        result_data = json.loads(result)
+
+        # Check if it's an error
+        if result.startswith("Error:"):
+            console.print(f"\n❌ [bold red]Execution Error[/bold red]")
+            console.print(f"[red]{result}[/red]\n")
+            return
+
+        # Display execution complete message
+        console.print("\n✓ [bold]Execution Complete[/bold]\n")
+
+        # Show stdout if present
+        if result_data.get("stdout"):
+            console.print("📄 [bold]Output:[/bold]")
+            console.print(result_data["stdout"].strip())
+            console.print()
+
+        # Show stderr if present
+        if result_data.get("stderr"):
+            console.print("⚠️  [bold yellow]Warnings/Errors:[/bold yellow]")
+            console.print(f"[yellow]{result_data['stderr'].strip()}[/yellow]")
+            console.print()
+
+        # Show exit code
+        exit_code = result_data.get("exit_code", -1)
+        if exit_code == 0:
+            console.print(f"[dim]Exit Code: {exit_code}[/dim]")
+        else:
+            console.print(f"[red]Exit Code: {exit_code}[/red]")
+
+        console.print()
+
+    except json.JSONDecodeError:
+        # Not JSON, display as-is
+        console.print(f"\n📄 [bold]Result:[/bold]")
+        console.print(result)
+        console.print()
+    except Exception as e:
+        debug_print(f"Error displaying result: {e}", icon="❌")
+        console.print(f"[dim]Result: {result}[/dim]\n")
+
+
+def list_system_mcps():
+    """List all available system MCPs."""
+    system_mcps_dir = Path(__file__).parent / "system_mcps"
+
+    if not system_mcps_dir.exists():
+        console.print("❌ [red]No system_mcps directory found[/red]\n")
+        return
+
+    # Find all directories in system_mcps that contain a server.py file
+    mcps = []
+    for item in system_mcps_dir.iterdir():
+        if item.is_dir():
+            server_file = item / "server.py"
+            readme_file = item / "README.md"
+            if server_file.exists():
+                # Try to read description from README
+                description = "No description available"
+                if readme_file.exists():
+                    try:
+                        content = readme_file.read_text()
+                        # Get first non-empty line after the title
+                        lines = [l.strip() for l in content.split('\n') if l.strip() and not l.strip().startswith('#')]
+                        if lines:
+                            description = lines[0]  # No character limit
+                    except Exception:
+                        # Ignore errors reading README, fallback to default description
+                        pass
+                mcps.append((item.name, description))
+
+    if not mcps:
+        console.print("ℹ️  [yellow]No system MCPs found[/yellow]\n")
+        return
+
+    # Display as simple list
+    console.print("\n📦 [bold]System MCPs:[/bold]")
+    for name, description in sorted(mcps):
+        console.print(f"  • [bold cyan]{name}[/bold cyan] - [dim]{description}[/dim]")
+    console.print()
+
+
+async def get_mcp_tools(mcp_name):
+    """Get tools from a specific MCP server."""
+    system_mcps_dir = Path(__file__).parent / "system_mcps"
+    mcp_dir = system_mcps_dir / mcp_name
+    server_file = mcp_dir / "server.py"
+
+    if not server_file.exists():
+        console.print(f"❌ [red]MCP '{mcp_name}' not found[/red]\n")
+        return
+
+    try:
+        # Start the MCP server process
+        process = await asyncio.create_subprocess_exec(
+            sys.executable, str(server_file),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+
+        # Send initialize request
+        init_request = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {
+                    "name": "ai-cli",
+                    "version": "1.0.0"
+                }
+            }
+        }
+
+        process.stdin.write((json.dumps(init_request) + "\n").encode())
+        await process.stdin.drain()
+
+        # Read initialization response
+        init_response = await asyncio.wait_for(process.stdout.readline(), timeout=5.0)
+
+        # Send tools/list request
+        tools_request = {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/list",
+            "params": {}
+        }
+
+        process.stdin.write((json.dumps(tools_request) + "\n").encode())
+        await process.stdin.drain()
+
+        # Read tools response
+        tools_response = await asyncio.wait_for(process.stdout.readline(), timeout=5.0)
+        tools_data = json.loads(tools_response.decode())
+
+        # Cleanup
+        process.terminate()
+        await process.wait()
+
+        # Display tools
+        if "result" in tools_data and "tools" in tools_data["result"]:
+            tools = tools_data["result"]["tools"]
+
+            if not tools:
+                console.print(f"ℹ️  [yellow]No tools found in MCP '{mcp_name}'[/yellow]\n")
+                return
+
+            # Display as simple list
+            console.print(f"\n🔧 [bold]Tools in '{mcp_name}' MCP:[/bold]")
+            for tool in tools:
+                name = tool.get("name", "Unknown")
+                description = tool.get("description", "No description")
+                console.print(f"  • [bold cyan]{name}[/bold cyan]")
+                console.print(f"    [dim]{description}[/dim]")
+            console.print()
+        else:
+            console.print(f"❌ [red]Failed to get tools from MCP '{mcp_name}'[/red]\n")
+
+    except asyncio.TimeoutError:
+        console.print(f"❌ [red]Timeout while communicating with MCP '{mcp_name}'[/red]\n")
+    except Exception as e:
+        console.print(f"❌ [red]Error getting tools from MCP '{mcp_name}': {e}[/red]\n")
+
+
 def print_banner():
     """Print CLI banner."""
     banner_text = Text()
@@ -290,6 +546,8 @@ def print_banner():
     console.print("  Type [bold]'clear'[/bold] to clear chat history")
     console.print("  Type [bold]'models'[/bold] to list available models")
     console.print("  Type [bold]'switch'[/bold] to change model")
+    console.print("  Type [bold]'mcps'[/bold] to list system MCPs")
+    console.print("  Type [bold]'mcp-tools <name>'[/bold] to list tools in an MCP")
     console.print()
 
 
@@ -314,6 +572,24 @@ def main(verbose=False):
             system_prompt=config.get_system_prompt(),
             max_context_length=config.get_max_context_length()
         )
+
+        # Initialize MCP client
+        system_mcps_dir = Path(__file__).parent / "system_mcps"
+        mcp_client = MCPClient(
+            system_mcps_dir=system_mcps_dir,
+            postgres_url=POSTGRES_API_URL,
+            verbose=verbose
+        )
+
+        # Set up debug callback for MCP client
+        mcp_client.set_debug_callback(debug_print)
+
+        # Initialize MCP tools in database (async operation)
+        debug_print("Initializing MCP tools...", icon="🔧")
+        try:
+            run_async(mcp_client.initialize_tools_in_db())
+        except Exception as e:
+            debug_print(f"Failed to initialize MCP tools: {e}", icon="⚠️")
 
         # Get configuration
         temperature = config.get_temperature()
@@ -341,8 +617,18 @@ def main(verbose=False):
 
                 # Handle special commands
                 if user_input.lower() in ['exit', 'quit']:
+                    # Cleanup MCP client
                     console.print("\n👋 [bold]Goodbye![/bold]")
-                    break
+                    try:
+                        run_async(mcp_client.cleanup())
+                    except (Exception, KeyboardInterrupt) as e:
+                        # Suppress cleanup errors on exit
+                        if verbose:
+                            debug_print(f"Cleanup: {e}", icon="🧹")
+                    # Redirect stderr to suppress prompt_toolkit task cleanup warnings
+                    # Open /dev/null without context manager since we exit immediately
+                    sys.stderr = open(os.devnull, 'w')
+                    sys.exit(0)
 
                 if user_input.lower() == 'clear':
                     chat_manager.clear_history()
@@ -391,6 +677,21 @@ def main(verbose=False):
                         console.print(f"\n❌ [red]Error switching model: {e}[/red]\n")
                     continue
 
+                if user_input.lower() == 'mcps':
+                    list_system_mcps()
+                    continue
+
+                if user_input.lower().startswith('mcp-tools '):
+                    mcp_name = user_input[10:].strip()
+                    if not mcp_name:
+                        console.print("❌ [red]Usage: mcp-tools <mcp_name>[/red]\n")
+                    else:
+                        try:
+                            run_async(get_mcp_tools(mcp_name))
+                        except Exception as e:
+                            console.print(f"❌ [red]Error: {e}[/red]\n")
+                    continue
+
                 # Skip empty input
                 if not user_input:
                     continue
@@ -403,12 +704,26 @@ def main(verbose=False):
 
                 # Get messages and inject guidance if available
                 messages = chat_manager.get_messages()
+
+                # Add system message about code execution to avoid redundancy
+                code_exec_instruction = {
+                    'role': 'system',
+                    'content': (
+                        "IMPORTANT: This system has automatic code execution capability. "
+                        "When the user asks to 'run' or 'execute' code, provide ONLY the code block. "
+                        "Do NOT show example outputs or predict what the output will be. "
+                        "The code will be automatically detected and executed, and the real output will be displayed. "
+                        "Just provide the code and a brief explanation if needed."
+                    )
+                }
+                messages = messages[:-1] + [code_exec_instruction, messages[-1]]
+
                 if guidance:
                     # Insert guidance as a system message before the last user message
                     guidance_message = {'role': 'system', 'content': guidance}
                     # Insert before the last message (which is the user's current message)
                     messages = messages[:-1] + [guidance_message, messages[-1]]
-                    debug_print(guidance, "magenta", "🧠")
+                    debug_print(guidance, icon="🧠", style="magenta")
 
                 # Get AI response
                 console.print()  # Add spacing before AI response
@@ -439,6 +754,14 @@ def main(verbose=False):
 
                 console.print()  # Extra line for readability
 
+                # Check for code and offer to execute
+                try:
+                    exec_result = run_async(handle_code_execution(mcp_client, full_response))
+                    if exec_result:
+                        display_execution_result(exec_result)
+                except Exception as e:
+                    debug_print(f"Error during code execution: {e}", icon="❌")
+
                 # Ask for rating
                 try:
                     rating_input = prompt("⭐ Rate (0-10, Enter to skip): ").strip()
@@ -459,8 +782,18 @@ def main(verbose=False):
                 console.print()  # Extra line for readability
 
             except KeyboardInterrupt:
+                # Cleanup MCP client
                 console.print("\n\n👋 [bold]Goodbye![/bold]")
-                break
+                try:
+                    run_async(mcp_client.cleanup())
+                except (Exception, KeyboardInterrupt) as e:
+                    # Suppress cleanup errors on exit
+                    if verbose:
+                        debug_print(f"Cleanup: {e}", icon="🧹")
+                # Redirect stderr to suppress prompt_toolkit task cleanup warnings
+                # Open /dev/null without context manager since we exit immediately
+                sys.stderr = open(os.devnull, 'w')
+                sys.exit(0)
             except Exception as e:
                 console.print(f"\n❌ [red]Error: {e}[/red]")
                 console.print("[dim]Please try again.[/dim]\n")

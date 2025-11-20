@@ -2,13 +2,14 @@
 
 from datetime import datetime
 from sqlalchemy.dialects.postgresql import JSON
-from sqlalchemy import Integer, Text, DateTime, CheckConstraint
+from sqlalchemy import Integer, Text, DateTime, CheckConstraint, Float
 from flask_sqlalchemy import SQLAlchemy
 from flask import Flask, jsonify, request
 from sentry_config import configure_sentry, capture_exception
 import sys
 import os
 import json
+import requests
 
 # Add shared source directory to path
 sys.path.insert(0, '/app/src_shared')
@@ -33,6 +34,9 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
+# Transformer service configuration
+TRANSFORMER_API_URL = os.getenv('TRANSFORMER_API_URL', 'http://localhost:16050')
+
 
 def handle_error(e, status_code=500):
     """Centralized error handler that logs to Sentry."""
@@ -52,6 +56,19 @@ class ConversationRating(db.Model):
     prompt_text = db.Column(Text)
     response_text = db.Column(Text)
     tags = db.Column(JSON, default={})
+    created_at = db.Column(DateTime, default=datetime.utcnow)
+    updated_at = db.Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# Define the MCPTool model
+class MCPTool(db.Model):
+    __tablename__ = 'mcp_tools'
+
+    id = db.Column(Integer, primary_key=True)
+    mcp_name = db.Column(Text, nullable=False)  # e.g., "coder"
+    tool_name = db.Column(Text, nullable=False)  # e.g., "run_python_code"
+    description = db.Column(Text, nullable=False)
+    embedding = db.Column(JSON)  # Store embedding as JSON array
     created_at = db.Column(DateTime, default=datetime.utcnow)
     updated_at = db.Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -266,6 +283,168 @@ def purge_ratings():
         }), 200
     except Exception as e:
         db.session.rollback()
+        return handle_error(e)
+
+
+# MCP Tools endpoints
+
+def get_embedding(text):
+    """Get embedding from transformer service."""
+    try:
+        response = requests.get(
+            f"{TRANSFORMER_API_URL}/embed",
+            params={"text": text},
+            timeout=30
+        )
+        if response.status_code == 200:
+            return response.json().get('embedding')
+        return None
+    except Exception as e:
+        print(f"Error getting embedding: {e}")
+        return None
+
+
+def cosine_similarity(vec1, vec2):
+    """Calculate cosine similarity between two vectors."""
+    if not vec1 or not vec2 or len(vec1) != len(vec2):
+        return 0.0
+
+    dot_product = sum(a * b for a, b in zip(vec1, vec2))
+    magnitude1 = sum(a * a for a in vec1) ** 0.5
+    magnitude2 = sum(b * b for b in vec2) ** 0.5
+
+    if magnitude1 == 0 or magnitude2 == 0:
+        return 0.0
+
+    return dot_product / (magnitude1 * magnitude2)
+
+
+@app.route('/mcp-tools/store', methods=['POST'])
+def store_mcp_tool():
+    """Store or update an MCP tool with its embedding."""
+    try:
+        data = request.get_json()
+
+        mcp_name = data.get('mcp_name')
+        tool_name = data.get('tool_name')
+        description = data.get('description')
+
+        if not all([mcp_name, tool_name, description]):
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing required fields: mcp_name, tool_name, description'
+            }), 400
+
+        # Get embedding for the description
+        embedding = get_embedding(description)
+        if not embedding:
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to generate embedding'
+            }), 500
+
+        # Check if tool already exists
+        existing_tool = MCPTool.query.filter_by(
+            mcp_name=mcp_name,
+            tool_name=tool_name
+        ).first()
+
+        if existing_tool:
+            # Update existing tool
+            existing_tool.description = description
+            existing_tool.embedding = embedding
+            existing_tool.updated_at = datetime.utcnow()
+            message = 'MCP tool updated successfully'
+        else:
+            # Create new tool
+            new_tool = MCPTool(
+                mcp_name=mcp_name,
+                tool_name=tool_name,
+                description=description,
+                embedding=embedding
+            )
+            db.session.add(new_tool)
+            message = 'MCP tool stored successfully'
+
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': message
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return handle_error(e)
+
+
+@app.route('/mcp-tools', methods=['GET'])
+def get_mcp_tools():
+    """Get all MCP tools with descriptions."""
+    try:
+        tools = MCPTool.query.all()
+
+        return jsonify({
+            'status': 'success',
+            'count': len(tools),
+            'tools': [{
+                'id': t.id,
+                'mcp_name': t.mcp_name,
+                'tool_name': t.tool_name,
+                'description': t.description,
+                'created_at': t.created_at.isoformat()
+            } for t in tools]
+        }), 200
+    except Exception as e:
+        return handle_error(e)
+
+
+@app.route('/mcp-tools/match', methods=['POST'])
+def match_mcp_tool():
+    """Match a prompt/code against MCP tools using embeddings."""
+    try:
+        data = request.get_json()
+        text = data.get('text')
+        threshold = data.get('threshold', 0.5)  # Default similarity threshold
+
+        if not text:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing required field: text'
+            }), 400
+
+        # Get embedding for the input text
+        text_embedding = get_embedding(text)
+        if not text_embedding:
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to generate embedding for input text'
+            }), 500
+
+        # Get all tools and calculate similarity
+        tools = MCPTool.query.all()
+        matches = []
+
+        for tool in tools:
+            if tool.embedding:
+                similarity = cosine_similarity(text_embedding, tool.embedding)
+                if similarity >= threshold:
+                    matches.append({
+                        'mcp_name': tool.mcp_name,
+                        'tool_name': tool.tool_name,
+                        'description': tool.description,
+                        'similarity': similarity
+                    })
+
+        # Sort by similarity (highest first)
+        matches.sort(key=lambda x: x['similarity'], reverse=True)
+
+        return jsonify({
+            'status': 'success',
+            'count': len(matches),
+            'matches': matches,
+            'best_match': matches[0] if matches else None
+        }), 200
+    except Exception as e:
         return handle_error(e)
 
 

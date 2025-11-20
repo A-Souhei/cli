@@ -121,7 +121,7 @@ test: install ## Run tests
 	@echo "$(GREEN)✓ Tests completed$(NC)"
 
 # Additional convenience targets
-.PHONY: exec-ollama pull-model list-models build-postgres exec-postgres flask-logs
+.PHONY: exec-ollama pull-model list-models build-postgres exec-postgres flask-logs update-schema
 
 build-postgres: ## Build PostgreSQL + Flask image
 	@echo "$(YELLOW)Building PostgreSQL + Flask image...$(NC)"
@@ -130,6 +130,12 @@ build-postgres: ## Build PostgreSQL + Flask image
 
 exec-postgres: ## Execute psql in PostgreSQL container
 	@$(DOCKER_COMPOSE) exec postgres su - postgres -c "psql -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-vuhitra}"
+
+update-schema: ## Update PostgreSQL schema (add/modify tables)
+	@echo "$(YELLOW)Updating PostgreSQL schema...$(NC)"
+	@chmod +x src/postgresql/update-schema.sh
+	@./src/postgresql/update-schema.sh
+	@echo "$(GREEN)✓ Schema update complete$(NC)"
 
 flask-logs: ## Show Flask application logs
 	@$(DOCKER_COMPOSE) exec postgres tail -f /var/log/flask.out.log
