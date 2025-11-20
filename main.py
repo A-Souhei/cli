@@ -333,20 +333,18 @@ async def handle_code_execution(mcp_client: MCPClient, response_text: str):
         debug_print(f"Unsupported language: {language}", icon="⚠️")
         return None
 
-    # Ask user for confirmation
+    # Ask user for confirmation using InteractiveSelector
     console.print()
-    console.print(Panel(
-        f"[bold cyan]Code Execution Request[/bold cyan]\n\n"
-        f"Language: [yellow]{language.upper()}[/yellow]\n"
-        f"Tool: [cyan]{mcp_name}/{tool_name}[/cyan]",
-        border_style="cyan"
-    ))
-    console.print()
-
     try:
-        execute = prompt("Execute this code? (y/N): ").strip().lower()
-        if execute != 'y':
-            console.print("[dim]Code execution cancelled[/dim]\n")
+        selector = InteractiveSelector(
+            title=f"⚡ Execute {language.upper()} code?",
+            choices=["Yes", "No"],
+            current="No"
+        )
+        choice = selector.show()
+
+        if choice != "Yes":
+            console.print("\n[dim]Code execution cancelled[/dim]\n")
             return None
     except (EOFError, KeyboardInterrupt):
         console.print("\n[dim]Code execution cancelled[/dim]\n")
