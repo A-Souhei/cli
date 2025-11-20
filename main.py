@@ -22,6 +22,8 @@ from rich.text import Text
 from rich.syntax import Syntax
 from rich.theme import Theme
 from rich.style import Style
+from rich.spinner import Spinner
+from rich.live import Live
 from prompt_toolkit import prompt
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.formatted_text import FormattedText
@@ -764,29 +766,35 @@ def main(verbose=False):
 
                 # Get response (stream or not) and collect full response
                 if stream:
-                    # Print arrow only when we get the first chunk
+                    # Show spinner while collecting response
                     full_response = ""
-                    first_chunk = True
-                    for chunk in ollama_client.chat(
-                        messages=messages,
-                        stream=True,
-                        temperature=temperature
-                    ):
-                        if first_chunk:
-                            console.print("[bold cyan]▶[/bold cyan] ", end="")
-                            first_chunk = False
-                        full_response += chunk
-                        console.print(chunk, end="")
-                    console.print()  # New line after streaming
-                else:
+                    spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
+
+                    with Live(spinner, console=console, refresh_per_second=10):
+                        for chunk in ollama_client.chat(
+                            messages=messages,
+                            stream=True,
+                            temperature=temperature
+                        ):
+                            full_response += chunk
+
+                    # Render complete response as markdown with custom styling
                     console.print("[bold cyan]▶[/bold cyan]")
-                    response = ollama_client.chat(
-                        messages=messages,
-                        stream=False,
-                        temperature=temperature
-                    )
-                    full_response = response.get('message', {}).get('content', '')
+                    console.print(CustomMarkdown(full_response, code_theme="monokai"))
+                else:
+                    # Show spinner while waiting for response
+                    spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
+
+                    with Live(spinner, console=console, refresh_per_second=10):
+                        response = ollama_client.chat(
+                            messages=messages,
+                            stream=False,
+                            temperature=temperature
+                        )
+                        full_response = response.get('message', {}).get('content', '')
+
                     # Render response as markdown with custom styling
+                    console.print("[bold cyan]▶[/bold cyan]")
                     console.print(CustomMarkdown(full_response, code_theme="monokai"))
 
                 # Add assistant response to context
