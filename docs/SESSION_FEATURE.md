@@ -167,8 +167,19 @@ summary = session_manager.end_session()
 
 ## Database Migration
 
-To enable session support in the database, run the migration script:
+To enable session support in the database, run the migration:
 
+### Using Make (Recommended)
+```bash
+make migrate-session
+```
+
+### Using the Script Directly
+```bash
+./scripts/apply_session_migration.sh
+```
+
+### Manual Migration
 ```bash
 # Connect to PostgreSQL
 docker exec -it <postgres_container> psql -U postgres -d vuhitra

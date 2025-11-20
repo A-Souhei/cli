@@ -9,6 +9,7 @@ A minimal, modular AI command-line interface that connects to Ollama services (l
 - ⚙️ Configurable via YAML file
 - 🔄 Streaming and non-streaming response modes
 - 📝 Conversation context management
+- 📚 **Session feature** for context-persistent conversations with history-embedded RAG
 - 🎯 Modular architecture with separated features
 - 🐳 Docker Compose setup for Ollama
 - 🚀 Easy setup with automated scripts and Makefile
@@ -152,7 +153,34 @@ Once the CLI starts, you can:
 - **Chat with AI:** Simply type your message and press Enter
 - **Clear history:** Type `clear` to reset the conversation
 - **List models:** Type `models` to see available Ollama models
+- **Switch model:** Type `switch` to change the current model
+- **Session commands:**
+  - `session start` - Start a context-persistent session
+  - `session end` - End the current session
+  - `session info` - Display current session information
 - **Exit:** Type `exit` or `quit` to close the CLI
+
+### Session Feature
+
+The session feature allows you to maintain conversation context across multiple prompts using history-embedded RAG. When a session is active, the last 5 interactions are automatically included as context, enabling coherent multi-turn conversations.
+
+**Example:**
+```
+▶ session start
+📝 Session started: 12345678...
+
+▶ What is the capital of France?
+▶ Paris
+
+▶ What's the population of that city?
+▶ Paris has approximately 2.2 million people...
+# AI understands "that city" refers to Paris
+
+▶ session end
+✅ Session ended: 12345678... (2 interactions)
+```
+
+See [docs/SESSION_FEATURE.md](docs/SESSION_FEATURE.md) for detailed documentation.
 
 ### Example Session
 
@@ -212,6 +240,12 @@ make status
 
 # Run tests
 make test
+
+# Apply session feature database migration
+make migrate-session
+
+# Update PostgreSQL schema
+make update-schema
 
 # Pull a specific model
 make pull-model MODEL=llama2
