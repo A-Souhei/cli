@@ -76,7 +76,7 @@ SATISFACTORY_RATING_THRESHOLD = 7  # Rating >= 7 is considered satisfactory
 VERBOSE = False
 
 
-def debug_print(message, style="dim", icon="🔍"):
+def debug_print(message, icon="🔍", style="dim"):
     """Print message only if verbose mode is enabled."""
     if VERBOSE:
         console.print(f"{icon} {message}", style=style)
@@ -222,19 +222,19 @@ def process_rating(user_rating, prompt_text, response_text):
         # Update if current rating is higher or equal
         if user_rating >= stored_rating:
             if update_rating(best_match['id'], user_rating, response_text, keywords):
-                debug_print(f"Rating updated - Similar prompt (similarity: {best_similarity:.2f}), {stored_rating} → {user_rating}", "green", "✅")
-                debug_print(f"Keywords: {', '.join(keywords)}", "cyan", "🏷️")
+                debug_print(f"Rating updated - Similar prompt (similarity: {best_similarity:.2f}), {stored_rating} → {user_rating}", icon="✅", style="green")
+                debug_print(f"Keywords: {', '.join(keywords)}", icon="🏷️", style="cyan")
             else:
-                debug_print("Failed to update existing rating", "red", "❌")
+                debug_print("Failed to update existing rating", icon="❌", style="red")
         else:
-            debug_print(f"Rating skipped - Stored rating higher ({stored_rating} > {user_rating})", "yellow", "⏭️")
+            debug_print(f"Rating skipped - Stored rating higher ({stored_rating} > {user_rating})", icon="⏭️", style="yellow")
     else:
         # No similar prompt found, create new entry
         if create_rating(user_rating, prompt_text, response_text, keywords):
-            debug_print(f"New prompt stored with rating {user_rating}", "green", "💾")
-            debug_print(f"Keywords: {', '.join(keywords)}", "cyan", "🏷️")
+            debug_print(f"New prompt stored with rating {user_rating}", icon="💾", style="green")
+            debug_print(f"Keywords: {', '.join(keywords)}", icon="🏷️", style="cyan")
         else:
-            debug_print("Failed to save new rating", "red", "❌")
+            debug_print("Failed to save new rating", icon="❌", style="red")
 
 
 def get_prompt_guidance(prompt_text):
@@ -296,13 +296,13 @@ async def handle_code_execution(mcp_client: MCPClient, response_text: str):
     detected = mcp_client.detect_code(response_text)
 
     if not detected:
-        debug_print("No code detected in response", "ℹ️")
+        debug_print("No code detected in response", icon="ℹ️")
         return None
 
     language = detected['language']
     code = detected['code']
 
-    debug_print(f"Detected {language.upper()} code block", "🔍")
+    debug_print(f"Detected {language.upper()} code block", icon="🔍")
 
     # Determine tool based on language
     if language == "python":
@@ -312,7 +312,7 @@ async def handle_code_execution(mcp_client: MCPClient, response_text: str):
         tool_name = "run_r_code"
         mcp_name = "coder"
     else:
-        debug_print(f"Unsupported language: {language}", "⚠️")
+        debug_print(f"Unsupported language: {language}", icon="⚠️")
         return None
 
     # Ask user for confirmation
@@ -335,7 +335,7 @@ async def handle_code_execution(mcp_client: MCPClient, response_text: str):
         return None
 
     # Execute the code
-    debug_print(f"Executing {language} code...", "⚙️")
+    debug_print(f"Executing {language} code...", icon="⚙️")
     console.print("[yellow]Executing code...[/yellow]\n")
 
     result = await mcp_client.call_tool(
@@ -410,7 +410,7 @@ def display_execution_result(result: str):
         ))
         console.print()
     except Exception as e:
-        debug_print(f"Error displaying result: {e}", "❌")
+        debug_print(f"Error displaying result: {e}", icon="❌")
         console.print(f"[dim]Result: {result}[/dim]\n")
 
 
@@ -588,11 +588,11 @@ def main(verbose=False):
         mcp_client.set_debug_callback(debug_print)
 
         # Initialize MCP tools in database (async operation)
-        debug_print("Initializing MCP tools...", "🔧")
+        debug_print("Initializing MCP tools...", icon="🔧")
         try:
             asyncio.run(mcp_client.initialize_tools_in_db())
         except Exception as e:
-            debug_print(f"Failed to initialize MCP tools: {e}", "⚠️")
+            debug_print(f"Failed to initialize MCP tools: {e}", icon="⚠️")
 
         # Get configuration
         temperature = config.get_temperature()
@@ -624,7 +624,7 @@ def main(verbose=False):
                     try:
                         asyncio.run(mcp_client.cleanup())
                     except Exception as e:
-                        debug_print(f"Error cleaning up MCP client: {e}", "⚠️")
+                        debug_print(f"Error cleaning up MCP client: {e}", icon="⚠️")
                     console.print("\n👋 [bold]Goodbye![/bold]")
                     break
 
@@ -707,7 +707,7 @@ def main(verbose=False):
                     guidance_message = {'role': 'system', 'content': guidance}
                     # Insert before the last message (which is the user's current message)
                     messages = messages[:-1] + [guidance_message, messages[-1]]
-                    debug_print(guidance, "magenta", "🧠")
+                    debug_print(guidance, icon="🧠", style="magenta")
 
                 # Get AI response
                 console.print()  # Add spacing before AI response
@@ -744,7 +744,7 @@ def main(verbose=False):
                     if exec_result:
                         display_execution_result(exec_result)
                 except Exception as e:
-                    debug_print(f"Error during code execution: {e}", "❌")
+                    debug_print(f"Error during code execution: {e}", icon="❌")
 
                 # Ask for rating
                 try:
@@ -770,7 +770,7 @@ def main(verbose=False):
                 try:
                     asyncio.run(mcp_client.cleanup())
                 except Exception as e:
-                    debug_print(f"Error cleaning up MCP client: {e}", "⚠️")
+                    debug_print(f"Error cleaning up MCP client: {e}", icon="⚠️")
                 console.print("\n\n👋 [bold]Goodbye![/bold]")
                 break
             except Exception as e:
