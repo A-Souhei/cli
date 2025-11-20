@@ -14,7 +14,7 @@ from sentry_config import configure_sentry, capture_exception
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from sentence_transformers import SentenceTransformer
-from nlp_tasks import analyze_sentiment, summarize_text
+from nlp_tasks import analyze_sentiment, summarize_text, extract_keywords
 from embedding_similarity import calculate_similarity
 import numpy as np
 
@@ -229,6 +229,42 @@ def summarize():
         return handle_error(e)
 
 
+@app.route('/keywords', methods=['GET'])
+def extract_keywords_endpoint():
+    """
+    Extract keywords from the given text.
+
+    Query Parameters:
+    - text: The text to extract keywords from
+    - top_n: Number of keywords to extract (default: 5)
+
+    Returns:
+    - keywords: List of keywords with their relevance scores
+    - count: Number of keywords extracted
+    """
+    try:
+        text = request.args.get('text')
+
+        if not text:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing text parameter'
+            }), 400
+
+        top_n = request.args.get('top_n', type=int, default=5)
+
+        result = extract_keywords(text, top_n=top_n)
+
+        return jsonify({
+            'status': 'success',
+            'text': text,
+            **result
+        }), 200
+
+    except Exception as e:
+        return handle_error(e)
+
+
 @app.route('/similarity', methods=['GET'])
 def compare_similarity():
     """
@@ -338,6 +374,7 @@ if __name__ == '__main__':
     print("  GET  /embed/batch?texts=<json_array> - Generate embeddings for multiple texts")
     print("  GET  /sentiment?text=<text> - Analyze sentiment")
     print("  GET  /summarize?text=<text> - Summarize text")
+    print("  GET  /keywords?text=<text> - Extract keywords from text")
     print("  GET  /similarity?text1=<text>&text2=<text> - Compare similarity between two texts")
     print()
 

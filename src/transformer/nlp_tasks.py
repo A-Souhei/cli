@@ -2,16 +2,18 @@
 NLP Task Functions
 
 This module provides functions for various NLP tasks including
-sentiment analysis and text summarization.
+sentiment analysis, text summarization, and keyword extraction.
 """
 
 from transformers import pipeline
 from typing import Dict, Any
+from keybert import KeyBERT
 
 
 # Lazy load pipelines
 _sentiment_pipeline = None
 _summarization_pipeline = None
+_keyword_model = None
 
 
 def get_sentiment_pipeline():
@@ -106,4 +108,75 @@ def summarize_text(text: str, max_length: int = 130, min_length: int = 30) -> Di
         'summary': summary,
         'original_length': len(text),
         'summary_length': len(summary)
+    }
+
+
+def get_keyword_model():
+    """
+    Lazy load the keyword extraction model.
+
+    Model Choice: all-MiniLM-L6-v2
+    ------------------------------
+    This model was chosen for the following reasons:
+    1. Consistency: It's the same model used in the transformer service's
+       similarity endpoint (see src/transformer/app.py), ensuring consistent
+       vector representations across the system
+    2. Performance: At 80MB, it's lightweight and fast enough for CPU inference
+    3. Quality: Despite its size, it produces high-quality embeddings with
+       384 dimensions, suitable for semantic similarity tasks
+    4. Compatibility: It's a sentence-transformers model, making it compatible
+       with both the transformer service and KeyBERT
+
+    Alternative models like 'all-mpnet-base-v2' (more accurate but 420MB) or
+    'paraphrase-MiniLM-L3-v2' (faster but less accurate) could be used, but
+    all-MiniLM-L6-v2 provides the best balance for this use case.
+    """
+    global _keyword_model
+    if _keyword_model is None:
+        # Use the same embedding model as the transformer service for consistency
+        _keyword_model = KeyBERT(model='all-MiniLM-L6-v2')
+    return _keyword_model
+
+
+def extract_keywords(text: str, top_n: int = 5, keyphrase_ngram_range: tuple = (1, 2)) -> Dict[str, Any]:
+    """
+    Extract keywords and keyphrases from the given text.
+
+    Parameters:
+    -----------
+    text : str
+        The text to extract keywords from
+    top_n : int
+        Number of top keywords to extract (default: 5)
+    keyphrase_ngram_range : tuple
+        Range of n-grams to consider (default: (1, 2) for unigrams and bigrams)
+
+    Returns:
+    --------
+    dict
+        Dictionary containing:
+        - keywords: List of extracted keywords with their scores
+        - count: Number of keywords extracted
+    """
+    keyword_model = get_keyword_model()
+
+    # Extract keywords
+    keywords = keyword_model.extract_keywords(
+        text,
+        keyphrase_ngram_range=keyphrase_ngram_range,
+        stop_words='english',
+        top_n=top_n,
+        use_maxsum=True,
+        nr_candidates=20
+    )
+
+    # Format results
+    keyword_list = [
+        {'keyword': kw, 'score': float(score)}
+        for kw, score in keywords
+    ]
+
+    return {
+        'keywords': keyword_list,
+        'count': len(keyword_list)
     }

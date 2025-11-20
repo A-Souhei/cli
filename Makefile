@@ -1,4 +1,4 @@
-.PHONY: help setup run venv install build up down restart logs status clean test
+.PHONY: help setup run run-verbose venv install build up down restart logs status clean test
 
 # Default target
 .DEFAULT_GOAL := help
@@ -34,6 +34,11 @@ run: venv ## Run the AI CLI
 	@echo "$(YELLOW)Starting AI CLI...$(NC)"
 	@chmod +x start.sh
 	@./start.sh
+
+run-verbose: venv ## Run the AI CLI in verbose mode
+	@echo "$(YELLOW)Starting AI CLI (verbose mode)...$(NC)"
+	@chmod +x start.sh
+	@./start.sh --verbose
 
 venv: ## Create Python virtual environment
 	@if [ ! -d "$(VENV_DIR)" ]; then \
@@ -79,7 +84,7 @@ up: ## Start Docker containers (Ollama + PostgreSQL + Flask)
 	@echo ""
 	@echo "Services:"
 	@echo "  - Ollama: http://localhost:11434"
-	@echo "  - PostgreSQL: localhost:5432"
+	@echo "  - PostgreSQL: localhost:25432"
 	@echo "  - Flask API: http://localhost:5000"
 
 down: ## Stop and remove Docker containers
@@ -110,7 +115,7 @@ clean: ## Remove virtual environment and Docker volumes
 		echo "$(GREEN)✓ Docker volumes removed$(NC)"; \
 	fi
 
-test: venv ## Run tests
+test: install ## Run tests
 	@echo "$(YELLOW)Running tests...$(NC)"
 	@$(VENV_PYTHON) test_cli.py
 	@echo "$(GREEN)✓ Tests completed$(NC)"

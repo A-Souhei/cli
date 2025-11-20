@@ -50,7 +50,7 @@ fi
 # Run the main application
 echo "Starting AI CLI..."
 echo ""
-python main.py
+python main.py "$@"
 
 # Deactivate virtual environment on exit
 deactivate

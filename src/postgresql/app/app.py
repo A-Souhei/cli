@@ -194,6 +194,64 @@ def update_rating_tags(rating_id):
         return handle_error(e)
 
 
+@app.route('/ratings/<int:rating_id>/update', methods=['PATCH'])
+def update_rating(rating_id):
+    """Update a specific conversation rating."""
+    try:
+        rating = ConversationRating.query.get_or_404(rating_id)
+
+        # Get JSON data from request body
+        data = request.get_json() or {}
+
+        # Update fields if provided with input validation
+        if 'user_rating' in data:
+            try:
+                user_rating = int(data['user_rating'])
+                if not 0 <= user_rating <= 10:
+                    return jsonify({
+                        'status': 'error',
+                        'message': 'user_rating must be between 0 and 10'
+                    }), 400
+                rating.user_rating = user_rating
+            except (ValueError, TypeError):
+                return jsonify({
+                    'status': 'error',
+                    'message': 'user_rating must be a valid integer'
+                }), 400
+
+        if 'response_text' in data:
+            rating.response_text = data['response_text']
+
+        if 'prompt_text' in data:
+            rating.prompt_text = data['prompt_text']
+
+        if 'tags' in data:
+            if not isinstance(data['tags'], dict):
+                return jsonify({
+                    'status': 'error',
+                    'message': 'tags must be a valid JSON object'
+                }), 400
+            rating.tags = data['tags']
+
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Rating updated successfully',
+            'rating': {
+                'id': rating.id,
+                'user_rating': rating.user_rating,
+                'prompt_text': rating.prompt_text,
+                'response_text': rating.response_text,
+                'tags': rating.tags,
+                'updated_at': rating.updated_at.isoformat()
+            }
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return handle_error(e)
+
+
 @app.route('/ratings/purge', methods=['GET'])
 def purge_ratings():
     """Delete all conversation ratings."""
