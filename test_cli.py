@@ -127,7 +127,38 @@ def test_postgresql_endpoints():
             timeout=5
         )
         assert response.status_code == 200, "Update tags should return 200"
-        
+
+        # Test update rating (PATCH endpoint)
+        response = requests.patch(
+            f"{base_url}/ratings/{rating_id}/update",
+            json={
+                'user_rating': 9,
+                'response_text': 'Updated response',
+                'tags': {'category': 'updated', 'keywords': ['test', 'update']}
+            },
+            timeout=5
+        )
+        assert response.status_code == 200, "Update rating should return 200"
+        data = response.json()
+        assert data.get('status') == 'success', "Update should succeed"
+        assert data.get('rating', {}).get('user_rating') == 9, "Rating should be updated to 9"
+
+        # Test update rating with invalid user_rating (should fail)
+        response = requests.patch(
+            f"{base_url}/ratings/{rating_id}/update",
+            json={'user_rating': 11},  # Out of range
+            timeout=5
+        )
+        assert response.status_code == 400, "Invalid rating should return 400"
+
+        # Test update rating with invalid type
+        response = requests.patch(
+            f"{base_url}/ratings/{rating_id}/update",
+            json={'user_rating': 'invalid'},  # Wrong type
+            timeout=5
+        )
+        assert response.status_code == 400, "Invalid type should return 400"
+
         print("✓ PostgreSQL endpoints tests passed!")
     except requests.exceptions.RequestException as e:
         print(f"⚠ PostgreSQL service not available (skipping): {e}")
