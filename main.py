@@ -324,7 +324,7 @@ def main(verbose=False):
             try:
                 # Get user input with history support
                 user_input = prompt(
-                    FormattedText([('ansigreen', '➜ ')]),
+                    FormattedText([('ansigreen', '➤ ')]),
                     history=history
                 ).strip()
 
@@ -372,7 +372,7 @@ def main(verbose=False):
                     debug_print(guidance, "magenta", "🧠")
 
                 # Get AI response
-                console.print("[bold cyan]➜[/bold cyan]")
+                console.print("[bold cyan]➥[/bold cyan]")
 
                 # Get response (stream or not) and collect full response
                 if stream:
