@@ -5,6 +5,7 @@ import json
 import argparse
 import requests
 import urllib.parse
+from pathlib import Path
 from src.config import ConfigManager
 from src.ollama_client import OllamaClient
 from src.chat import ChatManager
@@ -12,9 +13,15 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
+from prompt_toolkit import prompt
+from prompt_toolkit.history import FileHistory
+from prompt_toolkit.formatted_text import FormattedText
 
 # Initialize rich console
 console = Console()
+
+# Set up history file
+HISTORY_FILE = Path.home() / ".ai_cli_history"
 
 # API Configuration
 POSTGRES_API_URL = "http://localhost:15000"
@@ -269,11 +276,17 @@ def main(verbose=False):
         console.print(f"  🔗 Server: [dim]{config.get_ollama_url()}[/dim]")
         console.print()
 
+        # Initialize command history
+        history = FileHistory(str(HISTORY_FILE))
+
         # Main chat loop
         while True:
             try:
-                # Get user input
-                user_input = console.input("👤 [bold green]You:[/bold green] ").strip()
+                # Get user input with history support
+                user_input = prompt(
+                    FormattedText([('class:prompt', '👤 You: ')]),
+                    history=history
+                ).strip()
 
                 # Handle special commands
                 if user_input.lower() in ['exit', 'quit']:
@@ -321,43 +334,16 @@ def main(verbose=False):
                 # Get AI response
                 console.print("🤖 [bold cyan]AI:[/bold cyan]")
 
+                # Get response (stream or not) and collect full response
                 if stream:
-                    # Stream response (raw text for speed, no markdown rendering)
                     full_response = ""
                     for chunk in ollama_client.chat(
                         messages=messages,
                         stream=True,
                         temperature=temperature
                     ):
-                        print(chunk, end='', flush=True)
                         full_response += chunk
-                    print()  # New line after streaming
-
-                    # Add assistant response to context
-                    chat_manager.add_assistant_message(full_response)
-
-                    console.print()  # Extra line for readability
-
-                    # Ask for rating
-                    try:
-                        rating_input = console.input("⭐ [dim]Rate (0-10, Enter to skip):[/dim] ").strip()
-
-                        if rating_input:  # User provided input
-                            try:
-                                rating = int(rating_input)
-                                if 0 <= rating <= 10:
-                                    process_rating(rating, user_input, full_response)
-                                else:
-                                    console.print("❌ [red]Invalid rating. Enter 0-10.[/red]")
-                            except ValueError:
-                                console.print("❌ [red]Invalid input. Enter a number.[/red]")
-                        # If empty input (Enter pressed), do nothing - silently skip
-                    except EOFError:
-                        pass  # Handle piped input gracefully
-
-                    console.print()  # Extra line for readability
                 else:
-                    # Non-streaming response
                     response = ollama_client.chat(
                         messages=messages,
                         stream=False,
@@ -365,32 +351,32 @@ def main(verbose=False):
                     )
                     full_response = response.get('message', {}).get('content', '')
 
-                    # Render as markdown
-                    console.print(Markdown(full_response))
+                # Render response as markdown
+                console.print(Markdown(full_response))
 
-                    # Add assistant response to context
-                    chat_manager.add_assistant_message(full_response)
+                # Add assistant response to context
+                chat_manager.add_assistant_message(full_response)
 
-                    console.print()  # Extra line for readability
+                console.print()  # Extra line for readability
 
-                    # Ask for rating
-                    try:
-                        rating_input = console.input("⭐ [dim]Rate (0-10, Enter to skip):[/dim] ").strip()
+                # Ask for rating
+                try:
+                    rating_input = prompt("⭐ Rate (0-10, Enter to skip): ").strip()
 
-                        if rating_input:  # User provided input
-                            try:
-                                rating = int(rating_input)
-                                if 0 <= rating <= 10:
-                                    process_rating(rating, user_input, full_response)
-                                else:
-                                    console.print("❌ [red]Invalid rating. Enter 0-10.[/red]")
-                            except ValueError:
-                                console.print("❌ [red]Invalid input. Enter a number.[/red]")
-                        # If empty input (Enter pressed), do nothing - silently skip
-                    except EOFError:
-                        pass  # Handle piped input gracefully
+                    if rating_input:  # User provided input
+                        try:
+                            rating = int(rating_input)
+                            if 0 <= rating <= 10:
+                                process_rating(rating, user_input, full_response)
+                            else:
+                                console.print("❌ [red]Invalid rating. Enter 0-10.[/red]")
+                        except ValueError:
+                            console.print("❌ [red]Invalid input. Enter a number.[/red]")
+                    # If empty input (Enter pressed), do nothing - silently skip
+                except EOFError:
+                    pass  # Handle piped input gracefully
 
-                    console.print()  # Extra line for readability
+                console.print()  # Extra line for readability
 
             except KeyboardInterrupt:
                 console.print("\n\n👋 [bold]Goodbye![/bold]")
