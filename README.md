@@ -6,12 +6,16 @@ A minimal, modular AI command-line interface that connects to Ollama services (l
 
 - 🤖 Connect to local or remote Ollama services
 - 💬 Interactive chat with AI models
+- 📁 **@ Prefix Autocomplete** - TAB completion for files/directories with automatic context injection
+- 🔍 **RAG Context System** - Redis-backed vector embeddings for semantic search
+- 🌳 **Directory Tree Visualization** - ASCII tree structure for directory context
+- 🐍 **Code Generation** - Write Python/R code to files automatically
+- 📝 **MCP Tool System** - Modular Context Protocol for extensible operations
+- 📚 **Session Management** - Context-persistent conversations with history injection
+- ⚡ **Code Execution** - Run Python/R code with automatic output capture
 - ⚙️ Configurable via YAML file
 - 🔄 Streaming and non-streaming response modes
-- 📝 Conversation context management
-- 📚 **Session feature** for context-persistent conversations with history-based context injection
-- 🎯 Modular architecture with separated features
-- 🐳 Docker Compose setup for Ollama
+- 🐳 Docker Compose with Redis, PostgreSQL, Transformer services
 - 🚀 Easy setup with automated scripts and Makefile
 
 ## Quick Start
@@ -20,33 +24,45 @@ A minimal, modular AI command-line interface that connects to Ollama services (l
 # Automated setup (recommended)
 make setup
 
-# Or manually
-./setup.sh
+# Build and start all services (Ollama, Redis, Transformer, PostgreSQL)
+make build-all-services
+make up-all
 
 # Run the CLI
 make run
 # Or: ./start.sh
 ```
 
+See [DOCUMENTATION.md](DOCUMENTATION.md) for detailed guides and [docs/](docs/) for specific features.
+
 ## Project Structure
 
 ```
 cli/
-├── config.yaml              # Configuration file for Ollama and chat settings
-├── docker-compose.yml       # Docker Compose for Ollama service
+├── config.yaml              # Configuration for Ollama and chat
+├── docker-compose.yml       # Multi-service Docker setup
 ├── Makefile                # Build automation and commands
-├── setup.sh                # Automated setup script
-├── start.sh                # CLI startup script
-├── .env.example            # Environment variables template
-├── requirements.txt         # Python dependencies
 ├── main.py                 # Main entry point
-└── src/
-    ├── config/             # Configuration management module
-    │   └── __init__.py
-    ├── ollama_client/      # Ollama client module
-    │   └── __init__.py
-    └── chat/               # Chat management module
-        └── __init__.py
+├── requirements.txt         # Python dependencies
+├── .env.example            # Environment variables template
+├── docs/                   # Feature documentation
+│   ├── AT_PREFIXER_FEATURE.md
+│   ├── SESSION_FEATURE.md
+│   └── MAKEFILE_COMMANDS.md
+├── src/                    # Core modules
+│   ├── config/             # Configuration management
+│   ├── ollama_client/      # Ollama client
+│   ├── chat/               # Chat management
+│   ├── mcp/                # MCP client system
+│   ├── redis/              # Redis API service
+│   │   └── flask-app/      # Flask API for embeddings
+│   ├── utils/              # Utilities (tree, etc.)
+│   └── file_completer.py   # @ prefix autocomplete
+├── system_mcps/            # MCP tool servers
+│   └── coder/              # Code execution & file tools
+└── testing/                # Test applications
+    ├── python_app/         # Python test structure
+    └── r_app/              # R test structure
 ```
 
 ## Prerequisites
@@ -151,9 +167,13 @@ make setup
 Once the CLI starts, you can:
 
 - **Chat with AI:** Simply type your message and press Enter
+- **@ Prefix for files:** Type `@filename` + TAB for autocomplete, automatically adds file context
+- **@ Prefix for directories:** Type `@dirname/` to add entire directory with tree visualization
+- **Generate code:** Type `@newfile.py <description>` to generate code directly to file
 - **Clear history:** Type `clear` to reset the conversation
 - **List models:** Type `models` to see available Ollama models
 - **Switch model:** Type `switch` to change the current model
+- **MCP tools:** Type `mcps` to list available tools, `mcp-tools <name>` for tool details
 - **Session commands:**
   - `session start` - Start a context-persistent session
   - `session end` - End the current session
@@ -211,51 +231,44 @@ The project includes a Makefile for easy management:
 # Show all available commands
 make help
 
-# Setup everything (venv + dependencies + Docker)
-make setup
+# Setup
+make setup                    # Complete setup (venv + dependencies + Docker)
+make venv                     # Create virtual environment
+make install                  # Install Python dependencies
 
-# Run the CLI
-make run
+# Build & Run
+make build-all-services       # Build all Docker images
+make up-all                   # Start all services (Ollama + Redis + Transformer + PostgreSQL)
+make up-redis                 # Start only Redis services
+make run                      # Run the CLI
 
-# Create virtual environment
-make venv
+# Docker Management
+make down                     # Stop Docker containers
+make restart                  # Restart Docker containers
+make logs                     # View container logs
+make status                   # Show container status
 
-# Install Python dependencies
-make install
+# Redis Management
+make build-redis              # Build Redis API image
+make redis-logs               # Show Redis API logs
+make redis-cli                # Execute Redis CLI
+make redis-clear              # Clear all Redis data (with confirmation)
+make redis-info               # Show Redis statistics
+make redis-api-health         # Check Redis API health
 
-# Start Docker containers
-make up
+# Database
+make migrate-session          # Apply session database migration
+make update-schema            # Update PostgreSQL schema
 
-# Stop Docker containers
-make down
+# Ollama
+make pull-model MODEL=llama2  # Pull a specific model
+make list-models              # List available models
 
-# Restart Docker containers
-make restart
-
-# View container logs
-make logs
-
-# Show container status
-make status
-
-# Run tests
-make test
-
-# Apply session feature database migration
-make migrate-session
-
-# Update PostgreSQL schema
-make update-schema
-
-# Pull a specific model
-make pull-model MODEL=llama2
-
-# List available models
-make list-models
-
-# Clean up (remove venv and volumes)
-make clean
+# Cleanup
+make clean                    # Remove venv and volumes
 ```
+
+See [docs/MAKEFILE_COMMANDS.md](docs/MAKEFILE_COMMANDS.md) for detailed command documentation.
 
 ## Docker Compose Management
 

@@ -11,8 +11,13 @@ import sys
 import subprocess
 import re
 import json
+import requests
 from pathlib import Path
 from typing import Any, Optional
+
+# Add the CLI root to path to import tree utility
+cli_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(cli_root))
 
 # MCP SDK imports
 try:
@@ -22,6 +27,18 @@ try:
 except ImportError:
     print("Error: mcp package not found. Install with: pip install mcp", file=sys.stderr)
     sys.exit(1)
+
+# Import tree utility
+try:
+    from src.utils.tree import generate_tree_summary
+except ImportError:
+    # Fallback if import fails
+    def generate_tree_summary(directory: str, max_depth: int = 10) -> dict:
+        """Fallback tree generation."""
+        return {
+            'tree': f"[Tree generation unavailable for {directory}]\n",
+            'stats': {'files': 0, 'directories': 0, 'total_size': 0}
+        }
 
 # Initialize the MCP server
 app = Server("coder")
@@ -129,6 +146,199 @@ def detect_code_language(text: str) -> Optional[tuple[str, str]]:
     return None
 
 
+def get_redis_api_url() -> str:
+    """Get Redis API URL from environment or use default."""
+    return os.getenv('REDIS_API_URL', 'http://localhost:17000')
+
+
+def add_context_to_redis(file_path: str, content: str, session_id: Optional[str] = None, context_type: str = "file") -> dict:
+    """
+    Add file or directory context to Redis with RAG embedding.
+
+    Args:
+        file_path: Path to the file or directory
+        content: Content to embed
+        session_id: Optional session ID for persistence
+        context_type: Type of context ('file' or 'directory')
+
+    Returns:
+        Response from Redis API
+    """
+    redis_api_url = get_redis_api_url()
+
+    # Get timestamp safely - skip for special markers like __TREE__
+    timestamp = None
+    if '__TREE__' not in file_path:
+        try:
+            file_path_obj = Path(file_path)
+            if file_path_obj.exists():
+                timestamp = str(file_path_obj.stat().st_mtime)
+        except OSError:
+            pass  # File may not exist or be inaccessible
+
+    payload = {
+        'context_type': context_type,
+        'path': file_path,
+        'content': content,
+        'metadata': {
+            'size': len(content),
+            'timestamp': timestamp
+        }
+    }
+
+    if session_id:
+        payload['session_id'] = session_id
+
+    try:
+        response = requests.post(
+            f"{redis_api_url}/context/store",
+            json=payload,
+            timeout=30
+        )
+        return response.json()
+    except Exception as e:
+        return {'status': 'error', 'message': str(e)}
+
+
+def read_file_safe(file_path: str, working_dir: str) -> tuple[bool, str]:
+    """
+    Safely read a file with validation.
+
+    Args:
+        file_path: Path to the file
+        working_dir: Working directory for relative paths
+
+    Returns:
+        Tuple of (success, content_or_error)
+    """
+    try:
+        # Convert to absolute path if relative
+        if not os.path.isabs(file_path):
+            file_path = os.path.join(working_dir, file_path)
+
+        path = Path(file_path).resolve()
+
+        # Validate the file is within working directory or a safe location
+        try:
+            path.relative_to(Path(working_dir).resolve())
+        except ValueError:
+            return False, f"File is outside working directory: {file_path}"
+
+        if not path.exists():
+            return False, f"File does not exist: {file_path}"
+
+        if not path.is_file():
+            return False, f"Path is not a file: {file_path}"
+
+        # Read file content
+        with open(path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        return True, content
+
+    except Exception as e:
+        return False, f"Error reading file: {str(e)}"
+
+
+def write_file_safe(file_path: str, content: str, working_dir: str) -> tuple[bool, str]:
+    """
+    Safely write to a file with validation.
+
+    Args:
+        file_path: Path to the file
+        content: Content to write
+        working_dir: Working directory for relative paths
+
+    Returns:
+        Tuple of (success, message)
+    """
+    try:
+        # Convert to absolute path if relative
+        if not os.path.isabs(file_path):
+            file_path = os.path.join(working_dir, file_path)
+
+        path = Path(file_path).resolve()
+
+        # Validate the file is within working directory
+        try:
+            path.relative_to(Path(working_dir).resolve())
+        except ValueError:
+            return False, f"File is outside working directory: {file_path}"
+
+        # Create parent directories if they don't exist
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write file content
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+        return True, f"Successfully wrote to {file_path}"
+
+    except Exception as e:
+        return False, f"Error writing file: {str(e)}"
+
+
+def read_directory_recursive(dir_path: str, working_dir: str) -> tuple[bool, str, list]:
+    """
+    Recursively read all files in a directory.
+
+    Args:
+        dir_path: Path to the directory
+        working_dir: Working directory for relative paths
+
+    Returns:
+        Tuple of (success, error_or_message, files_content_list)
+    """
+    try:
+        # Convert to absolute path if relative
+        if not os.path.isabs(dir_path):
+            dir_path = os.path.join(working_dir, dir_path)
+
+        path = Path(dir_path).resolve()
+
+        # Validate the directory is within working directory
+        try:
+            path.relative_to(Path(working_dir).resolve())
+        except ValueError:
+            return False, f"Directory is outside working directory: {dir_path}", []
+
+        if not path.exists():
+            return False, f"Directory does not exist: {dir_path}", []
+
+        if not path.is_dir():
+            return False, f"Path is not a directory: {dir_path}", []
+
+        # Recursively read all files
+        files_content = []
+        skipped_files = []
+        for file_path in path.rglob('*'):
+            if file_path.is_file():
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        relative_path = file_path.relative_to(path)
+                        files_content.append({
+                            'path': str(relative_path),
+                            'full_path': str(file_path),
+                            'content': content
+                        })
+                except (OSError, UnicodeDecodeError) as e:
+                    # Track files that can't be read
+                    skipped_files.append(str(file_path.relative_to(path)))
+
+        message = f"Read {len(files_content)} files from {dir_path}"
+        if skipped_files:
+            message += f" ({len(skipped_files)} files skipped: {', '.join(skipped_files[:5])}"
+            if len(skipped_files) > 5:
+                message += f" and {len(skipped_files) - 5} more"
+            message += ")"
+
+        return True, message, files_content
+
+    except Exception as e:
+        return False, f"Error reading directory: {str(e)}", []
+
+
 @app.list_tools()
 async def list_tools() -> list[Tool]:
     """List available tools."""
@@ -198,6 +408,192 @@ async def list_tools() -> list[Tool]:
                     }
                 },
                 "required": ["text"]
+            }
+        ),
+        Tool(
+            name="write_python_code",
+            description=(
+                "Write Python code to a new file. This tool is used when the user wants to create "
+                "a new Python file with code generated by the LLM. The file will be created in the "
+                "specified path (relative to working directory). If the file already exists, this "
+                "tool will fail. Use edit_python_code for existing files."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the Python file to create (e.g., 'script.py' or 'src/utils.py')"
+                    },
+                    "code": {
+                        "type": "string",
+                        "description": "The Python code to write to the file"
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Optional working directory. Defaults to current directory."
+                    }
+                },
+                "required": ["file_path", "code"]
+            }
+        ),
+        Tool(
+            name="write_r_code",
+            description=(
+                "Write R code to a new file. This tool is used when the user wants to create "
+                "a new R file with code generated by the LLM. The file will be created in the "
+                "specified path (relative to working directory). If the file already exists, this "
+                "tool will fail. Use edit_r_code for existing files."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the R file to create (e.g., 'script.R' or 'src/analysis.R')"
+                    },
+                    "code": {
+                        "type": "string",
+                        "description": "The R code to write to the file"
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Optional working directory. Defaults to current directory."
+                    }
+                },
+                "required": ["file_path", "code"]
+            }
+        ),
+        Tool(
+            name="edit_python_code",
+            description=(
+                "Edit an existing Python file. This tool is used when the user wants to modify "
+                "an existing Python file. The entire file content will be replaced with the new code. "
+                "The file must exist, otherwise this tool will fail. Use write_python_code for new files."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the existing Python file to edit"
+                    },
+                    "code": {
+                        "type": "string",
+                        "description": "The new Python code to write to the file (replaces entire content)"
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Optional working directory. Defaults to current directory."
+                    }
+                },
+                "required": ["file_path", "code"]
+            }
+        ),
+        Tool(
+            name="edit_r_code",
+            description=(
+                "Edit an existing R file. This tool is used when the user wants to modify "
+                "an existing R file. The entire file content will be replaced with the new code. "
+                "The file must exist, otherwise this tool will fail. Use write_r_code for new files."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the existing R file to edit"
+                    },
+                    "code": {
+                        "type": "string",
+                        "description": "The new R code to write to the file (replaces entire content)"
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Optional working directory. Defaults to current directory."
+                    }
+                },
+                "required": ["file_path", "code"]
+            }
+        ),
+        Tool(
+            name="add_file_context",
+            description=(
+                "Add a file's content to the context for better LLM understanding. This tool reads "
+                "a file, generates embeddings using RAG (Retrieval-Augmented Generation), and stores "
+                "them in Redis for semantic search. The context can be session-specific (persists for "
+                "the session duration) or temporary (persists only for the current prompt). The LLM "
+                "can then use this context to better understand user requests for code editing or generation."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the file to add to context"
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": "Optional session ID. If provided, context persists for the session. Otherwise, it's temporary."
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Optional working directory. Defaults to current directory."
+                    }
+                },
+                "required": ["file_path"]
+            }
+        ),
+        Tool(
+            name="add_directory_context",
+            description=(
+                "Add all files in a directory (recursively) to the context for better LLM understanding. "
+                "This tool reads all files in a directory and its subdirectories, generates embeddings "
+                "using RAG, and stores them in Redis for semantic search. The context can be session-specific "
+                "(persists for the session duration) or temporary (persists only for the current prompt). "
+                "This is useful when the user wants to work with an entire project or module."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "dir_path": {
+                        "type": "string",
+                        "description": "Path to the directory to add to context"
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": "Optional session ID. If provided, context persists for the session. Otherwise, it's temporary."
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Optional working directory. Defaults to current directory."
+                    }
+                },
+                "required": ["dir_path"]
+            }
+        ),
+        Tool(
+            name="verify_file_modifications",
+            description=(
+                "Verify file modifications by running one of the modified files. "
+                "This tool takes a list of files that were created or modified and runs one of them "
+                "to verify that the changes are syntactically correct and logically coherent. "
+                "It's useful after refactoring operations to ensure no import errors, syntax errors, "
+                "or runtime issues were introduced. Returns execution output (stdout/stderr/exit_code)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the file to run for verification (must be .py, .r, or .R)"
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Optional working directory. Defaults to current directory."
+                    }
+                },
+                "required": ["file_path"]
             }
         )
     ]
@@ -311,6 +707,303 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             return [TextContent(type="text", text=json.dumps(output, indent=2))]
         else:
             return [TextContent(type="text", text="null")]
+
+    elif name == "write_python_code":
+        file_path = arguments.get("file_path", "")
+        code = arguments.get("code", "")
+        working_dir = arguments.get("working_dir", os.getcwd())
+
+        if not file_path or not code:
+            return [TextContent(type="text", text="Error: Missing file_path or code")]
+
+        # Validate working directory
+        is_valid, error_msg = validate_working_dir(working_dir)
+        if not is_valid:
+            return [TextContent(type="text", text=f"Error: {error_msg}")]
+
+        # Check if file already exists
+        full_path = file_path if os.path.isabs(file_path) else os.path.join(working_dir, file_path)
+        if Path(full_path).exists():
+            return [TextContent(type="text", text=f"Error: File already exists: {file_path}. Use edit_python_code to modify existing files.")]
+
+        # Write file
+        success, message = write_file_safe(file_path, code, working_dir)
+        if success:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "success",
+                "message": message,
+                "file_path": file_path
+            }, indent=2))]
+        else:
+            return [TextContent(type="text", text=f"Error: {message}")]
+
+    elif name == "write_r_code":
+        file_path = arguments.get("file_path", "")
+        code = arguments.get("code", "")
+        working_dir = arguments.get("working_dir", os.getcwd())
+
+        if not file_path or not code:
+            return [TextContent(type="text", text="Error: Missing file_path or code")]
+
+        # Validate working directory
+        is_valid, error_msg = validate_working_dir(working_dir)
+        if not is_valid:
+            return [TextContent(type="text", text=f"Error: {error_msg}")]
+
+        # Check if file already exists
+        full_path = file_path if os.path.isabs(file_path) else os.path.join(working_dir, file_path)
+        if Path(full_path).exists():
+            return [TextContent(type="text", text=f"Error: File already exists: {file_path}. Use edit_r_code to modify existing files.")]
+
+        # Write file
+        success, message = write_file_safe(file_path, code, working_dir)
+        if success:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "success",
+                "message": message,
+                "file_path": file_path
+            }, indent=2))]
+        else:
+            return [TextContent(type="text", text=f"Error: {message}")]
+
+    elif name == "edit_python_code":
+        file_path = arguments.get("file_path", "")
+        code = arguments.get("code", "")
+        working_dir = arguments.get("working_dir", os.getcwd())
+
+        if not file_path or not code:
+            return [TextContent(type="text", text="Error: Missing file_path or code")]
+
+        # Validate working directory
+        is_valid, error_msg = validate_working_dir(working_dir)
+        if not is_valid:
+            return [TextContent(type="text", text=f"Error: {error_msg}")]
+
+        # Check if file exists
+        full_path = file_path if os.path.isabs(file_path) else os.path.join(working_dir, file_path)
+        if not Path(full_path).exists():
+            return [TextContent(type="text", text=f"Error: File does not exist: {file_path}. Use write_python_code to create new files.")]
+
+        # Write file
+        success, message = write_file_safe(file_path, code, working_dir)
+        if success:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "success",
+                "message": message,
+                "file_path": file_path
+            }, indent=2))]
+        else:
+            return [TextContent(type="text", text=f"Error: {message}")]
+
+    elif name == "edit_r_code":
+        file_path = arguments.get("file_path", "")
+        code = arguments.get("code", "")
+        working_dir = arguments.get("working_dir", os.getcwd())
+
+        if not file_path or not code:
+            return [TextContent(type="text", text="Error: Missing file_path or code")]
+
+        # Validate working directory
+        is_valid, error_msg = validate_working_dir(working_dir)
+        if not is_valid:
+            return [TextContent(type="text", text=f"Error: {error_msg}")]
+
+        # Check if file exists
+        full_path = file_path if os.path.isabs(file_path) else os.path.join(working_dir, file_path)
+        if not Path(full_path).exists():
+            return [TextContent(type="text", text=f"Error: File does not exist: {file_path}. Use write_r_code to create new files.")]
+
+        # Write file
+        success, message = write_file_safe(file_path, code, working_dir)
+        if success:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "success",
+                "message": message,
+                "file_path": file_path
+            }, indent=2))]
+        else:
+            return [TextContent(type="text", text=f"Error: {message}")]
+
+    elif name == "add_file_context":
+        file_path = arguments.get("file_path", "")
+        session_id = arguments.get("session_id")
+        working_dir = arguments.get("working_dir", os.getcwd())
+
+        if not file_path:
+            return [TextContent(type="text", text="Error: Missing file_path")]
+
+        # Validate working directory
+        is_valid, error_msg = validate_working_dir(working_dir)
+        if not is_valid:
+            return [TextContent(type="text", text=f"Error: {error_msg}")]
+
+        # Read file
+        success, content = read_file_safe(file_path, working_dir)
+        if not success:
+            return [TextContent(type="text", text=f"Error: {content}")]
+
+        # Add to Redis with embedding
+        result = add_context_to_redis(file_path, content, session_id, "file")
+
+        if result.get('status') == 'success':
+            return [TextContent(type="text", text=json.dumps({
+                "status": "success",
+                "message": f"Added file context: {file_path}",
+                "file_path": file_path,
+                "content": content,
+                "content_size": len(content),
+                "session_id": session_id if session_id else "temporary"
+            }, indent=2))]
+        else:
+            return [TextContent(type="text", text=f"Error adding context: {result.get('message')}")]
+
+    elif name == "add_directory_context":
+        dir_path = arguments.get("dir_path", "")
+        session_id = arguments.get("session_id")
+        working_dir = arguments.get("working_dir", os.getcwd())
+
+        if not dir_path:
+            return [TextContent(type="text", text="Error: Missing dir_path")]
+
+        # Validate working directory
+        is_valid, error_msg = validate_working_dir(working_dir)
+        if not is_valid:
+            return [TextContent(type="text", text=f"Error: {error_msg}")]
+
+        # Generate directory tree structure
+        full_dir_path = dir_path if os.path.isabs(dir_path) else os.path.join(working_dir, dir_path)
+        tree_info = generate_tree_summary(full_dir_path, max_depth=10)
+        tree_output = tree_info['tree']
+        tree_stats = tree_info['stats']
+
+        # Add tree structure as a special context entry
+        tree_context_path = f"{dir_path}/__TREE__"
+        tree_result = add_context_to_redis(
+            tree_context_path,
+            f"Directory Structure for {dir_path}:\n\n{tree_output}\n\nStatistics:\n- Files: {tree_stats['files']}\n- Directories: {tree_stats['directories']}\n- Total Size: {tree_stats['total_size']} bytes",
+            session_id,
+            "directory_tree"
+        )
+
+        # Read directory recursively
+        success, message, files_content = read_directory_recursive(dir_path, working_dir)
+        if not success:
+            return [TextContent(type="text", text=f"Error: {message}")]
+
+        # Add each file to Redis with embeddings
+        added_files = []
+        errors = []
+
+        for file_info in files_content:
+            result = add_context_to_redis(
+                file_info['full_path'],
+                file_info['content'],
+                session_id,
+                "directory"
+            )
+
+            if result.get('status') == 'success':
+                added_files.append(file_info['path'])
+            else:
+                errors.append(f"{file_info['path']}: {result.get('message')}")
+
+        return [TextContent(type="text", text=json.dumps({
+            "status": "success" if len(added_files) > 0 else "error",
+            "message": f"Added {len(added_files)} files from directory: {dir_path}",
+            "dir_path": dir_path,
+            "added_files": added_files,
+            "files_content": files_content,
+            "tree_output": tree_output,
+            "tree_added": tree_result.get('status') == 'success',
+            "tree_stats": tree_stats,
+            "errors": errors,
+            "session_id": session_id if session_id else "temporary"
+        }, indent=2))]
+
+    elif name == "verify_file_modifications":
+        file_path = arguments.get("file_path", "")
+        working_dir = arguments.get("working_dir", os.getcwd())
+
+        if not file_path:
+            return [TextContent(type="text", text="Error: Missing file_path")]
+
+        # Validate working directory
+        is_valid, error_msg = validate_working_dir(working_dir)
+        if not is_valid:
+            return [TextContent(type="text", text=f"Error: {error_msg}")]
+
+        # Determine full path
+        full_path = file_path if os.path.isabs(file_path) else os.path.join(working_dir, file_path)
+
+        # Check if file exists
+        if not os.path.exists(full_path):
+            return [TextContent(type="text", text=f"Error: File does not exist: {file_path}")]
+
+        # Check file extension
+        if not (file_path.endswith('.py') or file_path.endswith(('.r', '.R'))):
+            return [TextContent(type="text", text=f"Error: File must be .py, .r, or .R: {file_path}")]
+
+        # Verify file is readable
+        try:
+            with open(full_path, 'r', encoding='utf-8') as f:
+                f.read()  # Just verify it's readable
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error reading file: {str(e)}")]
+
+        # Determine language and execute the file directly
+        try:
+            if file_path.endswith('.py'):
+                # Run Python file directly
+                python_bin = find_cli_venv()
+                result = subprocess.run(
+                    [python_bin, full_path],
+                    capture_output=True,
+                    text=True,
+                    cwd=working_dir,
+                    timeout=30
+                )
+
+                return [TextContent(type="text", text=json.dumps({
+                    "status": "success",
+                    "file_path": file_path,
+                    "language": "python",
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "exit_code": result.returncode,
+                    "verification": "passed" if result.returncode == 0 else "failed"
+                }, indent=2))]
+
+            elif file_path.endswith(('.r', '.R')):
+                # Run R file directly
+                result = subprocess.run(
+                    ["Rscript", full_path],
+                    capture_output=True,
+                    text=True,
+                    cwd=working_dir,
+                    timeout=30
+                )
+
+                return [TextContent(type="text", text=json.dumps({
+                    "status": "success",
+                    "file_path": file_path,
+                    "language": "r",
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "exit_code": result.returncode,
+                    "verification": "passed" if result.returncode == 0 else "failed"
+                }, indent=2))]
+        except subprocess.TimeoutExpired:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "file_path": file_path,
+                "message": "Execution timed out after 30 seconds"
+            }, indent=2))]
+        except Exception as e:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "file_path": file_path,
+                "message": f"Execution failed: {str(e)}"
+            }, indent=2))]
 
     else:
         return [TextContent(type="text", text=f"Error: Unknown tool '{name}'")]

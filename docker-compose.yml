@@ -137,6 +137,56 @@ services:
     networks:
       - vuhitra-network
 
+  # Redis service for RAG vector storage
+  redis:
+    image: redis:7-alpine
+    container_name: vuhitra-redis
+    profiles:
+      - app
+    ports:
+      - "${REDIS_HOST_PORT:-26379}:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - vuhitra-network
+
+  # Flask API for Redis vector storage
+  redis-api:
+    build:
+      context: .
+      dockerfile: src/redis/flask-app/Dockerfile
+    container_name: vuhitra-redis-api
+    profiles:
+      - app
+    ports:
+      - "${REDIS_API_PORT:-17000}:5000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - TRANSFORMER_API_URL=http://transformer:${TRANSFORMER_CONTAINER_PORT:-5050}
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - ENVIRONMENT=${ENVIRONMENT:-DEV}
+    depends_on:
+      redis:
+        condition: service_healthy
+      transformer:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - vuhitra-network
+
   # Bugsink - Self-hosted error tracking
   bugsink:
     image: bugsink/bugsink:latest
@@ -172,6 +222,9 @@ volumes:
   transformer_models:
     driver: local
     name: vuhitra-transformer-models
+  redis_data:
+    driver: local
+    name: vuhitra-redis-data
   bugsink_data:
     driver: local
     name: vuhitra-bugsink-data
