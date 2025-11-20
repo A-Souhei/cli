@@ -51,6 +51,52 @@ def find_cli_venv() -> Optional[str]:
     return sys.executable
 
 
+def validate_working_dir(working_dir: str) -> tuple[bool, str]:
+    """
+    Validate the working directory to prevent directory traversal attacks.
+
+    Args:
+        working_dir: Path to validate
+
+    Returns:
+        Tuple of (is_valid, error_message). If valid, error_message is empty.
+    """
+    # Convert to Path object for better path handling
+    try:
+        path = Path(working_dir).resolve()
+    except (ValueError, OSError) as e:
+        return False, f"Invalid path: {str(e)}"
+
+    # Check if path exists
+    if not path.exists():
+        return False, f"Directory does not exist: {working_dir}"
+
+    # Check if it's a directory
+    if not path.is_dir():
+        return False, f"Path is not a directory: {working_dir}"
+
+    # Prevent access to sensitive system directories
+    sensitive_dirs = [
+        Path("/etc"),
+        Path("/sys"),
+        Path("/proc"),
+        Path("/dev"),
+        Path("/root"),
+        Path("/boot"),
+    ]
+
+    for sensitive_dir in sensitive_dirs:
+        try:
+            # Check if working_dir is under a sensitive directory
+            path.relative_to(sensitive_dir)
+            return False, f"Access to sensitive directory not allowed: {sensitive_dir}"
+        except ValueError:
+            # Not under this sensitive directory, continue checking
+            continue
+
+    return True, ""
+
+
 def detect_code_language(text: str) -> Optional[tuple[str, str]]:
     """
     Detect if text contains Python or R code blocks.
@@ -168,6 +214,11 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
         if not code:
             return [TextContent(type="text", text="Error: No code provided")]
 
+        # Validate working directory
+        is_valid, error_msg = validate_working_dir(working_dir)
+        if not is_valid:
+            return [TextContent(type="text", text=f"Error: {error_msg}")]
+
         # Find the CLI's Python executable
         python_exec = find_cli_venv()
 
@@ -201,6 +252,11 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
         if not code:
             return [TextContent(type="text", text="Error: No code provided")]
+
+        # Validate working directory
+        is_valid, error_msg = validate_working_dir(working_dir)
+        if not is_valid:
+            return [TextContent(type="text", text=f"Error: {error_msg}")]
 
         try:
             # Check if R is installed

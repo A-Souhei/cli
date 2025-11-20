@@ -7,10 +7,7 @@ import requests
 import urllib.parse
 import subprocess
 import asyncio
-import warnings
-import signal
 import os
-from contextlib import redirect_stderr
 from pathlib import Path
 from src.config import ConfigManager
 from src.ollama_client import OllamaClient
@@ -375,43 +372,29 @@ def display_execution_result(result: str):
 
         # Check if it's an error
         if result.startswith("Error:"):
-            console.print(Panel(
-                f"[bold red]Execution Error[/bold red]\n\n{result}",
-                border_style="red"
-            ))
+            console.print(f"\n❌ [bold red]Execution Error[/bold red]")
+            console.print(f"[red]{result}[/red]\n")
             return
 
-        # Display formatted results
-        console.print(Panel(
-            "[bold green]✓ Execution Complete[/bold green]",
-            border_style="green"
-        ))
-        console.print()
+        # Display execution complete message
+        console.print("\n✓ [bold]Execution Complete[/bold]\n")
 
         # Show stdout if present
         if result_data.get("stdout"):
-            console.print("[bold]Output:[/bold]")
-            console.print(Panel(
-                result_data["stdout"].strip(),
-                border_style="green",
-                style="green"
-            ))
+            console.print("📄 [bold]Output:[/bold]")
+            console.print(result_data["stdout"].strip())
             console.print()
 
         # Show stderr if present
         if result_data.get("stderr"):
-            console.print("[bold yellow]Warnings/Errors:[/bold yellow]")
-            console.print(Panel(
-                result_data["stderr"].strip(),
-                border_style="yellow",
-                style="yellow"
-            ))
+            console.print("⚠️  [bold yellow]Warnings/Errors:[/bold yellow]")
+            console.print(f"[yellow]{result_data['stderr'].strip()}[/yellow]")
             console.print()
 
         # Show exit code
         exit_code = result_data.get("exit_code", -1)
         if exit_code == 0:
-            console.print(f"[green]Exit Code: {exit_code}[/green]")
+            console.print(f"[dim]Exit Code: {exit_code}[/dim]")
         else:
             console.print(f"[red]Exit Code: {exit_code}[/red]")
 
@@ -419,11 +402,8 @@ def display_execution_result(result: str):
 
     except json.JSONDecodeError:
         # Not JSON, display as-is
-        console.print(Panel(
-            result,
-            title="[bold]Execution Result[/bold]",
-            border_style="blue"
-        ))
+        console.print(f"\n📄 [bold]Result:[/bold]")
+        console.print(result)
         console.print()
     except Exception as e:
         debug_print(f"Error displaying result: {e}", icon="❌")
@@ -455,6 +435,7 @@ def list_system_mcps():
                         if lines:
                             description = lines[0]  # No character limit
                     except Exception:
+                        # Ignore errors reading README, fallback to default description
                         pass
                 mcps.append((item.name, description))
 
@@ -645,9 +626,9 @@ def main(verbose=False):
                         if verbose:
                             debug_print(f"Cleanup: {e}", icon="🧹")
                     # Redirect stderr to suppress prompt_toolkit task cleanup warnings
-                    with open(os.devnull, 'w') as devnull:
-                        sys.stderr = devnull
-                        sys.exit(0)
+                    # Open /dev/null without context manager since we exit immediately
+                    sys.stderr = open(os.devnull, 'w')
+                    sys.exit(0)
 
                 if user_input.lower() == 'clear':
                     chat_manager.clear_history()
@@ -810,9 +791,9 @@ def main(verbose=False):
                     if verbose:
                         debug_print(f"Cleanup: {e}", icon="🧹")
                 # Redirect stderr to suppress prompt_toolkit task cleanup warnings
-                with open(os.devnull, 'w') as devnull:
-                    sys.stderr = devnull
-                    sys.exit(0)
+                # Open /dev/null without context manager since we exit immediately
+                sys.stderr = open(os.devnull, 'w')
+                sys.exit(0)
             except Exception as e:
                 console.print(f"\n❌ [red]Error: {e}[/red]")
                 console.print("[dim]Please try again.[/dim]\n")

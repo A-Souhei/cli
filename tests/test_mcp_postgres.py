@@ -2,7 +2,6 @@
 
 import pytest
 import requests
-import json
 
 
 # Check if services are available

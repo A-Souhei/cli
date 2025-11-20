@@ -39,10 +39,10 @@ else
 
     # Execute the SQL in the container
     echo "Applying schema updates..."
-    docker exec -it "$CONTAINER" psql -U postgres -d vuhitra -f /tmp/init.sql
+    docker exec -i "$CONTAINER" psql -U postgres -d vuhitra -f /tmp/init.sql
 
     # Clean up
-    docker exec -it "$CONTAINER" rm /tmp/init.sql
+    docker exec -i "$CONTAINER" rm /tmp/init.sql
 
     echo ""
     echo "✓ Schema updated successfully"
