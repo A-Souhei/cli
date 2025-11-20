@@ -42,7 +42,8 @@ class SessionManager:
         self.session_start_time = datetime.now()
         self.session_metadata = metadata or {}
 
-        print(f"📝 Session started: {self.active_session[:8]}...")
+        start_time_str = self.session_start_time.strftime("%H:%M:%S")
+        print(f"📝 Session started at {start_time_str}")
         return self.active_session
 
     def end_session(self) -> Optional[Dict[str, Any]]:
@@ -59,6 +60,7 @@ class SessionManager:
         session_id = self.active_session
         duration = (datetime.now() - self.session_start_time).total_seconds()
         num_interactions = len(self.session_history)
+        start_time_str = self.session_start_time.strftime("%H:%M:%S")
 
         summary = {
             "session_id": session_id,
@@ -74,7 +76,7 @@ class SessionManager:
         self.session_start_time = None
         self.session_metadata = {}
 
-        print(f"✅ Session ended: {session_id[:8]}... ({num_interactions} interactions)")
+        print(f"✅ Session ended (started at {start_time_str}, {num_interactions} interactions)")
         return summary
 
     def is_active(self) -> bool:
