@@ -15,6 +15,10 @@ import requests
 from pathlib import Path
 from typing import Any, Optional
 
+# Add the CLI root to path to import tree utility
+cli_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(cli_root))
+
 # MCP SDK imports
 try:
     from mcp.server import Server
@@ -23,6 +27,18 @@ try:
 except ImportError:
     print("Error: mcp package not found. Install with: pip install mcp", file=sys.stderr)
     sys.exit(1)
+
+# Import tree utility
+try:
+    from src.utils.tree import generate_tree_summary
+except ImportError:
+    # Fallback if import fails
+    def generate_tree_summary(directory: str, max_depth: int = 10) -> dict:
+        """Fallback tree generation."""
+        return {
+            'tree': f"[Tree generation unavailable for {directory}]\n",
+            'stats': {'files': 0, 'directories': 0, 'total_size': 0}
+        }
 
 # Initialize the MCP server
 app = Server("coder")
@@ -811,6 +827,21 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
         if not is_valid:
             return [TextContent(type="text", text=f"Error: {error_msg}")]
 
+        # Generate directory tree structure
+        full_dir_path = dir_path if os.path.isabs(dir_path) else os.path.join(working_dir, dir_path)
+        tree_info = generate_tree_summary(full_dir_path, max_depth=10)
+        tree_output = tree_info['tree']
+        tree_stats = tree_info['stats']
+
+        # Add tree structure as a special context entry
+        tree_context_path = f"{dir_path}/__TREE__"
+        tree_result = add_context_to_redis(
+            tree_context_path,
+            f"Directory Structure for {dir_path}:\n\n{tree_output}\n\nStatistics:\n- Files: {tree_stats['files']}\n- Directories: {tree_stats['directories']}\n- Total Size: {tree_stats['total_size']} bytes",
+            session_id,
+            "directory_tree"
+        )
+
         # Read directory recursively
         success, message, files_content = read_directory_recursive(dir_path, working_dir)
         if not success:
@@ -838,6 +869,8 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             "message": f"Added {len(added_files)} files from directory: {dir_path}",
             "dir_path": dir_path,
             "added_files": added_files,
+            "tree_added": tree_result.get('status') == 'success',
+            "tree_stats": tree_stats,
             "errors": errors,
             "session_id": session_id if session_id else "temporary"
         }, indent=2))]

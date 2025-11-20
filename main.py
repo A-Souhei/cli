@@ -842,6 +842,17 @@ def main(verbose=False):
                             args['session_id'] = session_id
 
                         result = run_async(mcp_client.call_tool('coder', 'add_directory_context', args))
+
+                        # Parse result to show tree
+                        try:
+                            result_data = json.loads(result)
+                            if result_data.get('tree_added'):
+                                tree_stats = result_data.get('tree_stats', {})
+                                console.print(f"\n[cyan]📁 Directory Structure Added: {dir_path}[/cyan]")
+                                console.print(f"[dim]  Files: {tree_stats.get('files', 0)} | Directories: {tree_stats.get('directories', 0)}[/dim]\n")
+                        except:
+                            pass
+
                         debug_print(f"Added directory context: {dir_path}", icon="📁", style="cyan")
                         context_added = True
                     except Exception as e:

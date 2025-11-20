@@ -178,11 +178,34 @@ Showing completions:
 ```
 
 **What happens:**
-1. Directory is recursively traversed
-2. All files are read (excluding binary/hidden)
-3. Each file is embedded separately
-4. All embeddings stored with directory metadata
-5. LLM has full directory context
+1. **Directory tree is generated** - ASCII tree structure created
+2. **Tree added to context** - Structure embedded for LLM understanding
+3. Directory is recursively traversed
+4. All files are read (excluding binary/hidden)
+5. Each file is embedded separately
+6. All embeddings stored with directory metadata
+7. LLM has full directory context + structure
+
+**Example Output:**
+```
+📁 Directory Structure Added: src/models/
+  Files: 3 | Directories: 1
+```
+
+The LLM receives the tree structure like:
+```
+models/
+├── __init__.py (150 B)
+├── user.py (1.2 KB)
+└── product.py (1.5 KB)
+```
+
+### Tree Structure Benefits
+
+- **Visual Organization**: LLM sees file hierarchy
+- **Size Information**: File sizes help LLM prioritize
+- **Quick Navigation**: Easy to reference specific files
+- **Structure Understanding**: Better architectural comprehension
 
 ### Example Use Cases
 
@@ -195,6 +218,9 @@ Showing completions:
 
 # Add test files for reference
 @tests/ run similar tests for my new feature
+
+# Entire working directory with tree
+@WD provide a complete project overview
 ```
 
 ## Code Generation
@@ -441,6 +467,29 @@ Interactions: 12
 - **Limits**: Working directory boundary enforcement
 - **Hidden Files**: Excluded unless explicitly prefixed with `.`
 
+### Directory Tree Generation
+
+- **Format**: ASCII tree with box-drawing characters
+- **Max Depth**: 10 levels (configurable)
+- **File Sizes**: Human-readable (B, KB, MB, GB)
+- **Exclusions**: `.git`, `__pycache__`, `node_modules`, `venv`, etc.
+- **Statistics**: File count, directory count, total size
+- **Storage**: Tree stored as special context entry `{path}/__TREE__`
+
+**Tree Example:**
+```
+src/
+├── models/
+│   ├── __init__.py (150 B)
+│   ├── user.py (1.2 KB)
+│   └── product.py (1.5 KB)
+├── services/
+│   ├── __init__.py (200 B)
+│   └── user_service.py (2.3 KB)
+└── utils/
+    └── helpers.py (850 B)
+```
+
 ### Embeddings
 
 - **Model**: sentence-transformers/paraphrase-mpnet-base-v2
@@ -459,9 +508,9 @@ temp:context:{path}                   # Temporary (no session)
 **Value Format:**
 ```json
 {
-  "context_type": "file" | "directory",
+  "context_type": "file" | "directory" | "directory_tree",
   "path": "relative/path/to/file",
-  "content": "file contents",
+  "content": "file contents or tree structure",
   "embedding": [0.1, 0.2, ...],
   "metadata": {
     "size": 1234,
@@ -470,6 +519,11 @@ temp:context:{path}                   # Temporary (no session)
   "created_at": "2024-01-01T00:00:00"
 }
 ```
+
+**Context Types:**
+- `file`: Individual file content
+- `directory`: File within a directory context
+- `directory_tree`: ASCII tree structure of directory (special entry)
 
 ### Context Lifecycle
 
