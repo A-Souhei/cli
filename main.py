@@ -12,6 +12,7 @@ from src.config import ConfigManager
 from src.ollama_client import OllamaClient
 from src.chat import ChatManager
 from src.selector import InteractiveSelector
+from src.mcp import MCPClient
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -280,6 +281,139 @@ def get_prompt_guidance(prompt_text):
     return None
 
 
+async def handle_code_execution(mcp_client: MCPClient, response_text: str):
+    """
+    Detect and execute code from LLM response.
+
+    Args:
+        mcp_client: MCP client instance
+        response_text: The LLM response text
+
+    Returns:
+        Execution result or None
+    """
+    # Detect code in the response
+    detected = mcp_client.detect_code(response_text)
+
+    if not detected:
+        debug_print("No code detected in response", "ℹ️")
+        return None
+
+    language = detected['language']
+    code = detected['code']
+
+    debug_print(f"Detected {language.upper()} code block", "🔍")
+
+    # Determine tool based on language
+    if language == "python":
+        tool_name = "run_python_code"
+        mcp_name = "coder"
+    elif language == "r":
+        tool_name = "run_r_code"
+        mcp_name = "coder"
+    else:
+        debug_print(f"Unsupported language: {language}", "⚠️")
+        return None
+
+    # Ask user for confirmation
+    console.print()
+    console.print(Panel(
+        f"[bold cyan]Code Execution Request[/bold cyan]\n\n"
+        f"Language: [yellow]{language.upper()}[/yellow]\n"
+        f"Tool: [cyan]{mcp_name}/{tool_name}[/cyan]",
+        border_style="cyan"
+    ))
+    console.print()
+
+    try:
+        execute = prompt("Execute this code? (y/N): ").strip().lower()
+        if execute != 'y':
+            console.print("[dim]Code execution cancelled[/dim]\n")
+            return None
+    except (EOFError, KeyboardInterrupt):
+        console.print("\n[dim]Code execution cancelled[/dim]\n")
+        return None
+
+    # Execute the code
+    debug_print(f"Executing {language} code...", "⚙️")
+    console.print("[yellow]Executing code...[/yellow]\n")
+
+    result = await mcp_client.call_tool(
+        mcp_name=mcp_name,
+        tool_name=tool_name,
+        arguments={"code": code}
+    )
+
+    return result
+
+
+def display_execution_result(result: str):
+    """
+    Display code execution result in a nice format.
+
+    Args:
+        result: JSON string from MCP tool execution
+    """
+    try:
+        result_data = json.loads(result)
+
+        # Check if it's an error
+        if result.startswith("Error:"):
+            console.print(Panel(
+                f"[bold red]Execution Error[/bold red]\n\n{result}",
+                border_style="red"
+            ))
+            return
+
+        # Display formatted results
+        console.print(Panel(
+            "[bold green]✓ Execution Complete[/bold green]",
+            border_style="green"
+        ))
+        console.print()
+
+        # Show stdout if present
+        if result_data.get("stdout"):
+            console.print("[bold]Output:[/bold]")
+            console.print(Panel(
+                result_data["stdout"].strip(),
+                border_style="green",
+                style="green"
+            ))
+            console.print()
+
+        # Show stderr if present
+        if result_data.get("stderr"):
+            console.print("[bold yellow]Warnings/Errors:[/bold yellow]")
+            console.print(Panel(
+                result_data["stderr"].strip(),
+                border_style="yellow",
+                style="yellow"
+            ))
+            console.print()
+
+        # Show exit code
+        exit_code = result_data.get("exit_code", -1)
+        if exit_code == 0:
+            console.print(f"[green]Exit Code: {exit_code}[/green]")
+        else:
+            console.print(f"[red]Exit Code: {exit_code}[/red]")
+
+        console.print()
+
+    except json.JSONDecodeError:
+        # Not JSON, display as-is
+        console.print(Panel(
+            result,
+            title="[bold]Execution Result[/bold]",
+            border_style="blue"
+        ))
+        console.print()
+    except Exception as e:
+        debug_print(f"Error displaying result: {e}", "❌")
+        console.print(f"[dim]Result: {result}[/dim]\n")
+
+
 def list_system_mcps():
     """List all available system MCPs."""
     system_mcps_dir = Path(__file__).parent / "system_mcps"
@@ -442,6 +576,24 @@ def main(verbose=False):
             max_context_length=config.get_max_context_length()
         )
 
+        # Initialize MCP client
+        system_mcps_dir = Path(__file__).parent / "system_mcps"
+        mcp_client = MCPClient(
+            system_mcps_dir=system_mcps_dir,
+            postgres_url=POSTGRES_API_URL,
+            verbose=verbose
+        )
+
+        # Set up debug callback for MCP client
+        mcp_client.set_debug_callback(debug_print)
+
+        # Initialize MCP tools in database (async operation)
+        debug_print("Initializing MCP tools...", "🔧")
+        try:
+            asyncio.run(mcp_client.initialize_tools_in_db())
+        except Exception as e:
+            debug_print(f"Failed to initialize MCP tools: {e}", "⚠️")
+
         # Get configuration
         temperature = config.get_temperature()
         stream = config.get_stream_enabled()
@@ -468,6 +620,11 @@ def main(verbose=False):
 
                 # Handle special commands
                 if user_input.lower() in ['exit', 'quit']:
+                    # Cleanup MCP client
+                    try:
+                        asyncio.run(mcp_client.cleanup())
+                    except Exception as e:
+                        debug_print(f"Error cleaning up MCP client: {e}", "⚠️")
                     console.print("\n👋 [bold]Goodbye![/bold]")
                     break
 
@@ -581,6 +738,14 @@ def main(verbose=False):
 
                 console.print()  # Extra line for readability
 
+                # Check for code and offer to execute
+                try:
+                    exec_result = asyncio.run(handle_code_execution(mcp_client, full_response))
+                    if exec_result:
+                        display_execution_result(exec_result)
+                except Exception as e:
+                    debug_print(f"Error during code execution: {e}", "❌")
+
                 # Ask for rating
                 try:
                     rating_input = prompt("⭐ Rate (0-10, Enter to skip): ").strip()
@@ -601,6 +766,11 @@ def main(verbose=False):
                 console.print()  # Extra line for readability
 
             except KeyboardInterrupt:
+                # Cleanup MCP client
+                try:
+                    asyncio.run(mcp_client.cleanup())
+                except Exception as e:
+                    debug_print(f"Error cleaning up MCP client: {e}", "⚠️")
                 console.print("\n\n👋 [bold]Goodbye![/bold]")
                 break
             except Exception as e:
