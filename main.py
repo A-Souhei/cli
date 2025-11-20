@@ -146,15 +146,15 @@ def process_rating(user_rating, prompt_text, response_text):
     # Check if we found a similar prompt
     if best_match and best_similarity >= SIMILARITY_THRESHOLD:
         stored_rating = best_match.get('user_rating', 0)
-        # Update if current rating is higher
-        if user_rating > stored_rating:
+        # Update if current rating is higher or equal
+        if user_rating >= stored_rating:
             if update_rating(best_match['id'], user_rating, response_text, keywords):
                 debug_print(f"[Rating updated] Similar prompt found (similarity: {best_similarity:.2f}), updated rating from {stored_rating} to {user_rating}")
                 debug_print(f"[Keywords] {', '.join(keywords)}")
             else:
                 debug_print("[Rating] Failed to update existing rating")
         else:
-            debug_print(f"[Rating skipped] Similar prompt found with higher rating ({stored_rating} >= {user_rating})")
+            debug_print(f"[Rating skipped] Similar prompt found with higher rating ({stored_rating} > {user_rating})")
     else:
         # No similar prompt found, create new entry
         if create_rating(user_rating, prompt_text, response_text, keywords):
