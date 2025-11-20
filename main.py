@@ -36,35 +36,11 @@ nest_asyncio.apply()
 def run_async(coro):
     """
     Run an async coroutine safely, handling nested event loop scenarios.
-    Uses nest_asyncio which has been applied globally.
-    Suppresses task cleanup warnings that occur during exit.
+    Uses nest_asyncio which has been applied globally to allow asyncio.run()
+    even when an event loop is already running.
     """
-    # Create a custom exception handler to suppress KeyboardInterrupt in tasks
-    loop = asyncio.new_event_loop()
-
-    def exception_handler(loop, context):
-        """Suppress task exception warnings during cleanup."""
-        exception = context.get('exception')
-        # Ignore KeyboardInterrupt exceptions from cancelled tasks
-        if isinstance(exception, KeyboardInterrupt):
-            return
-        # For other exceptions, use default behavior
-        loop.default_exception_handler(context)
-
-    loop.set_exception_handler(exception_handler)
-    asyncio.set_event_loop(loop)
-
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        # Cancel all pending tasks
-        pending = asyncio.all_tasks(loop)
-        for task in pending:
-            task.cancel()
-        # Wait for all tasks to be cancelled
-        if pending:
-            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-        loop.close()
+    # With nest_asyncio applied globally, asyncio.run() works even in nested contexts
+    return asyncio.run(coro)
 
 # Create custom theme
 custom_theme = Theme({
