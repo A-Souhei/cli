@@ -5,6 +5,8 @@ import json
 import argparse
 import requests
 import urllib.parse
+import subprocess
+import asyncio
 from pathlib import Path
 from src.config import ConfigManager
 from src.ollama_client import OllamaClient
@@ -17,6 +19,7 @@ from rich.text import Text
 from rich.syntax import Syntax
 from rich.theme import Theme
 from rich.style import Style
+from rich.table import Table
 from prompt_toolkit import prompt
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.formatted_text import FormattedText
@@ -278,6 +281,143 @@ def get_prompt_guidance(prompt_text):
     return None
 
 
+def list_system_mcps():
+    """List all available system MCPs."""
+    system_mcps_dir = Path(__file__).parent / "system_mcps"
+
+    if not system_mcps_dir.exists():
+        console.print("❌ [red]No system_mcps directory found[/red]\n")
+        return
+
+    # Find all directories in system_mcps that contain a server.py file
+    mcps = []
+    for item in system_mcps_dir.iterdir():
+        if item.is_dir():
+            server_file = item / "server.py"
+            readme_file = item / "README.md"
+            if server_file.exists():
+                # Try to read description from README
+                description = "No description available"
+                if readme_file.exists():
+                    try:
+                        content = readme_file.read_text()
+                        # Get first non-empty line after the title
+                        lines = [l.strip() for l in content.split('\n') if l.strip() and not l.strip().startswith('#')]
+                        if lines:
+                            description = lines[0][:80]  # Limit to 80 chars
+                    except Exception:
+                        pass
+                mcps.append((item.name, description))
+
+    if not mcps:
+        console.print("ℹ️  [yellow]No system MCPs found[/yellow]\n")
+        return
+
+    # Create a table
+    table = Table(title="📦 System MCPs", border_style="cyan")
+    table.add_column("Name", style="bold cyan", no_wrap=True)
+    table.add_column("Description", style="dim")
+
+    for name, description in sorted(mcps):
+        table.add_row(name, description)
+
+    console.print()
+    console.print(table)
+    console.print()
+
+
+async def get_mcp_tools(mcp_name):
+    """Get tools from a specific MCP server."""
+    system_mcps_dir = Path(__file__).parent / "system_mcps"
+    mcp_dir = system_mcps_dir / mcp_name
+    server_file = mcp_dir / "server.py"
+
+    if not server_file.exists():
+        console.print(f"❌ [red]MCP '{mcp_name}' not found[/red]\n")
+        return
+
+    try:
+        # Start the MCP server process
+        process = await asyncio.create_subprocess_exec(
+            sys.executable, str(server_file),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+
+        # Send initialize request
+        init_request = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {
+                    "name": "ai-cli",
+                    "version": "1.0.0"
+                }
+            }
+        }
+
+        process.stdin.write((json.dumps(init_request) + "\n").encode())
+        await process.stdin.drain()
+
+        # Read initialization response
+        init_response = await asyncio.wait_for(process.stdout.readline(), timeout=5.0)
+
+        # Send tools/list request
+        tools_request = {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/list",
+            "params": {}
+        }
+
+        process.stdin.write((json.dumps(tools_request) + "\n").encode())
+        await process.stdin.drain()
+
+        # Read tools response
+        tools_response = await asyncio.wait_for(process.stdout.readline(), timeout=5.0)
+        tools_data = json.loads(tools_response.decode())
+
+        # Cleanup
+        process.terminate()
+        await process.wait()
+
+        # Display tools
+        if "result" in tools_data and "tools" in tools_data["result"]:
+            tools = tools_data["result"]["tools"]
+
+            if not tools:
+                console.print(f"ℹ️  [yellow]No tools found in MCP '{mcp_name}'[/yellow]\n")
+                return
+
+            # Create a table
+            table = Table(title=f"🔧 Tools in '{mcp_name}' MCP", border_style="cyan")
+            table.add_column("Tool Name", style="bold cyan", no_wrap=True)
+            table.add_column("Description", style="dim")
+
+            for tool in tools:
+                name = tool.get("name", "Unknown")
+                description = tool.get("description", "No description")
+                # Limit description length for table display
+                if len(description) > 100:
+                    description = description[:97] + "..."
+                table.add_row(name, description)
+
+            console.print()
+            console.print(table)
+            console.print()
+        else:
+            console.print(f"❌ [red]Failed to get tools from MCP '{mcp_name}'[/red]\n")
+
+    except asyncio.TimeoutError:
+        console.print(f"❌ [red]Timeout while communicating with MCP '{mcp_name}'[/red]\n")
+    except Exception as e:
+        console.print(f"❌ [red]Error getting tools from MCP '{mcp_name}': {e}[/red]\n")
+
+
 def print_banner():
     """Print CLI banner."""
     banner_text = Text()
@@ -290,6 +430,8 @@ def print_banner():
     console.print("  Type [bold]'clear'[/bold] to clear chat history")
     console.print("  Type [bold]'models'[/bold] to list available models")
     console.print("  Type [bold]'switch'[/bold] to change model")
+    console.print("  Type [bold]'mcps'[/bold] to list system MCPs")
+    console.print("  Type [bold]'mcp-tools <name>'[/bold] to list tools in an MCP")
     console.print()
 
 
@@ -389,6 +531,21 @@ def main(verbose=False):
                             console.print("\n[dim]Cancelled[/dim]\n")
                     except Exception as e:
                         console.print(f"\n❌ [red]Error switching model: {e}[/red]\n")
+                    continue
+
+                if user_input.lower() == 'mcps':
+                    list_system_mcps()
+                    continue
+
+                if user_input.lower().startswith('mcp-tools '):
+                    mcp_name = user_input[10:].strip()
+                    if not mcp_name:
+                        console.print("❌ [red]Usage: mcp-tools <mcp_name>[/red]\n")
+                    else:
+                        try:
+                            asyncio.run(get_mcp_tools(mcp_name))
+                        except Exception as e:
+                            console.print(f"❌ [red]Error: {e}[/red]\n")
                     continue
 
                 # Skip empty input
