@@ -393,9 +393,25 @@ async def handle_file_modifications(mcp_client: MCPClient, response_text: str, f
     }
 
     # Pattern to match file paths followed by code blocks
-    # Matches: models/base.py or base.py followed by ```python or ```
-    file_code_pattern = r'(?:^|\n)(?:models/|src/|testing/)?(\w+(?:/\w+)*\.(?:py|r|R))\s*\n+```(?:python|r)?\n(.*?)\n```'
-    matches = re.findall(file_code_pattern, response_text, re.DOTALL | re.MULTILINE)
+    # Format 1: filename.py\n```python\ncode\n```
+    # Format 2: ```python\n# tool - file: path/to/file.py\ncode\n```
+    # Format 3: file: path/to/file.py\n```python\ncode\n```
+
+    matches = []
+
+    # Try Format 2 first (most common from LLM): filename in comment inside code block
+    pattern2 = r'```(?:python|r)?\n#\s*(?:write_python_code|edit_python_code|write_r_code|edit_r_code)\s*-\s*file:\s*([^\n]+)\n(.*?)\n```'
+    matches = re.findall(pattern2, response_text, re.DOTALL | re.MULTILINE)
+
+    # Try Format 1: filename before code block
+    if not matches:
+        pattern1 = r'(?:^|\n)(?:models/|src/|testing/)?(\w+(?:/\w+)*\.(?:py|r|R))\s*\n+```(?:python|r)?\n(.*?)\n```'
+        matches = re.findall(pattern1, response_text, re.DOTALL | re.MULTILINE)
+
+    # Try Format 3: "file:" or "File:" mentioned before code block
+    if not matches:
+        pattern3 = r'(?:file|File):\s*([^\n]+\.(?:py|r|R))[^\n]*\n+```(?:python|r)?\n(.*?)\n```'
+        matches = re.findall(pattern3, response_text, re.DOTALL | re.MULTILINE)
 
     if not matches:
         debug_print("No file+code patterns found in response", icon="ℹ️", style="yellow")
@@ -408,6 +424,11 @@ async def handle_file_modifications(mcp_client: MCPClient, response_text: str, f
             # Clean up file path
             file_path = file_path.strip()
             code = code.strip()
+
+            # Remove tool comment line if present (from Format 2)
+            code_lines = code.split('\n')
+            if code_lines and code_lines[0].strip().startswith('#') and ('write_' in code_lines[0] or 'edit_' in code_lines[0]):
+                code = '\n'.join(code_lines[1:]).strip()
 
             # Determine full path
             full_path = os.path.join(os.getcwd(), file_path)
