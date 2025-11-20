@@ -455,7 +455,7 @@ def list_system_mcps():
                         # Get first non-empty line after the title
                         lines = [l.strip() for l in content.split('\n') if l.strip() and not l.strip().startswith('#')]
                         if lines:
-                            description = lines[0][:80]  # Limit to 80 chars
+                            description = lines[0]  # No character limit
                     except Exception:
                         pass
                 mcps.append((item.name, description))
