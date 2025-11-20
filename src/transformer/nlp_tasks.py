@@ -6,9 +6,8 @@ sentiment analysis, text summarization, and keyword extraction.
 """
 
 from transformers import pipeline
-from typing import Dict, Any, List
+from typing import Dict, Any
 from keybert import KeyBERT
-from sentence_transformers import SentenceTransformer
 
 
 # Lazy load pipelines
@@ -113,10 +112,28 @@ def summarize_text(text: str, max_length: int = 130, min_length: int = 30) -> Di
 
 
 def get_keyword_model():
-    """Lazy load the keyword extraction model."""
+    """
+    Lazy load the keyword extraction model.
+
+    Model Choice: all-MiniLM-L6-v2
+    ------------------------------
+    This model was chosen for the following reasons:
+    1. Consistency: It's the same model used in the transformer service's
+       similarity endpoint (see src/transformer/app.py), ensuring consistent
+       vector representations across the system
+    2. Performance: At 80MB, it's lightweight and fast enough for CPU inference
+    3. Quality: Despite its size, it produces high-quality embeddings with
+       384 dimensions, suitable for semantic similarity tasks
+    4. Compatibility: It's a sentence-transformers model, making it compatible
+       with both the transformer service and KeyBERT
+
+    Alternative models like 'all-mpnet-base-v2' (more accurate but 420MB) or
+    'paraphrase-MiniLM-L3-v2' (faster but less accurate) could be used, but
+    all-MiniLM-L6-v2 provides the best balance for this use case.
+    """
     global _keyword_model
     if _keyword_model is None:
-        # Use the same embedding model for consistency
+        # Use the same embedding model as the transformer service for consistency
         _keyword_model = KeyBERT(model='all-MiniLM-L6-v2')
     return _keyword_model
 

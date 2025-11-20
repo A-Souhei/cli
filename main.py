@@ -10,8 +10,8 @@ from src.config import ConfigManager
 from src.ollama_client import OllamaClient
 from src.chat import ChatManager
 from src.selector import InteractiveSelector
-from rich.console import Console, Group
-from rich.markdown import Markdown, CodeBlock
+from rich.console import Console
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 from rich.syntax import Syntax
@@ -20,7 +20,6 @@ from rich.style import Style
 from prompt_toolkit import prompt
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.formatted_text import FormattedText
-import re
 
 # Create custom theme
 custom_theme = Theme({
@@ -157,20 +156,45 @@ def create_rating(user_rating, prompt_text, response_text, tags):
 def update_rating(rating_id, user_rating, response_text, tags):
     """Update an existing rating in the postgres-api."""
     try:
-        params = {
+        payload = {
             'user_rating': user_rating,
             'response_text': response_text,
-            'tags': json.dumps({'keywords': tags})
+            'tags': {'keywords': tags}
         }
-        response = requests.get(
+        response = requests.patch(
             f"{POSTGRES_API_URL}/ratings/{rating_id}/update",
-            params=params,
+            json=payload,
             timeout=10
         )
         return response.status_code == 200
     except Exception as e:
         print(f"[Warning] Could not update rating: {e}")
         return False
+
+
+def find_similar_prompt(prompt_text, existing_ratings):
+    """
+    Find the most similar prompt from existing ratings.
+
+    Args:
+        prompt_text: The prompt to compare
+        existing_ratings: List of existing rating records
+
+    Returns:
+        Tuple of (best_match, best_similarity) or (None, 0) if no match found
+    """
+    best_match = None
+    best_similarity = 0
+
+    for rating in existing_ratings:
+        stored_prompt = rating.get('prompt_text', '')
+        if stored_prompt:
+            similarity = check_similarity(prompt_text, stored_prompt)
+            if similarity > best_similarity:
+                best_similarity = similarity
+                best_match = rating
+
+    return best_match, best_similarity
 
 
 def process_rating(user_rating, prompt_text, response_text):
@@ -186,17 +210,8 @@ def process_rating(user_rating, prompt_text, response_text):
     # Extract keywords from current response
     keywords = extract_keywords(response_text)
 
-    # Find the most similar prompt
-    best_match = None
-    best_similarity = 0
-
-    for rating in existing_ratings:
-        stored_prompt = rating.get('prompt_text', '')
-        if stored_prompt:
-            similarity = check_similarity(prompt_text, stored_prompt)
-            if similarity > best_similarity:
-                best_similarity = similarity
-                best_match = rating
+    # Find the most similar prompt (reuse logic)
+    best_match, best_similarity = find_similar_prompt(prompt_text, existing_ratings)
 
     # Check if we found a similar prompt
     if best_match and best_similarity >= SIMILARITY_THRESHOLD:
@@ -231,17 +246,8 @@ def get_prompt_guidance(prompt_text):
     if not existing_ratings:
         return None
 
-    # Find the most similar prompt
-    best_match = None
-    best_similarity = 0
-
-    for rating in existing_ratings:
-        stored_prompt = rating.get('prompt_text', '')
-        if stored_prompt:
-            similarity = check_similarity(prompt_text, stored_prompt)
-            if similarity > best_similarity:
-                best_similarity = similarity
-                best_match = rating
+    # Find the most similar prompt (reuse shared logic)
+    best_match, best_similarity = find_similar_prompt(prompt_text, existing_ratings)
 
     # Check if we found a similar prompt
     if best_match and best_similarity >= SIMILARITY_THRESHOLD:
