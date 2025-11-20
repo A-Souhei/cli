@@ -2,6 +2,7 @@
 
 import sys
 import json
+import argparse
 import requests
 import urllib.parse
 from src.config import ConfigManager
@@ -13,6 +14,15 @@ POSTGRES_API_URL = "http://localhost:15000"
 TRANSFORMER_API_URL = "http://localhost:16050"
 SIMILARITY_THRESHOLD = 0.7  # Cosine similarity threshold for considering prompts similar
 SATISFACTORY_RATING_THRESHOLD = 7  # Rating >= 7 is considered satisfactory
+
+# Global verbose flag
+VERBOSE = False
+
+
+def debug_print(message):
+    """Print message only if verbose mode is enabled."""
+    if VERBOSE:
+        print(message)
 
 
 def get_all_ratings():
@@ -139,17 +149,19 @@ def process_rating(user_rating, prompt_text, response_text):
         # Update if current rating is higher
         if user_rating > stored_rating:
             if update_rating(best_match['id'], user_rating, response_text, keywords):
-                print(f"[Rating updated] Similar prompt found (similarity: {best_similarity:.2f}), updated rating from {stored_rating} to {user_rating}")
+                debug_print(f"[Rating updated] Similar prompt found (similarity: {best_similarity:.2f}), updated rating from {stored_rating} to {user_rating}")
+                debug_print(f"[Keywords] {', '.join(keywords)}")
             else:
-                print("[Rating] Failed to update existing rating")
+                debug_print("[Rating] Failed to update existing rating")
         else:
-            print(f"[Rating skipped] Similar prompt found with higher rating ({stored_rating} >= {user_rating})")
+            debug_print(f"[Rating skipped] Similar prompt found with higher rating ({stored_rating} >= {user_rating})")
     else:
         # No similar prompt found, create new entry
         if create_rating(user_rating, prompt_text, response_text, keywords):
-            print(f"[Rating saved] New prompt stored with rating {user_rating}")
+            debug_print(f"[Rating saved] New prompt stored with rating {user_rating}")
+            debug_print(f"[Keywords] {', '.join(keywords)}")
         else:
-            print("[Rating] Failed to save new rating")
+            debug_print("[Rating] Failed to save new rating")
 
 
 def get_prompt_guidance(prompt_text):
@@ -216,8 +228,11 @@ def print_banner():
     print("=" * 50 + "\n")
 
 
-def main():
+def main(verbose=False):
     """Main function to run the AI CLI."""
+    global VERBOSE
+    VERBOSE = verbose
+
     try:
         # Load configuration
         config = ConfigManager()
@@ -288,6 +303,7 @@ def main():
                     guidance_message = {'role': 'system', 'content': guidance}
                     # Insert before the last message (which is the user's current message)
                     messages = messages[:-1] + [guidance_message, messages[-1]]
+                    debug_print(f"\n{guidance}\n")
 
                 # Get AI response
                 print("AI: ", end='', flush=True)
@@ -378,4 +394,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="AI CLI - Powered by Ollama")
+    parser.add_argument(
+        '-v', '--verbose',
+        action='store_true',
+        help='Enable verbose mode to show debug information'
+    )
+    args = parser.parse_args()
+    main(verbose=args.verbose)
