@@ -553,6 +553,30 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": ["dir_path"]
             }
+        ),
+        Tool(
+            name="verify_file_modifications",
+            description=(
+                "Verify file modifications by running one of the modified files. "
+                "This tool takes a list of files that were created or modified and runs one of them "
+                "to verify that the changes are syntactically correct and logically coherent. "
+                "It's useful after refactoring operations to ensure no import errors, syntax errors, "
+                "or runtime issues were introduced. Returns execution output (stdout/stderr/exit_code)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the file to run for verification (must be .py, .r, or .R)"
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Optional working directory. Defaults to current directory."
+                    }
+                },
+                "required": ["file_path"]
+            }
         )
     ]
 
@@ -877,6 +901,91 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             "errors": errors,
             "session_id": session_id if session_id else "temporary"
         }, indent=2))]
+
+    elif name == "verify_file_modifications":
+        file_path = arguments.get("file_path", "")
+        working_dir = arguments.get("working_dir", os.getcwd())
+
+        if not file_path:
+            return [TextContent(type="text", text="Error: Missing file_path")]
+
+        # Validate working directory
+        is_valid, error_msg = validate_working_dir(working_dir)
+        if not is_valid:
+            return [TextContent(type="text", text=f"Error: {error_msg}")]
+
+        # Determine full path
+        full_path = file_path if os.path.isabs(file_path) else os.path.join(working_dir, file_path)
+
+        # Check if file exists
+        if not os.path.exists(full_path):
+            return [TextContent(type="text", text=f"Error: File does not exist: {file_path}")]
+
+        # Check file extension
+        if not (file_path.endswith('.py') or file_path.endswith(('.r', '.R'))):
+            return [TextContent(type="text", text=f"Error: File must be .py, .r, or .R: {file_path}")]
+
+        # Verify file is readable
+        try:
+            with open(full_path, 'r', encoding='utf-8') as f:
+                f.read()  # Just verify it's readable
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error reading file: {str(e)}")]
+
+        # Determine language and execute the file directly
+        try:
+            if file_path.endswith('.py'):
+                # Run Python file directly
+                python_bin = find_cli_venv()
+                result = subprocess.run(
+                    [python_bin, full_path],
+                    capture_output=True,
+                    text=True,
+                    cwd=working_dir,
+                    timeout=30
+                )
+
+                return [TextContent(type="text", text=json.dumps({
+                    "status": "success",
+                    "file_path": file_path,
+                    "language": "python",
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "exit_code": result.returncode,
+                    "verification": "passed" if result.returncode == 0 else "failed"
+                }, indent=2))]
+
+            elif file_path.endswith(('.r', '.R')):
+                # Run R file directly
+                result = subprocess.run(
+                    ["Rscript", full_path],
+                    capture_output=True,
+                    text=True,
+                    cwd=working_dir,
+                    timeout=30
+                )
+
+                return [TextContent(type="text", text=json.dumps({
+                    "status": "success",
+                    "file_path": file_path,
+                    "language": "r",
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "exit_code": result.returncode,
+                    "verification": "passed" if result.returncode == 0 else "failed"
+                }, indent=2))]
+        except subprocess.TimeoutExpired:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "file_path": file_path,
+                "message": "Execution timed out after 30 seconds"
+            }, indent=2))]
+        except Exception as e:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "file_path": file_path,
+                "message": f"Execution failed: {str(e)}"
+            }, indent=2))]
 
     else:
         return [TextContent(type="text", text=f"Error: Unknown tool '{name}'")]

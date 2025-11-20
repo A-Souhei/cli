@@ -1130,8 +1130,11 @@ class User(BaseModel):
     pass
 ```
 
-Do NOT just explain the changes - provide the COMPLETE code for each file in the format above.
+Do NOT just explain the changes - provide the COMPLETE, RUNNABLE code for each file in the format above.
 Each file should have its own "file: <path>" line followed by a code block.
+
+VERIFICATION: After modifications, one of the files will be executed to verify the changes work correctly.
+Ensure all imports are correct, syntax is valid, and the code runs without errors.
 """
                         full_instruction = "\n".join(instruction_parts) + format_instruction
                         tool_instructions.append(full_instruction)
@@ -1245,6 +1248,53 @@ Each file should have its own "file: <path>" line followed by a code block.
                             at_context['files'],
                             at_context['non_existing']
                         ))
+
+                        # Offer to verify modifications by running one of the files
+                        if mod_result and mod_result.get('affected_files'):
+                            affected_files = mod_result['affected_files']
+                            runnable_files = [f for f in affected_files if f.endswith(('.py', '.r', '.R'))]
+
+                            if runnable_files:
+                                console.print()
+                                try:
+                                    if len(runnable_files) == 1:
+                                        # Only one file, ask if they want to verify
+                                        selector = InteractiveSelector(
+                                            title=f"🔍 Verify changes by running {runnable_files[0]}?",
+                                            choices=["Yes", "No"],
+                                            current="Yes"
+                                        )
+                                        choice = selector.show()
+                                        target_verify_file = runnable_files[0] if choice == "Yes" else None
+                                    else:
+                                        # Multiple files, let user choose
+                                        choices = runnable_files + ["Skip verification"]
+                                        selector = InteractiveSelector(
+                                            title="🔍 Select a file to run for verification:",
+                                            choices=choices,
+                                            current=choices[0]
+                                        )
+                                        choice = selector.show()
+                                        target_verify_file = choice if choice != "Skip verification" else None
+
+                                    if target_verify_file:
+                                        console.print(f"\n[yellow]Running {target_verify_file} for verification...[/yellow]\n")
+                                        verify_result = run_async(mcp_client.call_tool(
+                                            'coder',
+                                            'verify_file_modifications',
+                                            {
+                                                'file_path': target_verify_file,
+                                                'working_dir': os.getcwd()
+                                            }
+                                        ))
+
+                                        # Display verification result
+                                        display_execution_result(verify_result)
+                                    else:
+                                        console.print("\n[dim]Skipping verification run[/dim]\n")
+
+                                except (EOFError, KeyboardInterrupt):
+                                    console.print("\n[dim]Skipping verification run[/dim]\n")
                     elif target_file:
                         # Write code to target file
                         write_result = run_async(handle_code_file_writing(mcp_client, full_response, target_file))
