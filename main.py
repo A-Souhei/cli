@@ -761,27 +761,33 @@ def main(verbose=False):
 
                 # Get AI response
                 console.print()  # Add spacing before AI response
-                console.print("[bold cyan]▶[/bold cyan]")
 
                 # Get response (stream or not) and collect full response
                 if stream:
+                    # Print arrow only when we get the first chunk
                     full_response = ""
+                    first_chunk = True
                     for chunk in ollama_client.chat(
                         messages=messages,
                         stream=True,
                         temperature=temperature
                     ):
+                        if first_chunk:
+                            console.print("[bold cyan]▶[/bold cyan] ", end="")
+                            first_chunk = False
                         full_response += chunk
+                        console.print(chunk, end="")
+                    console.print()  # New line after streaming
                 else:
+                    console.print("[bold cyan]▶[/bold cyan]")
                     response = ollama_client.chat(
                         messages=messages,
                         stream=False,
                         temperature=temperature
                     )
                     full_response = response.get('message', {}).get('content', '')
-
-                # Render response as markdown with custom styling
-                console.print(CustomMarkdown(full_response, code_theme="monokai"))
+                    # Render response as markdown with custom styling
+                    console.print(CustomMarkdown(full_response, code_theme="monokai"))
 
                 # Add assistant response to context
                 chat_manager.add_assistant_message(full_response)
