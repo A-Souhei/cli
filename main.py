@@ -27,6 +27,7 @@ from rich.live import Live
 from prompt_toolkit import prompt
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.formatted_text import FormattedText
+from src.file_completer import AtPrefixFileCompleter, extract_at_context, remove_at_prefixed_paths
 
 # Apply nest_asyncio once globally to allow nested event loops
 import nest_asyncio
@@ -299,6 +300,75 @@ def get_prompt_guidance(prompt_text):
         return guidance
 
     return None
+
+
+async def handle_code_file_writing(mcp_client: MCPClient, response_text: str, target_file: str):
+    """
+    Detect code from LLM response and write it to a target file.
+
+    Args:
+        mcp_client: MCP client instance
+        response_text: The LLM response text
+        target_file: Path to the target file to write
+
+    Returns:
+        Write result or None
+    """
+    # Detect code in the response
+    detected = mcp_client.detect_code(response_text)
+
+    if not detected:
+        debug_print("No code detected in response to write to file", icon="ℹ️")
+        return None
+
+    language = detected['language']
+    code = detected['code']
+
+    debug_print(f"Detected {language.upper()} code block for file: {target_file}", icon="🔍")
+
+    # Determine if file exists to choose between write and edit
+    file_exists = os.path.exists(target_file)
+
+    # Determine tool based on language and file existence
+    if language == "python":
+        tool_name = "edit_python_code" if file_exists else "write_python_code"
+        mcp_name = "coder"
+    elif language == "r":
+        tool_name = "edit_r_code" if file_exists else "write_r_code"
+        mcp_name = "coder"
+    else:
+        debug_print(f"Unsupported language for file writing: {language}", icon="⚠️")
+        return None
+
+    # Inform user what we're about to do
+    action = "Updating" if file_exists else "Creating"
+    console.print(f"\n[cyan]{action} {target_file} with generated {language.upper()} code...[/cyan]")
+
+    # Write the code to file
+    result = await mcp_client.call_tool(
+        mcp_name=mcp_name,
+        tool_name=tool_name,
+        arguments={
+            "file_path": target_file,
+            "code": code,
+            "working_dir": os.getcwd()
+        }
+    )
+
+    # Parse result
+    try:
+        result_data = json.loads(result)
+        if result_data.get('status') == 'success':
+            console.print(f"[green]✓ Successfully wrote code to {target_file}[/green]\n")
+        else:
+            console.print(f"[red]✗ Failed to write to {target_file}: {result_data.get('message')}[/red]\n")
+    except Exception as e:
+        if "Error:" in result:
+            console.print(f"[red]✗ {result}[/red]\n")
+        else:
+            console.print(f"[red]✗ Failed to write to {target_file}: {e}[/red]\n")
+
+    return result
 
 
 async def handle_code_execution(mcp_client: MCPClient, response_text: str):
@@ -616,13 +686,17 @@ def main(verbose=False):
         # Initialize command history
         history = FileHistory(str(HISTORY_FILE))
 
+        # Initialize file completer for @ prefix
+        file_completer = AtPrefixFileCompleter(working_dir=os.getcwd())
+
         # Main chat loop
         while True:
             try:
-                # Get user input with history support
+                # Get user input with history support and file completion
                 user_input = prompt(
                     FormattedText([('ansigreen bold', '▶ ')]),
-                    history=history
+                    history=history,
+                    completer=file_completer
                 ).strip()
 
                 # Handle special commands
@@ -733,8 +807,66 @@ def main(verbose=False):
                 if not user_input:
                     continue
 
+                # Process @ prefixed file/directory paths
+                at_context = extract_at_context(user_input, os.getcwd())
+                context_added = False
+
+                # Add file contexts to Redis (with session if active)
+                session_id = session_manager.get_session_id() if session_manager.is_active() else None
+
+                for file_path in at_context['files']:
+                    try:
+                        # Add file context using MCP tool
+                        args = {
+                            'file_path': file_path,
+                            'working_dir': os.getcwd()
+                        }
+                        if session_id:
+                            args['session_id'] = session_id
+
+                        result = run_async(mcp_client.call_tool('coder', 'add_file_context', args))
+                        debug_print(f"Added file context: {file_path}", icon="📄", style="cyan")
+                        context_added = True
+                    except Exception as e:
+                        debug_print(f"Failed to add file context for {file_path}: {e}", icon="⚠️", style="yellow")
+
+                # Add directory contexts to Redis
+                for dir_path in at_context['directories']:
+                    try:
+                        # Add directory context using MCP tool
+                        args = {
+                            'dir_path': dir_path,
+                            'working_dir': os.getcwd()
+                        }
+                        if session_id:
+                            args['session_id'] = session_id
+
+                        result = run_async(mcp_client.call_tool('coder', 'add_directory_context', args))
+                        debug_print(f"Added directory context: {dir_path}", icon="📁", style="cyan")
+                        context_added = True
+                    except Exception as e:
+                        debug_print(f"Failed to add directory context for {dir_path}: {e}", icon="⚠️", style="yellow")
+
+                # Handle non-existing files (these will be targets for write operations)
+                target_file = None
+                if at_context['non_existing']:
+                    # Take the first non-existing file as the target
+                    target_file = at_context['non_existing'][0]
+                    debug_print(f"Target file for output: {target_file}", icon="🎯", style="magenta")
+
+                # Remove @ prefixed paths from user input for cleaner prompt
+                clean_user_input = remove_at_prefixed_paths(user_input)
+
+                # If we removed everything, use original input
+                if not clean_user_input:
+                    clean_user_input = user_input
+
+                # Inform user about context addition
+                if context_added:
+                    console.print(f"[dim]✓ Added {len(at_context['files'])} file(s) and {len(at_context['directories'])} directory(ies) to context[/dim]")
+
                 # Get guidance based on similar past prompts
-                guidance = get_prompt_guidance(user_input)
+                guidance = get_prompt_guidance(clean_user_input)
 
                 # Get session context if active
                 session_context = None
@@ -743,8 +875,8 @@ def main(verbose=False):
                     if session_context:
                         debug_print(f"Session active: {len(session_manager.get_session_history())} interactions in context", icon="📝", style="cyan")
 
-                # Add user message to context
-                chat_manager.add_user_message(user_input)
+                # Add user message to context (use clean input without @ paths)
+                chat_manager.add_user_message(clean_user_input)
 
                 # Get messages and inject guidance if available
                 messages = chat_manager.get_messages()
@@ -752,9 +884,22 @@ def main(verbose=False):
                 # Collect all system messages to inject before the user's message
                 system_messages_to_inject = []
 
+                # If target file is specified, instruct LLM to generate code for that file
+                if target_file:
+                    file_ext = os.path.splitext(target_file)[1]
+                    lang = "Python" if file_ext == ".py" else "R" if file_ext in [".R", ".r"] else "appropriate"
+                    system_messages_to_inject.append({
+                        'role': 'system',
+                        'content': (
+                            f"The user wants to write code to the file: {target_file}. "
+                            f"Generate {lang} code in a code block that will be automatically written to this file. "
+                            "Provide complete, working code that can be directly written to the file."
+                        )
+                    })
+
                 # If user asks to run/execute code, instruct LLM not to predict output
                 run_keywords = ['run', 'execute', 'exec']
-                if any(keyword in user_input.lower() for keyword in run_keywords):
+                if any(keyword in clean_user_input.lower() for keyword in run_keywords):
                     system_messages_to_inject.append({
                         'role': 'system',
                         'content': (
@@ -832,13 +977,18 @@ def main(verbose=False):
 
                 console.print()  # Extra line for readability
 
-                # Check for code and offer to execute
+                # Check for code and offer to execute or write to file
                 try:
-                    exec_result = run_async(handle_code_execution(mcp_client, full_response))
-                    if exec_result:
-                        display_execution_result(exec_result)
+                    if target_file:
+                        # Write code to target file
+                        write_result = run_async(handle_code_file_writing(mcp_client, full_response, target_file))
+                    else:
+                        # Execute code (with user confirmation)
+                        exec_result = run_async(handle_code_execution(mcp_client, full_response))
+                        if exec_result:
+                            display_execution_result(exec_result)
                 except Exception as e:
-                    debug_print(f"Error during code execution: {e}", icon="❌")
+                    debug_print(f"Error during code handling: {e}", icon="❌")
 
                 # Ask for rating
                 try:
