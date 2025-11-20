@@ -24,6 +24,16 @@ from prompt_toolkit import prompt
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.formatted_text import FormattedText
 
+
+def run_async(coro):
+    """
+    Run an async coroutine safely, handling nested event loop scenarios.
+    Uses nest_asyncio to allow asyncio.run() even when a loop is running.
+    """
+    import nest_asyncio
+    nest_asyncio.apply()
+    return asyncio.run(coro)
+
 # Create custom theme
 custom_theme = Theme({
     "markdown.code": "cyan on #000000",
@@ -590,7 +600,7 @@ def main(verbose=False):
         # Initialize MCP tools in database (async operation)
         debug_print("Initializing MCP tools...", icon="🔧")
         try:
-            asyncio.run(mcp_client.initialize_tools_in_db())
+            run_async(mcp_client.initialize_tools_in_db())
         except Exception as e:
             debug_print(f"Failed to initialize MCP tools: {e}", icon="⚠️")
 
@@ -622,7 +632,7 @@ def main(verbose=False):
                 if user_input.lower() in ['exit', 'quit']:
                     # Cleanup MCP client
                     try:
-                        asyncio.run(mcp_client.cleanup())
+                        run_async(mcp_client.cleanup())
                     except Exception as e:
                         debug_print(f"Error cleaning up MCP client: {e}", icon="⚠️")
                     console.print("\n👋 [bold]Goodbye![/bold]")
@@ -685,7 +695,7 @@ def main(verbose=False):
                         console.print("❌ [red]Usage: mcp-tools <mcp_name>[/red]\n")
                     else:
                         try:
-                            asyncio.run(get_mcp_tools(mcp_name))
+                            run_async(get_mcp_tools(mcp_name))
                         except Exception as e:
                             console.print(f"❌ [red]Error: {e}[/red]\n")
                     continue
@@ -740,7 +750,7 @@ def main(verbose=False):
 
                 # Check for code and offer to execute
                 try:
-                    exec_result = asyncio.run(handle_code_execution(mcp_client, full_response))
+                    exec_result = run_async(handle_code_execution(mcp_client, full_response))
                     if exec_result:
                         display_execution_result(exec_result)
                 except Exception as e:
@@ -768,7 +778,7 @@ def main(verbose=False):
             except KeyboardInterrupt:
                 # Cleanup MCP client
                 try:
-                    asyncio.run(mcp_client.cleanup())
+                    run_async(mcp_client.cleanup())
                 except Exception as e:
                     debug_print(f"Error cleaning up MCP client: {e}", icon="⚠️")
                 console.print("\n\n👋 [bold]Goodbye![/bold]")
