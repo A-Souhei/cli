@@ -9,16 +9,56 @@ from pathlib import Path
 from src.config import ConfigManager
 from src.ollama_client import OllamaClient
 from src.chat import ChatManager
-from rich.console import Console
-from rich.markdown import Markdown
+from rich.console import Console, Group
+from rich.markdown import Markdown, CodeBlock
 from rich.panel import Panel
 from rich.text import Text
+from rich.syntax import Syntax
+from rich.theme import Theme
+from rich.style import Style
 from prompt_toolkit import prompt
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.formatted_text import FormattedText
+import re
 
-# Initialize rich console
-console = Console()
+# Create custom theme
+custom_theme = Theme({
+    "markdown.code": "cyan on #000000",
+})
+
+# Initialize rich console with custom theme
+console = Console(theme=custom_theme)
+
+
+class CustomMarkdown(Markdown):
+    """Custom Markdown renderer with styled code blocks."""
+
+    def __rich_console__(self, console, options):
+        """Render markdown with custom code block styling."""
+        # Get the rendered markdown elements
+        for element in super().__rich_console__(console, options):
+            # Check if it's a code block
+            if isinstance(element, Panel) and hasattr(element, 'renderable'):
+                # Wrap code blocks with blue border and black background
+                if isinstance(element.renderable, Syntax):
+                    yield Panel(
+                        element.renderable,
+                        border_style="blue",
+                        style=Style(bgcolor="#000000"),
+                        padding=(0, 1)
+                    )
+                else:
+                    yield element
+            elif isinstance(element, Syntax):
+                # Direct Syntax objects (code blocks)
+                yield Panel(
+                    element,
+                    border_style="blue",
+                    style=Style(bgcolor="#000000"),
+                    padding=(0, 1)
+                )
+            else:
+                yield element
 
 # Set up history file
 HISTORY_FILE = Path.home() / ".ai_cli_history"
@@ -351,8 +391,8 @@ def main(verbose=False):
                     )
                     full_response = response.get('message', {}).get('content', '')
 
-                # Render response as markdown
-                console.print(Markdown(full_response))
+                # Render response as markdown with custom styling
+                console.print(CustomMarkdown(full_response, code_theme="monokai"))
 
                 # Add assistant response to context
                 chat_manager.add_assistant_message(full_response)
