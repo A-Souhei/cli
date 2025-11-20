@@ -322,7 +322,7 @@ def main(verbose=False):
                 console.print("🤖 [bold cyan]AI:[/bold cyan]")
 
                 if stream:
-                    # Stream response
+                    # Stream response (raw text for speed, no markdown rendering)
                     full_response = ""
                     for chunk in ollama_client.chat(
                         messages=messages,
@@ -332,10 +332,6 @@ def main(verbose=False):
                         print(chunk, end='', flush=True)
                         full_response += chunk
                     print()  # New line after streaming
-
-                    # Render as markdown
-                    console.print()
-                    console.print(Markdown(full_response))
 
                     # Add assistant response to context
                     chat_manager.add_assistant_message(full_response)
