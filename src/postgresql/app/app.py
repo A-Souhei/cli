@@ -56,6 +56,7 @@ class ConversationRating(db.Model):
     prompt_text = db.Column(Text)
     response_text = db.Column(Text)
     tags = db.Column(JSON, default={})
+    session_id = db.Column(Text, nullable=True, index=True)  # Session ID for context grouping
     created_at = db.Column(DateTime, default=datetime.utcnow)
     updated_at = db.Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -107,7 +108,8 @@ def create_rating():
             user_rating=int(data.get('user_rating', 0)),
             prompt_text=data.get('prompt_text'),
             response_text=data.get('response_text'),
-            tags=tags
+            tags=tags,
+            session_id=data.get('session_id')
         )
 
         db.session.add(rating)

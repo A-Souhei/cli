@@ -121,7 +121,7 @@ test: install ## Run tests
 	@echo "$(GREEN)✓ Tests completed$(NC)"
 
 # Additional convenience targets
-.PHONY: exec-ollama pull-model list-models build-postgres exec-postgres flask-logs update-schema
+.PHONY: exec-ollama pull-model list-models build-postgres exec-postgres flask-logs update-schema migrate-session
 
 build-postgres: ## Build PostgreSQL + Flask image
 	@echo "$(YELLOW)Building PostgreSQL + Flask image...$(NC)"
@@ -136,6 +136,12 @@ update-schema: ## Update PostgreSQL schema (add/modify tables)
 	@chmod +x src/postgresql/update-schema.sh
 	@./src/postgresql/update-schema.sh
 	@echo "$(GREEN)✓ Schema update complete$(NC)"
+
+migrate-session: ## Apply session feature database migration
+	@echo "$(YELLOW)Applying session migration...$(NC)"
+	@chmod +x scripts/apply_session_migration.sh
+	@./scripts/apply_session_migration.sh
+	@echo "$(GREEN)✓ Session migration complete$(NC)"
 
 flask-logs: ## Show Flask application logs
 	@$(DOCKER_COMPOSE) exec postgres tail -f /var/log/flask.out.log
