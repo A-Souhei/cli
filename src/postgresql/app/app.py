@@ -306,6 +306,22 @@ def get_embedding(text):
         return None
 
 
+def get_batch_embeddings(texts):
+    """Get embeddings for multiple texts from transformer service."""
+    try:
+        response = requests.get(
+            f"{TRANSFORMER_API_URL}/embed/batch",
+            params={"texts": json.dumps(texts)},
+            timeout=60
+        )
+        if response.status_code == 200:
+            return response.json().get('embeddings')
+        return None
+    except Exception as e:
+        print(f"Error getting batch embeddings: {e}")
+        return None
+
+
 def cosine_similarity(vec1, vec2):
     """Calculate cosine similarity between two vectors."""
     if not vec1 or not vec2 or len(vec1) != len(vec2):
@@ -319,6 +335,109 @@ def cosine_similarity(vec1, vec2):
         return 0.0
 
     return dot_product / (magnitude1 * magnitude2)
+
+
+def extract_parameters_from_text(text, tool_name):
+    """
+    Extract parameters from text based on common patterns.
+
+    This is a simple heuristic-based extraction. For production use,
+    consider using an LLM or more sophisticated NLP techniques.
+
+    Parameters:
+    -----------
+    text : str
+        The input text/sentence to extract parameters from
+    tool_name : str
+        The name of the tool to extract parameters for
+
+    Returns:
+    --------
+    dict
+        Extracted parameters as key-value pairs
+    """
+    import re
+
+    params = {}
+    text_lower = text.lower()
+
+    # Common patterns for different tool types
+
+    # 1. Code execution tools (run_python_code, run_r_code)
+    if 'run' in tool_name or 'execute' in tool_name or 'eval' in tool_name:
+        # Look for code blocks in backticks or quotes
+        code_patterns = [
+            r'```(?:python|r)?\s*(.*?)```',  # Code blocks
+            r'`([^`]+)`',  # Inline code
+            r'"([^"]+)"',  # Double quotes
+            r"'([^']+)'",  # Single quotes
+        ]
+
+        for pattern in code_patterns:
+            match = re.search(pattern, text, re.DOTALL)
+            if match:
+                params['code'] = match.group(1).strip()
+                break
+
+        # If no code block found, use the entire text after command words
+        if 'code' not in params:
+            # Remove common command words
+            code_text = re.sub(r'\b(run|execute|eval|this|the|following|code|python|r)\b', '', text_lower, flags=re.IGNORECASE)
+            params['code'] = code_text.strip()
+
+    # 2. File operations (write_python_code, write_r_code, edit_*_code)
+    elif 'write' in tool_name or 'edit' in tool_name or 'create' in tool_name:
+        # Look for file paths
+        file_patterns = [
+            r'(?:file|path|to|at|in)\s+([^\s,;]+\.(?:py|r|txt|json|csv|md))',
+            r'([^\s,;]+\.(?:py|r|txt|json|csv|md))',
+        ]
+
+        for pattern in file_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                params['file_path'] = match.group(1)
+                break
+
+        # Look for code content
+        code_patterns = [
+            r'```(?:python|r)?\s*(.*?)```',
+            r'code[:\s]+(.+)',
+        ]
+
+        for pattern in code_patterns:
+            match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+            if match:
+                params['code'] = match.group(1).strip()
+                break
+
+    # 3. Context operations (add_file_context, add_directory_context)
+    elif 'context' in tool_name or 'add' in tool_name:
+        # Look for file or directory paths
+        path_patterns = [
+            r'([^\s,;]+(?:/[^\s,;]+)+)',  # Unix-style paths (check first for full paths)
+            r'([A-Za-z]:\\[^\s,;]+)',  # Windows-style paths
+            r'(?:file|directory|folder|path)\s+([^\s,;]+)',  # Keyword-prefixed paths
+        ]
+
+        for pattern in path_patterns:
+            match = re.search(pattern, text)
+            if match:
+                path = match.group(1)
+                # Skip if path is just "context" or other keywords
+                if path.lower() not in ['context', 'file', 'directory', 'folder', 'path', 'for', 'to', 'at']:
+                    if 'directory' in tool_name or 'folder' in text_lower:
+                        params['directory_path'] = path
+                    else:
+                        params['file_path'] = path
+                    break
+
+    # 4. Generic text content extraction
+    if not params:
+        # If no specific parameters found, include the text as a generic 'input' parameter
+        params['input'] = text
+
+    return params
 
 
 @app.route('/mcp-tools/store', methods=['POST'])
@@ -446,6 +565,154 @@ def match_mcp_tool():
             'matches': matches,
             'best_match': matches[0] if matches else None
         }), 200
+    except Exception as e:
+        return handle_error(e)
+
+
+@app.route('/mcp-tools/retrieve', methods=['POST'])
+def retrieve_tools_recursive():
+    """
+    Recursively retrieve tools for multiple prompts/sentences.
+
+    This endpoint takes a list of prompts, embeds each one, finds the best
+    matching tools, and extracts parameters from the prompts.
+
+    Request Body:
+    {
+        "prompts": ["prompt1", "prompt2", ...],  # List of text prompts/sentences
+        "threshold": 0.5,                         # Minimum similarity threshold (optional)
+        "top_k": 3,                               # Number of top results per prompt (optional)
+        "mcp_filter": ["coder"],                  # Filter by MCP names (optional)
+        "extract_params": true                    # Whether to extract parameters (optional, default: true)
+    }
+
+    Returns:
+    {
+        "status": "success",
+        "count": 2,
+        "results": [
+            {
+                "prompt": "run this python code: print('hello')",
+                "prompt_index": 0,
+                "matched_tools": [
+                    {
+                        "rank": 1,
+                        "mcp_name": "coder",
+                        "tool_name": "run_python_code",
+                        "description": "Execute Python code...",
+                        "similarity": 0.87,
+                        "extracted_params": {
+                            "code": "print('hello')"
+                        }
+                    }
+                ]
+            },
+            ...
+        ]
+    }
+    """
+    try:
+        data = request.get_json()
+        prompts = data.get('prompts', [])
+        threshold = data.get('threshold', 0.5)
+        top_k = data.get('top_k', 3)
+        mcp_filter = data.get('mcp_filter', None)
+        extract_params = data.get('extract_params', True)
+
+        # Validation
+        if not prompts:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing required field: prompts (must be a non-empty list)'
+            }), 400
+
+        if not isinstance(prompts, list):
+            return jsonify({
+                'status': 'error',
+                'message': 'prompts must be a list of strings'
+            }), 400
+
+        # Get batch embeddings for all prompts
+        prompt_embeddings = get_batch_embeddings(prompts)
+        if not prompt_embeddings:
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to generate embeddings for prompts'
+            }), 500
+
+        if len(prompt_embeddings) != len(prompts):
+            return jsonify({
+                'status': 'error',
+                'message': f'Embedding count mismatch: got {len(prompt_embeddings)}, expected {len(prompts)}'
+            }), 500
+
+        # Get all tools from database
+        if mcp_filter:
+            tools = MCPTool.query.filter(MCPTool.mcp_name.in_(mcp_filter)).all()
+        else:
+            tools = MCPTool.query.all()
+
+        if not tools:
+            return jsonify({
+                'status': 'error',
+                'message': 'No tools found in database'
+            }), 404
+
+        # Process each prompt recursively
+        results = []
+        for idx, (prompt, prompt_embedding) in enumerate(zip(prompts, prompt_embeddings)):
+            # Calculate similarity for all tools
+            matches = []
+            for tool in tools:
+                if tool.embedding:
+                    similarity = cosine_similarity(prompt_embedding, tool.embedding)
+                    if similarity >= threshold:
+                        match = {
+                            'mcp_name': tool.mcp_name,
+                            'tool_name': tool.tool_name,
+                            'description': tool.description,
+                            'similarity': similarity
+                        }
+
+                        # Extract parameters if requested
+                        if extract_params:
+                            match['extracted_params'] = extract_parameters_from_text(
+                                prompt,
+                                tool.tool_name
+                            )
+
+                        matches.append(match)
+
+            # Sort by similarity (highest first) and take top_k
+            matches.sort(key=lambda x: x['similarity'], reverse=True)
+            if top_k:
+                matches = matches[:top_k]
+
+            # Add rank to each match
+            for rank, match in enumerate(matches, start=1):
+                match['rank'] = rank
+
+            # Add to results
+            results.append({
+                'prompt': prompt,
+                'prompt_index': idx,
+                'matched_tools': matches,
+                'best_match': matches[0] if matches else None
+            })
+
+        return jsonify({
+            'status': 'success',
+            'count': len(results),
+            'results': results,
+            'metadata': {
+                'threshold': threshold,
+                'top_k': top_k,
+                'mcp_filter': mcp_filter,
+                'total_prompts': len(prompts),
+                'total_tools_searched': len(tools)
+            }
+        }), 200
+
     except Exception as e:
         return handle_error(e)
 
