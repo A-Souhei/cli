@@ -96,6 +96,7 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-vuhitra}
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
+      - TRANSFORMER_API_URL=http://transformer:${TRANSFORMER_CONTAINER_PORT:-5050}
       - SENTRY_DSN=${SENTRY_DSN:-}
       - ENVIRONMENT=${ENVIRONMENT:-DEV}
     depends_on:

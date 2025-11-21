@@ -569,25 +569,28 @@ def match_mcp_tool():
         return handle_error(e)
 
 
-@app.route('/mcp-tools/retrieve', methods=['GET'])
+@app.route('/mcp-tools/retrieve', methods=['POST'])
 def retrieve_tools_recursive():
     """
-    Recursively retrieve tools for multiple prompts/sentences.
+    Recursively retrieve the best matching tool for each prompt/sentence.
 
     This endpoint takes a list of prompts, embeds each one, finds the best
-    matching tools, and extracts parameters from the prompts.
+    matching tool, and extracts parameters from the prompt.
 
-    Query Parameters:
-    - prompts: JSON array of text prompts/sentences (required)
-      Example: prompts=["Run Python code", "Create file"]
+    JSON Body Parameters:
+    - prompts: Array of text prompts/sentences (required)
+      Example: ["Run Python code", "Create file"]
     - threshold: Minimum similarity threshold 0-1 (optional, default: 0.5)
-    - top_k: Number of top results per prompt (optional, default: 3)
-    - mcp_filter: JSON array of MCP names to filter (optional)
-      Example: mcp_filter=["coder"]
+    - mcp_filter: Array of MCP names to filter (optional)
+      Example: ["coder"]
     - extract_params: Whether to extract parameters (optional, default: true)
 
     Example:
-    GET /mcp-tools/retrieve?prompts=["Run Python code"]&threshold=0.5
+    POST /mcp-tools/retrieve
+    {
+        "prompts": ["Run Python code", "Create file"],
+        "threshold": 0.5
+    }
 
     Returns:
     {
@@ -595,62 +598,37 @@ def retrieve_tools_recursive():
         "count": 2,
         "results": [
             {
-                "prompt": "run this python code: print('hello')",
+                "prompt": "Run Python code",
                 "prompt_index": 0,
-                "matched_tools": [
-                    {
-                        "rank": 1,
-                        "mcp_name": "coder",
-                        "tool_name": "run_python_code",
-                        "description": "Execute Python code...",
-                        "similarity": 0.87,
-                        "extracted_params": {
-                            "code": "print('hello')"
-                        }
+                "best_match": {
+                    "mcp_name": "coder",
+                    "tool_name": "run_python_code",
+                    "description": "Execute Python code...",
+                    "similarity": 0.87,
+                    "extracted_params": {
+                        "code": ""
                     }
-                ]
+                }
             },
             ...
         ]
     }
     """
     try:
-        # Get parameters from query string
-        prompts_param = request.args.get('prompts')
-
-        # Parse optional parameters
-        try:
-            threshold = float(request.args.get('threshold', 0.5))
-        except (ValueError, TypeError):
-            threshold = 0.5
-
-        try:
-            top_k = int(request.args.get('top_k', 3))
-        except (ValueError, TypeError):
-            top_k = 3
-
-        extract_params_str = request.args.get('extract_params', 'true')
-        extract_params = extract_params_str.lower() in ['true', '1', 'yes']
-
-        # Parse JSON parameters
-        if not prompts_param:
+        # Get JSON body
+        data = request.get_json()
+        if not data:
             return jsonify({
                 'status': 'error',
-                'message': 'Missing required parameter: prompts (must be a JSON array)'
+                'message': 'Request body must be valid JSON'
             }), 400
 
-        try:
-            prompts = json.loads(prompts_param)
-        except json.JSONDecodeError:
-            return jsonify({
-                'status': 'error',
-                'message': 'Invalid JSON format for prompts parameter'
-            }), 400
-
+        # Get required prompts parameter
+        prompts = data.get('prompts')
         if not prompts:
             return jsonify({
                 'status': 'error',
-                'message': 'prompts parameter must be a non-empty list'
+                'message': 'Missing required parameter: prompts (must be an array)'
             }), 400
 
         if not isinstance(prompts, list):
@@ -659,18 +637,29 @@ def retrieve_tools_recursive():
                 'message': 'prompts must be a list of strings'
             }), 400
 
-        # Parse mcp_filter if provided
-        mcp_filter_param = request.args.get('mcp_filter')
-        if mcp_filter_param:
-            try:
-                mcp_filter = json.loads(mcp_filter_param)
-            except json.JSONDecodeError:
-                return jsonify({
-                    'status': 'error',
-                    'message': 'Invalid JSON format for mcp_filter parameter'
-                }), 400
-        else:
-            mcp_filter = None
+        if len(prompts) == 0:
+            return jsonify({
+                'status': 'error',
+                'message': 'prompts parameter must be a non-empty list'
+            }), 400
+
+        # Parse optional parameters
+        try:
+            threshold = float(data.get('threshold', 0.5))
+        except (ValueError, TypeError):
+            threshold = 0.5
+
+        extract_params = data.get('extract_params', True)
+        if isinstance(extract_params, str):
+            extract_params = extract_params.lower() in ['true', '1', 'yes']
+
+        # Get mcp_filter if provided
+        mcp_filter = data.get('mcp_filter')
+        if mcp_filter and not isinstance(mcp_filter, list):
+            return jsonify({
+                'status': 'error',
+                'message': 'mcp_filter must be a list of MCP names'
+            }), 400
 
         # Get batch embeddings for all prompts
         prompt_embeddings = get_batch_embeddings(prompts)
@@ -723,21 +712,15 @@ def retrieve_tools_recursive():
 
                         matches.append(match)
 
-            # Sort by similarity (highest first) and take top_k
+            # Sort by similarity (highest first) and get only the best match
             matches.sort(key=lambda x: x['similarity'], reverse=True)
-            if top_k:
-                matches = matches[:top_k]
+            best_match = matches[0] if matches else None
 
-            # Add rank to each match
-            for rank, match in enumerate(matches, start=1):
-                match['rank'] = rank
-
-            # Add to results
+            # Add to results - only include the best match
             results.append({
                 'prompt': prompt,
                 'prompt_index': idx,
-                'matched_tools': matches,
-                'best_match': matches[0] if matches else None
+                'best_match': best_match
             })
 
         return jsonify({
@@ -746,7 +729,6 @@ def retrieve_tools_recursive():
             'results': results,
             'metadata': {
                 'threshold': threshold,
-                'top_k': top_k,
                 'mcp_filter': mcp_filter,
                 'total_prompts': len(prompts),
                 'total_tools_searched': len(tools)

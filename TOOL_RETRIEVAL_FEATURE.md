@@ -2,15 +2,15 @@
 
 ## Summary
 
-This feature implements an intelligent API endpoint that processes multiple prompts/sentences simultaneously, using transformer embeddings to find the most relevant MCP (Model Context Protocol) tools and automatically extracting parameters from the text.
+This feature implements an intelligent API endpoint that processes multiple prompts/sentences simultaneously, using transformer embeddings to find the best matching MCP (Model Context Protocol) tool for each prompt and automatically extracting parameters from the text.
 
 ## What's New
 
 ### 1. New API Endpoint: `/mcp-tools/retrieve`
 
-**Location:** `src/postgresql/app/app.py` (lines 570-715)
+**Location:** `src/postgresql/app/app.py` (lines 572-758)
 
-A new POST endpoint that accepts multiple prompts and returns matched tools with extracted parameters:
+A POST endpoint that accepts multiple prompts and returns the best matching tool for each prompt with extracted parameters:
 
 ```bash
 curl -X POST http://localhost:15000/mcp-tools/retrieve \
@@ -21,8 +21,7 @@ curl -X POST http://localhost:15000/mcp-tools/retrieve \
       "Create a file test.py",
       "Add directory /home/user/project to context"
     ],
-    "threshold": 0.5,
-    "top_k": 3
+    "threshold": 0.4
   }'
 ```
 
@@ -101,12 +100,12 @@ Comprehensive documentation including:
 ### ✅ Recursive Processing
 - Process multiple prompts in a single request
 - Each prompt independently matched against all tools
-- Results returned with prompt context
+- Best matching tool returned for each prompt
 
 ### ✅ Smart Matching
 - Uses cosine similarity with transformer embeddings
 - Configurable similarity threshold (default: 0.5)
-- Top-k filtering for best matches
+- Returns only the highest similarity match per prompt
 - MCP filtering support
 
 ### ✅ Parameter Extraction
@@ -147,19 +146,20 @@ response = requests.post(
             "Add the src directory to context"
         ],
         "threshold": 0.4,
-        "top_k": 2,
         "extract_params": True
     },
     timeout=60
 )
 
 data = response.json()
-# Returns: matched tools with extracted parameters for each prompt
+# Returns: best matching tool with extracted parameters for each prompt
 for result in data["results"]:
     print(f"Prompt: {result['prompt']}")
     best_match = result["best_match"]
-    print(f"Tool: {best_match['tool_name']}")
-    print(f"Params: {best_match['extracted_params']}")
+    if best_match:
+        print(f"Tool: {best_match['tool_name']}")
+        print(f"Similarity: {best_match['similarity']}")
+        print(f"Params: {best_match['extracted_params']}")
 ```
 
 ## Response Format
@@ -172,24 +172,20 @@ for result in data["results"]:
     {
       "prompt": "Run this Python code: print('hello')",
       "prompt_index": 0,
-      "matched_tools": [
-        {
-          "rank": 1,
-          "mcp_name": "coder",
-          "tool_name": "run_python_code",
-          "description": "Execute Python code...",
-          "similarity": 0.87,
-          "extracted_params": {
-            "code": "print('hello')"
-          }
+      "best_match": {
+        "mcp_name": "coder",
+        "tool_name": "run_python_code",
+        "description": "Execute Python code...",
+        "similarity": 0.87,
+        "extracted_params": {
+          "code": "print('hello')"
         }
-      ],
-      "best_match": {...}
+      }
     }
   ],
   "metadata": {
     "threshold": 0.5,
-    "top_k": 3,
+    "mcp_filter": null,
     "total_prompts": 3,
     "total_tools_searched": 10
   }
@@ -211,16 +207,28 @@ python3 tests/validate_tool_retrieval.py
 ### Manual Testing
 ```bash
 # 1. Start services
-docker-compose up -d
+docker compose up -d
 
 # 2. Check health
 curl http://localhost:15000/health
 curl http://localhost:16050/health
 
-# 3. Test endpoint
+# 3. Test endpoint with single prompt
 curl -X POST http://localhost:15000/mcp-tools/retrieve \
   -H "Content-Type: application/json" \
   -d '{"prompts": ["Run Python code"]}'
+
+# 4. Test endpoint with multiple prompts
+curl -X POST http://localhost:15000/mcp-tools/retrieve \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompts": [
+      "Execute Python code",
+      "Create a file test.py",
+      "Add directory to context"
+    ],
+    "threshold": 0.4
+  }'
 ```
 
 ## Performance
