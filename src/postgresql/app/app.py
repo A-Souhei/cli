@@ -10,6 +10,7 @@ import sys
 import os
 import json
 import requests
+import yaml
 
 # Add shared source directory to path
 sys.path.insert(0, '/app/src_shared')
@@ -39,6 +40,29 @@ TRANSFORMER_API_URL = os.getenv('TRANSFORMER_API_URL', 'http://localhost:16050')
 
 # Ollama service configuration
 OLLAMA_API_URL = os.getenv('OLLAMA_API_URL', 'http://localhost:11434')
+
+# Load config.yaml for default model
+def load_config():
+    """Load configuration from config.yaml."""
+    config_paths = ['/app/config.yaml', 'config.yaml', '../config.yaml']
+    for config_path in config_paths:
+        try:
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f)
+                return config
+        except FileNotFoundError:
+            continue
+        except Exception as e:
+            print(f"Warning: Could not load config.yaml: {e}")
+            continue
+    print("Warning: Configuration file not found: /app/config.yaml")
+    return {}
+
+# Load configuration
+CONFIG = load_config()
+DEFAULT_OLLAMA_MODEL = CONFIG.get('ollama', {}).get('model', 'tinyllama')
+OLLAMA_TIMEOUT = CONFIG.get('ollama', {}).get('timeout', 120)
+print(f"Using Ollama - URL: {OLLAMA_API_URL}, Model: {DEFAULT_OLLAMA_MODEL}, Timeout: {OLLAMA_TIMEOUT}")
 
 
 def handle_error(e, status_code=500):
@@ -858,7 +882,7 @@ def text_to_sequence():
             }), 400
 
         # Get optional parameters
-        model = data.get('model', 'tinyllama')
+        model = data.get('model', DEFAULT_OLLAMA_MODEL)
         max_iterations = data.get('max_iterations', 3)
 
         # Validate max_iterations

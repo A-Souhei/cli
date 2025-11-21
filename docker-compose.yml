@@ -90,6 +90,8 @@ services:
     container_name: vuhitra-postgres-api
     ports:
       - "${FLASK_HOST_PORT:-15000}:5000"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
@@ -97,6 +99,7 @@ services:
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
       - TRANSFORMER_API_URL=http://transformer:${TRANSFORMER_CONTAINER_PORT:-5050}
+      - OLLAMA_API_URL=${OLLAMA_API_URL:-http://ollama:11434}
       - SENTRY_DSN=${SENTRY_DSN:-}
       - ENVIRONMENT=${ENVIRONMENT:-DEV}
     depends_on:
