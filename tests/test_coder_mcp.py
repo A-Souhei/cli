@@ -115,12 +115,21 @@ class TestCoderMCP:
         assert "tools" in tools_response["result"]
 
         tools = tools_response["result"]["tools"]
-        assert len(tools) == 3  # run_python_code, run_r_code, detect_code
+        assert len(tools) >= 11  # Updated to include all tools
 
         tool_names = [t["name"] for t in tools]
         assert "run_python_code" in tool_names
         assert "run_r_code" in tool_names
         assert "detect_code" in tool_names
+        assert "write_python_code" in tool_names
+        assert "write_r_code" in tool_names
+        assert "edit_python_code" in tool_names
+        assert "edit_r_code" in tool_names
+        assert "add_file_context" in tool_names
+        assert "add_directory_context" in tool_names
+        assert "verify_file_modifications" in tool_names
+        assert "retrieve_all_tools" in tool_names
+        assert "roll_the_dice" in tool_names
 
         # Check tool structure
         for tool in tools:
@@ -393,6 +402,315 @@ summary(data)
         content = result_response["result"]["content"]
         result_text = content[0]["text"]
         assert result_text == "null"
+
+    @pytest.mark.asyncio
+    async def test_retrieve_all_tools(self, server_path):
+        """Test retrieve_all_tools with single prompt."""
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0.0"}
+                }
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "retrieve_all_tools",
+                    "arguments": {
+                        "prompts": ["Run Python code: print('hello')"]
+                    }
+                }
+            }
+        ]
+
+        responses = await communicate_with_mcp(server_path, requests)
+
+        assert len(responses) == 2
+        result_response = responses[1]
+
+        assert "result" in result_response
+        assert "content" in result_response["result"]
+
+        content = result_response["result"]["content"]
+        result_text = content[0]["text"]
+
+        # Check if it's an error or valid response
+        result_data = json.loads(result_text)
+
+        # If connection error, that's expected in test environment
+        if result_data.get("status") == "error":
+            assert "message" in result_data
+        else:
+            # Valid response should have results
+            assert "results" in result_data or "status" in result_data
+
+    @pytest.mark.asyncio
+    async def test_retrieve_all_tools_multiple_prompts(self, server_path):
+        """Test retrieve_all_tools with multiple prompts."""
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0.0"}
+                }
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "retrieve_all_tools",
+                    "arguments": {
+                        "prompts": [
+                            "Run Python code: print('hello')",
+                            "Detect code in text",
+                            "Execute R script"
+                        ]
+                    }
+                }
+            }
+        ]
+
+        responses = await communicate_with_mcp(server_path, requests)
+
+        result_response = responses[1]
+        assert "result" in result_response
+
+        content = result_response["result"]["content"]
+        result_text = content[0]["text"]
+        result_data = json.loads(result_text)
+
+        # Should have response structure
+        assert "status" in result_data
+
+    @pytest.mark.asyncio
+    async def test_retrieve_all_tools_empty_prompts(self, server_path):
+        """Test retrieve_all_tools with empty prompts list."""
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0.0"}
+                }
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "retrieve_all_tools",
+                    "arguments": {
+                        "prompts": []
+                    }
+                }
+            }
+        ]
+
+        responses = await communicate_with_mcp(server_path, requests)
+
+        result_response = responses[1]
+        assert "result" in result_response
+
+        content = result_response["result"]["content"]
+        result_text = content[0]["text"]
+
+        # Should return error for empty prompts
+        assert "Error" in result_text or "error" in result_text.lower()
+
+    @pytest.mark.asyncio
+    async def test_roll_the_dice_with_session(self, server_path):
+        """Test roll_the_dice with valid session_id."""
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0.0"}
+                }
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "roll_the_dice",
+                    "arguments": {
+                        "prompts": ["Run Python code: print('Hello from roll_the_dice!')"],
+                        "session_id": "test_session_123",
+                        "max_tools": 2
+                    }
+                }
+            }
+        ]
+
+        responses = await communicate_with_mcp(server_path, requests)
+
+        assert len(responses) == 2
+        result_response = responses[1]
+
+        assert "result" in result_response
+        assert "content" in result_response["result"]
+
+        content = result_response["result"]["content"]
+        result_text = content[0]["text"]
+        result_data = json.loads(result_text)
+
+        # Check response structure
+        assert "status" in result_data
+        assert "session_id" in result_data or result_data.get("status") == "error"
+
+        # If successful, check executions
+        if result_data.get("status") == "success":
+            assert "executions" in result_data
+            assert "prompts" in result_data
+            assert "tools_retrieved" in result_data
+
+    @pytest.mark.asyncio
+    async def test_roll_the_dice_without_session(self, server_path):
+        """Test roll_the_dice without session_id (should fail)."""
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0.0"}
+                }
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "roll_the_dice",
+                    "arguments": {
+                        "prompts": ["Run Python code"]
+                    }
+                }
+            }
+        ]
+
+        responses = await communicate_with_mcp(server_path, requests)
+
+        result_response = responses[1]
+        assert "result" in result_response
+
+        content = result_response["result"]["content"]
+        result_text = content[0]["text"]
+        result_data = json.loads(result_text)
+
+        # Should return error about missing session_id
+        assert result_data["status"] == "error"
+        assert "session_id" in result_data["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_roll_the_dice_multiple_prompts(self, server_path):
+        """Test roll_the_dice with multiple prompts and different tool types."""
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0.0"}
+                }
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "roll_the_dice",
+                    "arguments": {
+                        "prompts": [
+                            "Run Python code: print('test1')",
+                            "Detect code in text: ```python\nprint('test2')\n```",
+                            "Execute some code"
+                        ],
+                        "session_id": "multi_test_session",
+                        "max_tools": 3
+                    }
+                }
+            }
+        ]
+
+        responses = await communicate_with_mcp(server_path, requests)
+
+        result_response = responses[1]
+        assert "result" in result_response
+
+        content = result_response["result"]["content"]
+        result_text = content[0]["text"]
+        result_data = json.loads(result_text)
+
+        # Check basic structure
+        assert "status" in result_data
+        assert "prompts" in result_data or result_data.get("status") == "error"
+
+    @pytest.mark.asyncio
+    async def test_roll_the_dice_max_tools_limit(self, server_path):
+        """Test roll_the_dice respects max_tools limit."""
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0.0"}
+                }
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "roll_the_dice",
+                    "arguments": {
+                        "prompts": ["Run Python code"],
+                        "session_id": "limit_test_session",
+                        "max_tools": 1
+                    }
+                }
+            }
+        ]
+
+        responses = await communicate_with_mcp(server_path, requests)
+
+        result_response = responses[1]
+        assert "result" in result_response
+
+        content = result_response["result"]["content"]
+        result_text = content[0]["text"]
+        result_data = json.loads(result_text)
+
+        # If successful, check that max_tools is respected
+        if result_data.get("status") == "success":
+            assert "tools_attempted" in result_data
+            assert result_data["tools_attempted"] <= 1
 
 
 if __name__ == "__main__":

@@ -19,6 +19,17 @@ from typing import Any, Optional
 cli_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(cli_root))
 
+# Debug mode (set via environment variable)
+DEBUG_MODE = os.getenv('MCP_DEBUG', 'false').lower() == 'true'
+
+def debug_print(message: str, **kwargs):
+    """Print debug messages if DEBUG_MODE is enabled."""
+    if DEBUG_MODE:
+        print(f"[DEBUG] {message}", file=sys.stderr)
+        if kwargs:
+            print(f"[DEBUG] Args: {json.dumps(kwargs, indent=2)}", file=sys.stderr)
+        sys.stderr.flush()
+
 # MCP SDK imports
 try:
     from mcp.server import Server
@@ -1070,18 +1081,23 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
     elif name == "retrieve_all_tools":
         prompts = arguments.get("prompts", [])
+        debug_print("retrieve_all_tools called", prompts=prompts)
 
         if not prompts:
+            debug_print("retrieve_all_tools: No prompts provided")
             return [TextContent(type="text", text="Error: No prompts provided")]
 
         if not isinstance(prompts, list):
+            debug_print("retrieve_all_tools: prompts is not a list")
             return [TextContent(type="text", text="Error: prompts must be an array of strings")]
 
         # Get PostgreSQL API URL
         postgres_api_url = get_postgres_api_url()
+        debug_print(f"retrieve_all_tools: Using PostgreSQL API at {postgres_api_url}")
 
         try:
             # Call the PostgreSQL endpoint to retrieve tools based on prompts
+            debug_print(f"retrieve_all_tools: Sending request to {postgres_api_url}/mcp-tools/retrieve")
             response = requests.post(
                 f"{postgres_api_url}/mcp-tools/retrieve",
                 json={"prompts": prompts},
@@ -1089,8 +1105,10 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 timeout=30
             )
 
+            debug_print(f"retrieve_all_tools: Received response with status code {response.status_code}")
             if response.status_code == 200:
                 tools_data = response.json()
+                debug_print(f"retrieve_all_tools: Successfully retrieved {len(tools_data.get('results', []))} results")
                 return [TextContent(type="text", text=json.dumps(tools_data, indent=2))]
             else:
                 return [TextContent(type="text", text=json.dumps({
@@ -1122,8 +1140,11 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
         max_tools = arguments.get("max_tools", 3)
         working_dir = arguments.get("working_dir", os.getcwd())
 
+        debug_print("roll_the_dice called", prompts=prompts, session_id=session_id, max_tools=max_tools)
+
         # Validate session_id (required)
         if not session_id:
+            debug_print("roll_the_dice: Missing session_id")
             return [TextContent(type="text", text=json.dumps({
                 "status": "error",
                 "message": "session_id is required. This tool only works within a session."
@@ -1131,12 +1152,14 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
         # Validate prompts
         if not prompts:
+            debug_print("roll_the_dice: No prompts provided")
             return [TextContent(type="text", text=json.dumps({
                 "status": "error",
                 "message": "No prompts provided"
             }, indent=2))]
 
         if not isinstance(prompts, list):
+            debug_print("roll_the_dice: prompts is not a list")
             return [TextContent(type="text", text=json.dumps({
                 "status": "error",
                 "message": "prompts must be an array of strings"
@@ -1148,9 +1171,12 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
         elif max_tools > 10:
             max_tools = 10
 
+        debug_print(f"roll_the_dice: max_tools set to {max_tools}")
+
         # Validate working directory
         is_valid, error_msg = validate_working_dir(working_dir)
         if not is_valid:
+            debug_print(f"roll_the_dice: Invalid working directory: {error_msg}")
             return [TextContent(type="text", text=json.dumps({
                 "status": "error",
                 "message": f"Invalid working directory: {error_msg}"
@@ -1158,9 +1184,11 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
         # Get PostgreSQL API URL
         postgres_api_url = get_postgres_api_url()
+        debug_print(f"roll_the_dice: Using PostgreSQL API at {postgres_api_url}")
 
         try:
             # Step 1: Retrieve tools using the PostgreSQL endpoint
+            debug_print(f"roll_the_dice: Step 1 - Retrieving tools for {len(prompts)} prompts")
             response = requests.post(
                 f"{postgres_api_url}/mcp-tools/retrieve",
                 json={"prompts": prompts},
@@ -1168,7 +1196,9 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 timeout=30
             )
 
+            debug_print(f"roll_the_dice: Received response with status {response.status_code}")
             if response.status_code != 200:
+                debug_print(f"roll_the_dice: Failed to retrieve tools - {response.status_code}")
                 return [TextContent(type="text", text=json.dumps({
                     "status": "error",
                     "message": f"Failed to retrieve tools: {response.status_code}",
@@ -1179,11 +1209,14 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
             # Step 2: Extract tool information from the response
             # The response format is: {"results": [{"prompt": "...", "tools": [...]}]}
+            debug_print("roll_the_dice: Step 2 - Extracting tool information")
             all_tools = []
             if "results" in tools_data:
                 for result in tools_data["results"]:
                     if "tools" in result:
                         all_tools.extend(result["tools"])
+
+            debug_print(f"roll_the_dice: Found {len(all_tools)} total tools")
 
             # Remove duplicates by tool_name
             seen_tools = set()
@@ -1194,10 +1227,14 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     seen_tools.add(tool_name)
                     unique_tools.append(tool)
 
+            debug_print(f"roll_the_dice: {len(unique_tools)} unique tools after deduplication")
+
             # Limit to max_tools
             tools_to_execute = unique_tools[:max_tools]
+            debug_print(f"roll_the_dice: Will attempt to execute {len(tools_to_execute)} tools")
 
             if not tools_to_execute:
+                debug_print("roll_the_dice: No tools found matching the prompts")
                 return [TextContent(type="text", text=json.dumps({
                     "status": "success",
                     "message": "No tools found matching the prompts",
@@ -1207,11 +1244,15 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 }, indent=2))]
 
             # Step 3: Execute each tool
+            debug_print("roll_the_dice: Step 3 - Executing tools iteratively")
             executions = []
-            for tool_info in tools_to_execute:
+            for idx, tool_info in enumerate(tools_to_execute):
+                debug_print(f"roll_the_dice: Iteration {idx + 1}/{len(tools_to_execute)}")
                 tool_name = tool_info.get("tool_name")
                 tool_description = tool_info.get("description", "")
                 similarity_score = tool_info.get("similarity", 0)
+
+                debug_print(f"roll_the_dice: Executing tool '{tool_name}' (similarity: {similarity_score})")
 
                 execution_result = {
                     "tool_name": tool_name,
@@ -1225,6 +1266,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     tool_arguments = {}
 
                     if tool_name == "run_python_code":
+                        debug_print(f"roll_the_dice: Inferring parameters for run_python_code")
                         # Try to extract Python code from prompts or use a simple test
                         code = None
                         for prompt in prompts:
@@ -1280,6 +1322,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                         continue
 
                     # Execute the tool by recursively calling call_tool
+                    debug_print(f"roll_the_dice: Calling {tool_name} with arguments", arguments=tool_arguments)
                     result = await call_tool(tool_name, tool_arguments)
 
                     # Parse the result
@@ -1287,6 +1330,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                         result_text = result[0].text
                         execution_result["status"] = "executed"
                         execution_result["result"] = result_text
+                        debug_print(f"roll_the_dice: Tool {tool_name} executed successfully")
                         try:
                             # Try to parse as JSON for better formatting
                             execution_result["result_json"] = json.loads(result_text)
@@ -1295,17 +1339,22 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     else:
                         execution_result["status"] = "executed"
                         execution_result["result"] = "No output"
+                        debug_print(f"roll_the_dice: Tool {tool_name} executed with no output")
 
                 except Exception as e:
                     execution_result["status"] = "failed"
                     execution_result["error"] = str(e)
+                    debug_print(f"roll_the_dice: Tool {tool_name} failed with error: {str(e)}")
 
                 executions.append(execution_result)
 
             # Step 4: Return aggregated results
+            executed_count = len([e for e in executions if e['status'] == 'executed'])
+            debug_print(f"roll_the_dice: Step 4 - Completed. Executed {executed_count}/{len(tools_to_execute)} tools")
+
             return [TextContent(type="text", text=json.dumps({
                 "status": "success",
-                "message": f"Executed {len([e for e in executions if e['status'] == 'executed'])} tools",
+                "message": f"Executed {executed_count} tools",
                 "session_id": session_id,
                 "prompts": prompts,
                 "tools_retrieved": len(unique_tools),
