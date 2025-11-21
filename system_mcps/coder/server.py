@@ -642,6 +642,8 @@ async def list_tools() -> list[Tool]:
                 "This tool first retrieves relevant tools using retrieve_all_tools, then executes each "
                 "tool with inferred parameters. It requires a session_id to maintain context across "
                 "multiple tool executions. Results from all tool executions are aggregated and returned. "
+                "Supported tools: run_python_code, run_r_code, detect_code. "
+                "File/directory operations (add_file_context, add_directory_context) are skipped if no paths found. "
                 "This is useful for exploratory workflows where you want to try multiple related tools."
             ),
             inputSchema={
@@ -1337,7 +1339,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                         try:
                             # Try to parse as JSON for better formatting
                             execution_result["result_json"] = json.loads(result_text)
-                        except:
+                        except Exception:
                             pass
                     else:
                         execution_result["status"] = "executed"
@@ -1353,11 +1355,12 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
             # Step 4: Return aggregated results
             executed_count = len([e for e in executions if e['status'] == 'executed'])
-            debug_print(f"roll_the_dice: Step 4 - Completed. Executed {executed_count}/{len(tools_to_execute)} tools")
+            tools_word = "tool" if executed_count == 1 else "tools"
+            debug_print(f"roll_the_dice: Step 4 - Completed. Executed {executed_count}/{len(tools_to_execute)} {tools_word}")
 
             return [TextContent(type="text", text=json.dumps({
                 "status": "success",
-                "message": f"Executed {executed_count} tools",
+                "message": f"Executed {executed_count} {tools_word}",
                 "session_id": session_id,
                 "prompts": prompts,
                 "tools_retrieved": len(unique_tools),
