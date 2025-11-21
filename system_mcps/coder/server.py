@@ -623,6 +623,41 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": ["prompts"]
             }
+        ),
+        Tool(
+            name="roll_the_dice",
+            description=(
+                "Execute multiple MCP tools iteratively based on semantic search results within a session. "
+                "This tool first retrieves relevant tools using retrieve_all_tools, then executes each "
+                "tool with inferred parameters. It requires a session_id to maintain context across "
+                "multiple tool executions. Results from all tool executions are aggregated and returned. "
+                "This is useful for exploratory workflows where you want to try multiple related tools."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "prompts": {
+                        "type": "array",
+                        "description": "List of prompts describing what you want to do",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": "Required session ID for maintaining context across tool executions"
+                    },
+                    "max_tools": {
+                        "type": "integer",
+                        "description": "Maximum number of tools to execute (default: 3, max: 10)"
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Optional working directory for tool executions"
+                    }
+                },
+                "required": ["prompts", "session_id"]
+            }
         )
     ]
 
@@ -1079,6 +1114,219 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             return [TextContent(type="text", text=json.dumps({
                 "status": "error",
                 "message": f"Error retrieving tools: {str(e)}"
+            }, indent=2))]
+
+    elif name == "roll_the_dice":
+        prompts = arguments.get("prompts", [])
+        session_id = arguments.get("session_id")
+        max_tools = arguments.get("max_tools", 3)
+        working_dir = arguments.get("working_dir", os.getcwd())
+
+        # Validate session_id (required)
+        if not session_id:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": "session_id is required. This tool only works within a session."
+            }, indent=2))]
+
+        # Validate prompts
+        if not prompts:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": "No prompts provided"
+            }, indent=2))]
+
+        if not isinstance(prompts, list):
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": "prompts must be an array of strings"
+            }, indent=2))]
+
+        # Validate and cap max_tools
+        if max_tools < 1:
+            max_tools = 1
+        elif max_tools > 10:
+            max_tools = 10
+
+        # Validate working directory
+        is_valid, error_msg = validate_working_dir(working_dir)
+        if not is_valid:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": f"Invalid working directory: {error_msg}"
+            }, indent=2))]
+
+        # Get PostgreSQL API URL
+        postgres_api_url = get_postgres_api_url()
+
+        try:
+            # Step 1: Retrieve tools using the PostgreSQL endpoint
+            response = requests.post(
+                f"{postgres_api_url}/mcp-tools/retrieve",
+                json={"prompts": prompts},
+                headers={"Content-Type": "application/json"},
+                timeout=30
+            )
+
+            if response.status_code != 200:
+                return [TextContent(type="text", text=json.dumps({
+                    "status": "error",
+                    "message": f"Failed to retrieve tools: {response.status_code}",
+                    "response": response.text
+                }, indent=2))]
+
+            tools_data = response.json()
+
+            # Step 2: Extract tool information from the response
+            # The response format is: {"results": [{"prompt": "...", "tools": [...]}]}
+            all_tools = []
+            if "results" in tools_data:
+                for result in tools_data["results"]:
+                    if "tools" in result:
+                        all_tools.extend(result["tools"])
+
+            # Remove duplicates by tool_name
+            seen_tools = set()
+            unique_tools = []
+            for tool in all_tools:
+                tool_name = tool.get("tool_name")
+                if tool_name and tool_name not in seen_tools:
+                    seen_tools.add(tool_name)
+                    unique_tools.append(tool)
+
+            # Limit to max_tools
+            tools_to_execute = unique_tools[:max_tools]
+
+            if not tools_to_execute:
+                return [TextContent(type="text", text=json.dumps({
+                    "status": "success",
+                    "message": "No tools found matching the prompts",
+                    "session_id": session_id,
+                    "prompts": prompts,
+                    "executions": []
+                }, indent=2))]
+
+            # Step 3: Execute each tool
+            executions = []
+            for tool_info in tools_to_execute:
+                tool_name = tool_info.get("tool_name")
+                tool_description = tool_info.get("description", "")
+                similarity_score = tool_info.get("similarity", 0)
+
+                execution_result = {
+                    "tool_name": tool_name,
+                    "description": tool_description,
+                    "similarity_score": similarity_score,
+                    "status": "pending"
+                }
+
+                try:
+                    # Infer parameters based on tool type and prompts
+                    tool_arguments = {}
+
+                    if tool_name == "run_python_code":
+                        # Try to extract Python code from prompts or use a simple test
+                        code = None
+                        for prompt in prompts:
+                            code_result = detect_code_language(prompt)
+                            if code_result and code_result[0] == "python":
+                                code = code_result[1]
+                                break
+
+                        if not code:
+                            # Use a simple test code
+                            code = "print('Hello from roll_the_dice!')"
+
+                        tool_arguments = {"code": code, "working_dir": working_dir}
+
+                    elif tool_name == "run_r_code":
+                        # Try to extract R code from prompts or use a simple test
+                        code = None
+                        for prompt in prompts:
+                            code_result = detect_code_language(prompt)
+                            if code_result and code_result[0] == "r":
+                                code = code_result[1]
+                                break
+
+                        if not code:
+                            # Use a simple test code
+                            code = "print('Hello from roll_the_dice!')"
+
+                        tool_arguments = {"code": code, "working_dir": working_dir}
+
+                    elif tool_name == "detect_code":
+                        # Use the first prompt as text to analyze
+                        tool_arguments = {"text": prompts[0] if prompts else ""}
+
+                    elif tool_name == "add_file_context":
+                        # Skip file operations if no file path in prompts
+                        execution_result["status"] = "skipped"
+                        execution_result["message"] = "No file path found in prompts"
+                        executions.append(execution_result)
+                        continue
+
+                    elif tool_name == "add_directory_context":
+                        # Skip directory operations if no directory path in prompts
+                        execution_result["status"] = "skipped"
+                        execution_result["message"] = "No directory path found in prompts"
+                        executions.append(execution_result)
+                        continue
+
+                    else:
+                        # Skip unknown tools
+                        execution_result["status"] = "skipped"
+                        execution_result["message"] = f"Tool '{tool_name}' not supported by roll_the_dice"
+                        executions.append(execution_result)
+                        continue
+
+                    # Execute the tool by recursively calling call_tool
+                    result = await call_tool(tool_name, tool_arguments)
+
+                    # Parse the result
+                    if result and len(result) > 0:
+                        result_text = result[0].text
+                        execution_result["status"] = "executed"
+                        execution_result["result"] = result_text
+                        try:
+                            # Try to parse as JSON for better formatting
+                            execution_result["result_json"] = json.loads(result_text)
+                        except:
+                            pass
+                    else:
+                        execution_result["status"] = "executed"
+                        execution_result["result"] = "No output"
+
+                except Exception as e:
+                    execution_result["status"] = "failed"
+                    execution_result["error"] = str(e)
+
+                executions.append(execution_result)
+
+            # Step 4: Return aggregated results
+            return [TextContent(type="text", text=json.dumps({
+                "status": "success",
+                "message": f"Executed {len([e for e in executions if e['status'] == 'executed'])} tools",
+                "session_id": session_id,
+                "prompts": prompts,
+                "tools_retrieved": len(unique_tools),
+                "tools_attempted": len(tools_to_execute),
+                "executions": executions
+            }, indent=2))]
+
+        except requests.exceptions.Timeout:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": "Request to PostgreSQL API timed out (30s limit)"
+            }, indent=2))]
+        except requests.exceptions.ConnectionError:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": f"Could not connect to PostgreSQL API at {postgres_api_url}. Make sure the service is running."
+            }, indent=2))]
+        except Exception as e:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": f"Error in roll_the_dice: {str(e)}"
             }, indent=2))]
 
     else:
