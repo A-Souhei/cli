@@ -56,12 +56,12 @@ User Prompts/Sentences
 
 ### URL
 ```
-POST http://localhost:15000/mcp-tools/retrieve
+GET http://localhost:15000/mcp-tools/retrieve
 ```
 
-### Content-Type
+### Method
 ```
-application/json
+GET
 ```
 
 ### Timeout
@@ -70,27 +70,23 @@ application/json
 
 ## Request Format
 
-### Request Body Schema
+### Query Parameters
 
-```json
-{
-  "prompts": ["string", "string", ...],    // Required: List of text prompts
-  "threshold": 0.5,                         // Optional: Similarity threshold (0-1)
-  "top_k": 3,                               // Optional: Max results per prompt
-  "mcp_filter": ["mcp_name"],               // Optional: Filter by MCP names
-  "extract_params": true                    // Optional: Extract parameters (default: true)
-}
+All parameters are passed as query string parameters. JSON arrays must be properly URL-encoded.
+
+```
+GET /mcp-tools/retrieve?prompts=["prompt1","prompt2"]&threshold=0.5&top_k=3
 ```
 
-### Parameters
+**Parameter Schema:**
 
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `prompts` | array[string] | Yes | - | List of text prompts/sentences to process |
-| `threshold` | float | No | 0.5 | Minimum cosine similarity (0.0-1.0). Lower = more permissive |
-| `top_k` | integer | No | 3 | Maximum number of tools to return per prompt |
-| `mcp_filter` | array[string] | No | null | Only match tools from specified MCPs (e.g., ["coder"]) |
-| `extract_params` | boolean | No | true | Whether to extract parameters from prompts |
+| Parameter | Type | Format | Required | Default | Description |
+|-----------|------|--------|----------|---------|-------------|
+| `prompts` | JSON array | `["string", ...]` | Yes | - | List of text prompts |
+| `threshold` | float | `0.5` | No | 0.5 | Similarity threshold (0-1) |
+| `top_k` | integer | `3` | No | 3 | Max results per prompt |
+| `mcp_filter` | JSON array | `["mcp_name"]` | No | null | Filter by MCP names |
+| `extract_params` | boolean | `true` or `false` | No | true | Extract parameters |
 
 ## Response Format
 
@@ -253,11 +249,8 @@ If no specific pattern matches, the entire text is stored as `input`:
 ### Example 1: Single Python Code Execution
 
 ```bash
-curl -X POST http://localhost:15000/mcp-tools/retrieve \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompts": ["Run this Python code: print(\"Hello World\")"]
-  }'
+curl -G http://localhost:15000/mcp-tools/retrieve \
+  --data-urlencode 'prompts=["Run this Python code: print(\"Hello World\")"]'
 ```
 
 **Response:**
@@ -282,58 +275,50 @@ curl -X POST http://localhost:15000/mcp-tools/retrieve \
 ### Example 2: Multiple Operations
 
 ```bash
-curl -X POST http://localhost:15000/mcp-tools/retrieve \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompts": [
-      "Execute Python: import pandas as pd",
-      "Create R file analysis.r",
-      "Add file context for main.py"
-    ],
-    "threshold": 0.4,
-    "top_k": 2
-  }'
+curl -G http://localhost:15000/mcp-tools/retrieve \
+  --data-urlencode 'prompts=["Execute Python: import pandas as pd","Create R file analysis.r","Add file context for main.py"]' \
+  --data-urlencode 'threshold=0.4' \
+  --data-urlencode 'top_k=2'
 ```
 
 ### Example 3: Filtered by MCP
 
 ```bash
-curl -X POST http://localhost:15000/mcp-tools/retrieve \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompts": ["code execution"],
-    "mcp_filter": ["coder"],
-    "threshold": 0.3
-  }'
+curl -G http://localhost:15000/mcp-tools/retrieve \
+  --data-urlencode 'prompts=["code execution"]' \
+  --data-urlencode 'mcp_filter=["coder"]' \
+  --data-urlencode 'threshold=0.3'
 ```
 
 ### Example 4: Without Parameter Extraction
 
 ```bash
-curl -X POST http://localhost:15000/mcp-tools/retrieve \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompts": ["Find tools related to data analysis"],
-    "extract_params": false
-  }'
+curl -G http://localhost:15000/mcp-tools/retrieve \
+  --data-urlencode 'prompts=["Find tools related to data analysis"]' \
+  --data-urlencode 'extract_params=false'
 ```
 
 ### Example 5: Python Requests
 
 ```python
 import requests
+import json
 
-response = requests.post(
+prompts = [
+    "Run Python code to analyze CSV",
+    "Create visualization script",
+    "Add data directory to context"
+]
+
+params = {
+    "prompts": json.dumps(prompts),
+    "threshold": 0.5,
+    "top_k": 3
+}
+
+response = requests.get(
     "http://localhost:15000/mcp-tools/retrieve",
-    json={
-        "prompts": [
-            "Run Python code to analyze CSV",
-            "Create visualization script",
-            "Add data directory to context"
-        ],
-        "threshold": 0.5,
-        "top_k": 3
-    },
+    params=params,
     timeout=60
 )
 
@@ -512,11 +497,8 @@ curl -X POST http://localhost:15000/mcp-tools/store \
   }'
 
 # 3. Test retrieval
-curl -X POST http://localhost:15000/mcp-tools/retrieve \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompts": ["Run Python code"]
-  }'
+curl -G http://localhost:15000/mcp-tools/retrieve \
+  --data-urlencode 'prompts=["Run Python code"]'
 ```
 
 ### Test Coverage

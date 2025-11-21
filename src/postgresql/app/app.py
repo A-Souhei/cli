@@ -569,7 +569,7 @@ def match_mcp_tool():
         return handle_error(e)
 
 
-@app.route('/mcp-tools/retrieve', methods=['POST'])
+@app.route('/mcp-tools/retrieve', methods=['GET'])
 def retrieve_tools_recursive():
     """
     Recursively retrieve tools for multiple prompts/sentences.
@@ -577,14 +577,17 @@ def retrieve_tools_recursive():
     This endpoint takes a list of prompts, embeds each one, finds the best
     matching tools, and extracts parameters from the prompts.
 
-    Request Body:
-    {
-        "prompts": ["prompt1", "prompt2", ...],  # List of text prompts/sentences
-        "threshold": 0.5,                         # Minimum similarity threshold (optional)
-        "top_k": 3,                               # Number of top results per prompt (optional)
-        "mcp_filter": ["coder"],                  # Filter by MCP names (optional)
-        "extract_params": true                    # Whether to extract parameters (optional, default: true)
-    }
+    Query Parameters:
+    - prompts: JSON array of text prompts/sentences (required)
+      Example: prompts=["Run Python code", "Create file"]
+    - threshold: Minimum similarity threshold 0-1 (optional, default: 0.5)
+    - top_k: Number of top results per prompt (optional, default: 3)
+    - mcp_filter: JSON array of MCP names to filter (optional)
+      Example: mcp_filter=["coder"]
+    - extract_params: Whether to extract parameters (optional, default: true)
+
+    Example:
+    GET /mcp-tools/retrieve?prompts=["Run Python code"]&threshold=0.5
 
     Returns:
     {
@@ -612,18 +615,42 @@ def retrieve_tools_recursive():
     }
     """
     try:
-        data = request.get_json()
-        prompts = data.get('prompts', [])
-        threshold = data.get('threshold', 0.5)
-        top_k = data.get('top_k', 3)
-        mcp_filter = data.get('mcp_filter', None)
-        extract_params = data.get('extract_params', True)
+        # Get parameters from query string
+        prompts_param = request.args.get('prompts')
 
-        # Validation
+        # Parse optional parameters
+        try:
+            threshold = float(request.args.get('threshold', 0.5))
+        except (ValueError, TypeError):
+            threshold = 0.5
+
+        try:
+            top_k = int(request.args.get('top_k', 3))
+        except (ValueError, TypeError):
+            top_k = 3
+
+        extract_params_str = request.args.get('extract_params', 'true')
+        extract_params = extract_params_str.lower() in ['true', '1', 'yes']
+
+        # Parse JSON parameters
+        if not prompts_param:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing required parameter: prompts (must be a JSON array)'
+            }), 400
+
+        try:
+            prompts = json.loads(prompts_param)
+        except json.JSONDecodeError:
+            return jsonify({
+                'status': 'error',
+                'message': 'Invalid JSON format for prompts parameter'
+            }), 400
+
         if not prompts:
             return jsonify({
                 'status': 'error',
-                'message': 'Missing required field: prompts (must be a non-empty list)'
+                'message': 'prompts parameter must be a non-empty list'
             }), 400
 
         if not isinstance(prompts, list):
@@ -631,6 +658,19 @@ def retrieve_tools_recursive():
                 'status': 'error',
                 'message': 'prompts must be a list of strings'
             }), 400
+
+        # Parse mcp_filter if provided
+        mcp_filter_param = request.args.get('mcp_filter')
+        if mcp_filter_param:
+            try:
+                mcp_filter = json.loads(mcp_filter_param)
+            except json.JSONDecodeError:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Invalid JSON format for mcp_filter parameter'
+                }), 400
+        else:
+            mcp_filter = None
 
         # Get batch embeddings for all prompts
         prompt_embeddings = get_batch_embeddings(prompts)
