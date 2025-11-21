@@ -56,12 +56,17 @@ User Prompts/Sentences
 
 ### URL
 ```
-GET http://localhost:15000/mcp-tools/retrieve
+POST http://localhost:15000/mcp-tools/retrieve
 ```
 
 ### Method
 ```
-GET
+POST
+```
+
+### Content-Type
+```
+application/json
 ```
 
 ### Timeout
@@ -70,23 +75,27 @@ GET
 
 ## Request Format
 
-### Query Parameters
+### JSON Body Parameters
 
-All parameters are passed as query string parameters. JSON arrays must be properly URL-encoded.
+All parameters are passed in the JSON request body.
 
-```
-GET /mcp-tools/retrieve?prompts=["prompt1","prompt2"]&threshold=0.5&top_k=3
+```json
+{
+  "prompts": ["prompt1", "prompt2"],
+  "threshold": 0.5,
+  "mcp_filter": ["coder"],
+  "extract_params": true
+}
 ```
 
 **Parameter Schema:**
 
-| Parameter | Type | Format | Required | Default | Description |
-|-----------|------|--------|----------|---------|-------------|
-| `prompts` | JSON array | `["string", ...]` | Yes | - | List of text prompts |
-| `threshold` | float | `0.5` | No | 0.5 | Similarity threshold (0-1) |
-| `top_k` | integer | `3` | No | 3 | Max results per prompt |
-| `mcp_filter` | JSON array | `["mcp_name"]` | No | null | Filter by MCP names |
-| `extract_params` | boolean | `true` or `false` | No | true | Extract parameters |
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `prompts` | array[string] | Yes | - | List of text prompts/sentences to process |
+| `threshold` | float | No | 0.5 | Minimum cosine similarity (0.0-1.0). Lower = more permissive |
+| `mcp_filter` | array[string] | No | null | Only match tools from specified MCPs (e.g., ["coder"]) |
+| `extract_params` | boolean | No | true | Whether to extract parameters from prompts |
 
 ## Response Format
 
@@ -100,33 +109,10 @@ GET /mcp-tools/retrieve?prompts=["prompt1","prompt2"]&threshold=0.5&top_k=3
     {
       "prompt": "Run this Python code: print('hello')",
       "prompt_index": 0,
-      "matched_tools": [
-        {
-          "rank": 1,
-          "mcp_name": "coder",
-          "tool_name": "run_python_code",
-          "description": "Execute Python code in a virtual environment...",
-          "similarity": 0.87,
-          "extracted_params": {
-            "code": "print('hello')"
-          }
-        },
-        {
-          "rank": 2,
-          "mcp_name": "coder",
-          "tool_name": "detect_code",
-          "description": "Detect and extract Python or R code...",
-          "similarity": 0.65,
-          "extracted_params": {
-            "code": "print('hello')"
-          }
-        }
-      ],
       "best_match": {
-        "rank": 1,
         "mcp_name": "coder",
         "tool_name": "run_python_code",
-        "description": "Execute Python code...",
+        "description": "Execute Python code in a virtual environment",
         "similarity": 0.87,
         "extracted_params": {
           "code": "print('hello')"
@@ -136,18 +122,46 @@ GET /mcp-tools/retrieve?prompts=["prompt1","prompt2"]&threshold=0.5&top_k=3
     {
       "prompt": "Create a Python file test.py",
       "prompt_index": 1,
-      "matched_tools": [...],
-      "best_match": {...}
+      "best_match": {
+        "mcp_name": "coder",
+        "tool_name": "write_python_code",
+        "description": "Create a new Python file",
+        "similarity": 0.82,
+        "extracted_params": {
+          "file_path": "test.py"
+        }
+      }
     }
   ],
   "metadata": {
     "threshold": 0.5,
-    "top_k": 3,
     "mcp_filter": null,
     "total_prompts": 2,
     "total_tools_searched": 10
   }
 }
+```
+
+**Response Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | "success" or "error" |
+| `count` | integer | Number of prompts processed |
+| `results` | array | Array of results, one per prompt |
+| `results[].prompt` | string | The original prompt text |
+| `results[].prompt_index` | integer | Index of the prompt in the input array |
+| `results[].best_match` | object or null | Best matching tool (null if no match above threshold) |
+| `best_match.mcp_name` | string | Name of the MCP providing this tool |
+| `best_match.tool_name` | string | Name of the tool |
+| `best_match.description` | string | Tool description |
+| `best_match.similarity` | float | Cosine similarity score (0-1) |
+| `best_match.extracted_params` | object | Parameters extracted from prompt |
+| `metadata` | object | Request metadata |
+| `metadata.threshold` | float | Similarity threshold used |
+| `metadata.mcp_filter` | array or null | MCP filter applied |
+| `metadata.total_prompts` | integer | Total number of prompts processed |
+| `metadata.total_tools_searched` | integer | Total number of tools in database |
 ```
 
 ### Error Response (4xx/5xx)
@@ -249,8 +263,11 @@ If no specific pattern matches, the entire text is stored as `input`:
 ### Example 1: Single Python Code Execution
 
 ```bash
-curl -G http://localhost:15000/mcp-tools/retrieve \
-  --data-urlencode 'prompts=["Run this Python code: print(\"Hello World\")"]'
+curl -X POST http://localhost:15000/mcp-tools/retrieve \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompts": ["Run this Python code: print(\"Hello World\")"]
+  }'
 ```
 
 **Response:**
@@ -260,9 +277,11 @@ curl -G http://localhost:15000/mcp-tools/retrieve \
   "count": 1,
   "results": [{
     "prompt": "Run this Python code: print(\"Hello World\")",
+    "prompt_index": 0,
     "best_match": {
-      "rank": 1,
+      "mcp_name": "coder",
       "tool_name": "run_python_code",
+      "description": "Execute Python code in a virtual environment",
       "similarity": 0.91,
       "extracted_params": {
         "code": "print(\"Hello World\")"
@@ -275,50 +294,56 @@ curl -G http://localhost:15000/mcp-tools/retrieve \
 ### Example 2: Multiple Operations
 
 ```bash
-curl -G http://localhost:15000/mcp-tools/retrieve \
-  --data-urlencode 'prompts=["Execute Python: import pandas as pd","Create R file analysis.r","Add file context for main.py"]' \
-  --data-urlencode 'threshold=0.4' \
-  --data-urlencode 'top_k=2'
+curl -X POST http://localhost:15000/mcp-tools/retrieve \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompts": [
+      "Execute Python: import pandas as pd",
+      "Create R file analysis.r",
+      "Add file context for main.py"
+    ],
+    "threshold": 0.4
+  }'
 ```
 
 ### Example 3: Filtered by MCP
 
 ```bash
-curl -G http://localhost:15000/mcp-tools/retrieve \
-  --data-urlencode 'prompts=["code execution"]' \
-  --data-urlencode 'mcp_filter=["coder"]' \
-  --data-urlencode 'threshold=0.3'
+curl -X POST http://localhost:15000/mcp-tools/retrieve \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompts": ["code execution"],
+    "mcp_filter": ["coder"],
+    "threshold": 0.3
+  }'
 ```
 
 ### Example 4: Without Parameter Extraction
 
 ```bash
-curl -G http://localhost:15000/mcp-tools/retrieve \
-  --data-urlencode 'prompts=["Find tools related to data analysis"]' \
-  --data-urlencode 'extract_params=false'
+curl -X POST http://localhost:15000/mcp-tools/retrieve \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompts": ["Find tools related to data analysis"],
+    "extract_params": false
+  }'
 ```
 
 ### Example 5: Python Requests
 
 ```python
 import requests
-import json
 
-prompts = [
-    "Run Python code to analyze CSV",
-    "Create visualization script",
-    "Add data directory to context"
-]
-
-params = {
-    "prompts": json.dumps(prompts),
-    "threshold": 0.5,
-    "top_k": 3
-}
-
-response = requests.get(
+response = requests.post(
     "http://localhost:15000/mcp-tools/retrieve",
-    params=params,
+    json={
+        "prompts": [
+            "Run Python code to analyze CSV",
+            "Create visualization script",
+            "Add data directory to context"
+        ],
+        "threshold": 0.5
+    },
     timeout=60
 )
 
@@ -497,8 +522,9 @@ curl -X POST http://localhost:15000/mcp-tools/store \
   }'
 
 # 3. Test retrieval
-curl -G http://localhost:15000/mcp-tools/retrieve \
-  --data-urlencode 'prompts=["Run Python code"]'
+curl -X POST http://localhost:15000/mcp-tools/retrieve \
+  -H "Content-Type: application/json" \
+  -d '{"prompts": ["Run Python code"]}'
 ```
 
 ### Test Coverage
@@ -507,7 +533,7 @@ The test suite includes:
 
 - **Basic functionality** (single/multiple prompts)
 - **Parameter extraction** (code, files, paths)
-- **Filtering** (threshold, top_k, mcp_filter)
+- **Filtering** (threshold, mcp_filter)
 - **Error handling** (invalid inputs, missing services)
 - **Edge cases** (empty lists, high thresholds)
 - **Performance** (batch embeddings, sorting)
@@ -527,7 +553,7 @@ The test suite includes:
 
 1. **Cache embeddings** for frequently used prompts
 2. **Use mcp_filter** to reduce search space
-3. **Lower top_k** to reduce processing
+3. **Adjust threshold** to balance precision vs. recall
 4. **Batch similar prompts** together
 5. **Monitor service resources** (CPU, memory)
 
