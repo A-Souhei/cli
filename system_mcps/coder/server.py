@@ -1208,13 +1208,14 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             tools_data = response.json()
 
             # Step 2: Extract tool information from the response
-            # The response format is: {"results": [{"prompt": "...", "tools": [...]}]}
+            # The response format is: {"results": [{"prompt": "...", "best_match": {...}}]}
             debug_print("roll_the_dice: Step 2 - Extracting tool information")
             all_tools = []
             if "results" in tools_data:
                 for result in tools_data["results"]:
-                    if "tools" in result:
-                        all_tools.extend(result["tools"])
+                    # API returns best_match (single object), not tools (array)
+                    if "best_match" in result and result["best_match"] is not None:
+                        all_tools.append(result["best_match"])
 
             debug_print(f"roll_the_dice: Found {len(all_tools)} total tools")
 
@@ -1240,6 +1241,8 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     "message": "No tools found matching the prompts",
                     "session_id": session_id,
                     "prompts": prompts,
+                    "tools_retrieved": len(unique_tools),
+                    "tools_attempted": 0,
                     "executions": []
                 }, indent=2))]
 
