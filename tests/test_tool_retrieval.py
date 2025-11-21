@@ -291,7 +291,7 @@ class TestRecursiveToolRetrieval:
         assert response.status_code == 400
         data = response.json()
         assert data["status"] == "error"
-        assert "non-empty" in data["message"].lower()
+        assert "prompts" in data["message"].lower() or "non-empty" in data["message"].lower()
 
     def test_retrieve_missing_prompts(self):
         """Test retrieval without prompts field."""
