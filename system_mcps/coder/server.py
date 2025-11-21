@@ -151,6 +151,11 @@ def get_redis_api_url() -> str:
     return os.getenv('REDIS_API_URL', 'http://localhost:17000')
 
 
+def get_postgres_api_url() -> str:
+    """Get PostgreSQL API URL from environment or use default."""
+    return os.getenv('POSTGRES_API_URL', 'http://localhost:15000')
+
+
 def add_context_to_redis(file_path: str, content: str, session_id: Optional[str] = None, context_type: str = "file") -> dict:
     """
     Add file or directory context to Redis with RAG embedding.
@@ -595,6 +600,29 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": ["file_path"]
             }
+        ),
+        Tool(
+            name="retrieve_all_tools",
+            description=(
+                "Retrieve available MCP tools based on prompts using intelligent semantic matching. "
+                "This tool queries the PostgreSQL database with embeddings to find the most relevant "
+                "MCP tools for the given prompts. It uses RAG (Retrieval-Augmented Generation) with "
+                "semantic similarity to match user intents with available tools across all MCPs. "
+                "Returns tool names, descriptions, and similarity scores for each prompt."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "prompts": {
+                        "type": "array",
+                        "description": "List of prompts describing what you want to do (e.g., ['Run Python code: print(\"hello\")', 'Edit a file'])",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "required": ["prompts"]
+            }
         )
     ]
 
@@ -1003,6 +1031,54 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 "status": "error",
                 "file_path": file_path,
                 "message": f"Execution failed: {str(e)}"
+            }, indent=2))]
+
+    elif name == "retrieve_all_tools":
+        prompts = arguments.get("prompts", [])
+
+        if not prompts:
+            return [TextContent(type="text", text="Error: No prompts provided")]
+
+        if not isinstance(prompts, list):
+            return [TextContent(type="text", text="Error: prompts must be an array of strings")]
+
+        # Get PostgreSQL API URL
+        postgres_api_url = get_postgres_api_url()
+
+        try:
+            # Call the PostgreSQL endpoint to retrieve tools based on prompts
+            response = requests.post(
+                f"{postgres_api_url}/mcp-tools/retrieve",
+                json={"prompts": prompts},
+                headers={"Content-Type": "application/json"},
+                timeout=30
+            )
+
+            if response.status_code == 200:
+                tools_data = response.json()
+                return [TextContent(type="text", text=json.dumps(tools_data, indent=2))]
+            else:
+                return [TextContent(type="text", text=json.dumps({
+                    "status": "error",
+                    "status_code": response.status_code,
+                    "message": f"Failed to retrieve tools from PostgreSQL API",
+                    "response": response.text
+                }, indent=2))]
+
+        except requests.exceptions.Timeout:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": "Request to PostgreSQL API timed out (30s limit)"
+            }, indent=2))]
+        except requests.exceptions.ConnectionError:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": f"Could not connect to PostgreSQL API at {postgres_api_url}. Make sure the service is running."
+            }, indent=2))]
+        except Exception as e:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": f"Error retrieving tools: {str(e)}"
             }, indent=2))]
 
     else:
