@@ -1,0 +1,235 @@
+===============================================================================
+                    CODEBASE EXPLORATION SUMMARY
+                          AI CLI Project
+===============================================================================
+
+DOCUMENTS CREATED:
+1. /home/user/cli/docs/CODEBASE_EXPLORATION_SUMMARY.md
+   - Comprehensive 10-section architecture guide
+   - Detailed tool implementation explanations
+   - API endpoint documentation
+   - Testing structure overview
+   - Best practices and patterns
+
+2. /home/user/cli/docs/QUICK_CODE_REFERENCE.md
+   - Quick lookup: file locations & line numbers
+   - Critical code patterns with examples
+   - Environment variables & configurations
+   - Common errors & solutions
+   - Testing commands & checklist
+
+===============================================================================
+                           KEY FINDINGS
+===============================================================================
+
+1. RETRIEVE_ALL_TOOLS IMPLEMENTATION
+   Location: /home/user/cli/system_mcps/coder/server.py (lines 1084-1137)
+   
+   Purpose: Finds relevant MCP tools using semantic similarity matching
+   Input: Array of prompts (e.g., ["Run Python code", "Detect code"])
+   Output: Best-matching tool for each prompt with similarity score (0-1)
+   
+   How it works:
+   - Validates prompts array (must be non-empty)
+   - Calls PostgreSQL API: POST /mcp-tools/retrieve
+   - API generates embeddings (384-dimensional vectors)
+   - Performs cosine similarity matching
+   - Returns results with similarity scores
+
+2. ROLL_THE_DICE IMPLEMENTATION
+   Location: /home/user/cli/system_mcps/coder/server.py (lines 1139-1385)
+   
+   Purpose: Executes multiple tools iteratively within a session
+   Key Requirement: MANDATORY session_id for context persistence
+   
+   Steps:
+   1. Validate session_id (fails if missing!)
+   2. Retrieve tools via retrieve_all_tools endpoint
+   3. Extract and deduplicate tools
+   4. ITERATE through each tool (mandatory execution)
+   5. Infer parameters based on tool type
+   6. Call tool recursively
+   7. Aggregate results
+
+3. DATABASE ARCHITECTURE
+   PostgreSQL Table: mcp_tools
+   - id: Primary key
+   - mcp_name: "coder", "analyzer", etc.
+   - tool_name: "run_python_code", "detect_code", etc.
+   - description: Full tool description (used for embedding)
+   - embedding: 384-dimensional JSON vector (all-MiniLM-L6-v2)
+   - created_at, updated_at: Timestamps
+
+4. API ENDPOINTS (Port 15000)
+   
+   POST /mcp-tools/store
+   - Store tool with embedding
+   - Auto-generates embedding from description
+   
+   GET /mcp-tools
+   - List all stored tools
+   
+   POST /mcp-tools/match
+   - Single prompt matching (returns best match)
+   
+   POST /mcp-tools/retrieve
+   - Multi-prompt recursive retrieval (returns best match per prompt)
+   - This is the key endpoint used by retrieve_all_tools
+
+5. TRANSFORMER SERVICE (Port 16050)
+   Model: all-MiniLM-L6-v2 (Sentence Transformers)
+   Dimensions: 384
+   Size: ~80MB
+   
+   Endpoints:
+   - GET /embed?text=<text> - Single embedding
+   - GET /embed/batch?texts=<json> - Batch embeddings
+   - GET /similarity?text1=<>&text2=<> - Compare vectors
+
+6. AVAILABLE MCP TOOLS (11 total)
+   Code Execution:
+   - run_python_code
+   - run_r_code
+   - detect_code
+   
+   File Operations:
+   - write_python_code
+   - write_r_code
+   - edit_python_code
+   - edit_r_code
+   
+   Context Management:
+   - add_file_context (adds file to RAG context)
+   - add_directory_context (adds all files in directory)
+   
+   Special Tools:
+   - retrieve_all_tools (tool discovery)
+   - roll_the_dice (tool execution)
+   
+   Verification:
+   - verify_file_modifications
+
+7. SIMILARITY MATCHING ALGORITHM
+   
+   Cosine Similarity (lines 325-337 in postgresql/app.py):
+   
+   similarity = dot_product / (magnitude1 * magnitude2)
+   
+   Range: 0.0 (completely different) to 1.0 (identical)
+   Default Threshold: 0.5
+   
+   Process:
+   1. Embed both texts to 384-dimensional vectors
+   2. Calculate cosine angle between vectors
+   3. Score >= threshold = match
+   4. Sort by similarity (highest first)
+
+8. TESTING STRUCTURE
+   
+   test_coder_mcp.py (MCP server unit tests)
+   test_mcp_postgres.py (API integration tests)
+   test_tool_retrieval.py (Recursive retrieval tests)
+   validate_tool_retrieval.py (Validation utilities)
+   
+   Run tests:
+   pytest tests/test_coder_mcp.py -v
+   MCP_DEBUG=true pytest -v -s  # With debug output
+
+9. CRITICAL IMPLEMENTATION DETAILS
+   
+   - retrieve_all_tools returns ONE best_match per prompt, not all matches
+   - roll_the_dice REQUIRES session_id (no default)
+   - max_tools in roll_the_dice is capped at 1-10 (default 3)
+   - Parameters are auto-extracted by PostgreSQL API
+   - All tool results are JSON (must parse manually)
+   - Embeddings stored as JSON arrays in database
+
+10. MODIFICATION POINTS FOR NEW FEATURES
+    
+    Add New Tool:
+    - system_mcps/coder/server.py: list_tools() + call_tool()
+    - Add tests in tests/test_coder_mcp.py
+    
+    Add New Endpoint:
+    - src/postgresql/app/app.py
+    - Add Flask route with embedding generation
+    
+    Add Tests:
+    - Use @requires_both_services decorator
+    - Test success and error cases
+
+===============================================================================
+                        QUICK REFERENCE
+===============================================================================
+
+SERVICE PORTS:
+- Ollama: 11434
+- PostgreSQL API: 15000
+- Transformer Service: 16050
+- PostgreSQL Database: 25432
+
+ENVIRONMENT VARIABLE:
+- MCP_DEBUG=true   # Enable verbose logging
+
+KEY FILES:
+- /home/user/cli/system_mcps/coder/server.py (1404 lines) - All tools
+- /home/user/cli/src/postgresql/app/app.py (750 lines) - All endpoints
+- /home/user/cli/src/mcp/client.py (356 lines) - MCP client
+- /home/user/cli/src/transformer/app.py - Embeddings
+
+RETRIEVE_ALL_TOOLS INPUT/OUTPUT:
+
+Input:
+{
+  "prompts": ["Run Python code", "Detect code"]
+}
+
+Output:
+{
+  "status": "success",
+  "results": [
+    {
+      "prompt": "Run Python code",
+      "best_match": {
+        "mcp_name": "coder",
+        "tool_name": "run_python_code",
+        "similarity": 0.95
+      }
+    }
+  ]
+}
+
+ROLL_THE_DICE INPUT/OUTPUT:
+
+Input:
+{
+  "prompts": ["Run Python code"],
+  "session_id": "required-session-id",
+  "max_tools": 3
+}
+
+Output:
+{
+  "status": "success",
+  "executions": [
+    {
+      "tool_name": "run_python_code",
+      "status": "executed",
+      "result_json": {stdout, stderr, exit_code}
+    }
+  ]
+}
+
+===============================================================================
+                    NEXT STEPS FOR DEVELOPMENT
+===============================================================================
+
+1. Review CODEBASE_EXPLORATION_SUMMARY.md for architecture overview
+2. Reference QUICK_CODE_REFERENCE.md when modifying code
+3. Check test files for patterns and best practices
+4. Use MCP_DEBUG=true for troubleshooting
+5. Always include session_id when using roll_the_dice
+6. Validate embeddings are generated before querying tools
+7. Test new tools with both retrieve_all_tools and roll_the_dice
+
+===============================================================================
