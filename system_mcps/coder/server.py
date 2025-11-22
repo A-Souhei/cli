@@ -1349,6 +1349,14 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                         executions.append(execution_result)
                         continue
 
+                    elif tool_name in ["write_python_code", "write_r_code", "edit_python_code", "edit_r_code"]:
+                        # Skip code writing/editing tools - these require actual code generation
+                        # which should be handled by a separate LLM tool, not hardcoded here
+                        execution_result["status"] = "skipped"
+                        execution_result["message"] = f"{tool_name} requires code generation - use LLM tools for this"
+                        executions.append(execution_result)
+                        continue
+
                     else:
                         # Skip unknown tools
                         execution_result["status"] = "skipped"

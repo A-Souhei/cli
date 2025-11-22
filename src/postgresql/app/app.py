@@ -1129,8 +1129,8 @@ def code_command():
 
         # STEP 1: Call text-to-sequence endpoint (spin_the_roulette functionality)
         print(f"[code-command] Step 1: Converting text to sequence (length: {len(text)})")
-        # Use localhost URL for internal requests
-        base_url = "http://localhost:15000"
+        # Use localhost URL for internal requests (port 5000 is the internal Flask port)
+        base_url = "http://localhost:5000"
         sequence_response = requests.post(
             f"{base_url}/mcp-tools/text-to-sequence",
             json={
@@ -1180,7 +1180,7 @@ def code_command():
         print(f"[code-command] Step 2: Retrieving tools for {len(sequence)} prompts")
         retrieve_response = requests.post(
             f"{base_url}/mcp-tools/retrieve",
-            json={"prompts": sequence},
+            json={"prompts": sequence, "threshold": 0.35},
             headers={"Content-Type": "application/json"},
             timeout=60
         )
