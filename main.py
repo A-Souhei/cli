@@ -1366,12 +1366,11 @@ def main(verbose=False):
                                     # Add file content to injected context
                                     file_content = result_data['content']
                                     injected_context_parts.append(f"File: {file_path}\n```\n{file_content}\n```")
+                                    debug_print(f"Added file context: {file_path}", icon="📄", style="cyan")
+                                    context_added = True
                             except json.JSONDecodeError as e:
                                 debug_print(f"Failed to parse file context result for {file_path}: {e}", icon="⚠️", style="yellow")
                                 debug_print(f"Result was: {result[:200]}...", icon="🔍", style="dim")
-
-                        debug_print(f"Added file context: {file_path}", icon="📄", style="cyan")
-                        context_added = True
                     except Exception as e:
                         debug_print(f"Failed to add file context for {file_path}: {e}", icon="⚠️", style="yellow")
 
