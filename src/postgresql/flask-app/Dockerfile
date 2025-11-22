@@ -10,7 +10,8 @@ RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
     Flask-SQLAlchemy==3.0.5 \
     psycopg2-binary==2.9.6 \
     sentry-sdk[flask]==1.29.2 \
-    requests==2.31.0
+    requests==2.31.0 \
+    pyyaml==6.0
 
 # Copy shared source code
 COPY src/sentry_config.py /app/src_shared/sentry_config.py

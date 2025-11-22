@@ -669,7 +669,37 @@ async def list_tools() -> list[Tool]:
                         "description": "Optional working directory for tool executions"
                     }
                 },
-                "required": ["prompts", "session_id"]
+                "required": ["prompts"]
+            }
+        ),
+        Tool(
+            name="spin_the_roulette",
+            description=(
+                "Convert a long text containing multiple instructions into a structured sequence of steps, "
+                "then retrieve matching MCP tools for each step. This tool uses LLM to intelligently split "
+                "complex multi-step instructions into individual action items. Each instruction is analyzed to "
+                "determine if it contains multiple tool usages, and if so, it's further subdivided. The result "
+                "is a flat list of single-instruction steps, each matched with the most appropriate MCP tool. "
+                "This is perfect for processing complex user requests that involve multiple sequential operations. "
+                "The output is compatible with retrieve_all_tools and can be used directly for tool execution planning."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "Long text containing multiple instructions or tasks to be split and analyzed"
+                    },
+                    "model": {
+                        "type": "string",
+                        "description": "Optional LLM model to use for text analysis (default: tinyllama)"
+                    },
+                    "max_iterations": {
+                        "type": "integer",
+                        "description": "Maximum iterations for subdividing steps (default: 3, max: 5)"
+                    }
+                },
+                "required": ["text"]
             }
         )
     ]
@@ -1382,6 +1412,151 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             return [TextContent(type="text", text=json.dumps({
                 "status": "error",
                 "message": f"Error in roll_the_dice: {str(e)}"
+            }, indent=2))]
+
+    elif name == "spin_the_roulette":
+        text = arguments.get("text", "")
+        model = arguments.get("model", "tinyllama")
+        max_iterations = arguments.get("max_iterations", 3)
+
+        debug_print("spin_the_roulette called", text_length=len(text), model=model, max_iterations=max_iterations)
+
+        # Validate text parameter
+        if not text:
+            debug_print("spin_the_roulette: No text provided")
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": "No text provided"
+            }, indent=2))]
+
+        if not isinstance(text, str):
+            debug_print("spin_the_roulette: text is not a string")
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": "text must be a string"
+            }, indent=2))]
+
+        # Validate and cap max_iterations
+        if not isinstance(max_iterations, int) or max_iterations < 1:
+            max_iterations = 3
+        elif max_iterations > 5:
+            max_iterations = 5
+
+        debug_print(f"spin_the_roulette: max_iterations set to {max_iterations}")
+
+        # Get PostgreSQL API URL
+        postgres_api_url = get_postgres_api_url()
+        debug_print(f"spin_the_roulette: Using PostgreSQL API at {postgres_api_url}")
+
+        try:
+            # Step 1: Call the text-to-sequence endpoint to split the text
+            debug_print(f"spin_the_roulette: Step 1 - Calling text-to-sequence endpoint")
+            response = requests.post(
+                f"{postgres_api_url}/mcp-tools/text-to-sequence",
+                json={
+                    "text": text,
+                    "model": model,
+                    "max_iterations": max_iterations
+                },
+                headers={"Content-Type": "application/json"},
+                timeout=180  # Longer timeout for LLM processing
+            )
+
+            debug_print(f"spin_the_roulette: text-to-sequence returned status {response.status_code}")
+
+            if response.status_code != 200:
+                return [TextContent(type="text", text=json.dumps({
+                    "status": "error",
+                    "status_code": response.status_code,
+                    "message": "Failed to convert text to sequence",
+                    "response": response.text
+                }, indent=2))]
+
+            sequence_data = response.json()
+            if sequence_data.get("status") != "success":
+                return [TextContent(type="text", text=json.dumps({
+                    "status": "error",
+                    "message": "text-to-sequence endpoint returned error",
+                    "details": sequence_data
+                }, indent=2))]
+
+            sequence = sequence_data.get("sequence", [])
+            debug_print(f"spin_the_roulette: Step 1 complete - Got {len(sequence)} steps from text-to-sequence")
+
+            if not sequence:
+                debug_print("spin_the_roulette: No steps extracted from text")
+                return [TextContent(type="text", text=json.dumps({
+                    "status": "success",
+                    "message": "No instruction steps found in text",
+                    "sequence": [],
+                    "tools_matched": [],
+                    "metadata": sequence_data.get("metadata", {})
+                }, indent=2))]
+
+            # Step 2: Use retrieve_all_tools to match each step with MCP tools
+            debug_print(f"spin_the_roulette: Step 2 - Calling retrieve endpoint with {len(sequence)} prompts")
+            retrieve_response = requests.post(
+                f"{postgres_api_url}/mcp-tools/retrieve",
+                json={"prompts": sequence},
+                headers={"Content-Type": "application/json"},
+                timeout=60
+            )
+
+            debug_print(f"spin_the_roulette: retrieve endpoint returned status {retrieve_response.status_code}")
+
+            if retrieve_response.status_code != 200:
+                return [TextContent(type="text", text=json.dumps({
+                    "status": "error",
+                    "status_code": retrieve_response.status_code,
+                    "message": "Failed to retrieve tools for sequence steps",
+                    "sequence": sequence,
+                    "response": retrieve_response.text
+                }, indent=2))]
+
+            tools_data = retrieve_response.json()
+            debug_print(f"spin_the_roulette: Step 2 complete - Retrieved tool matches")
+
+            # Step 3: Format and return the results
+            results = tools_data.get("results", [])
+
+            # Create a summary of matched tools
+            tools_summary = []
+            for result in results:
+                step_info = {
+                    "step": result.get("prompt"),
+                    "step_index": result.get("prompt_index"),
+                    "best_match": result.get("best_match")
+                }
+                tools_summary.append(step_info)
+
+            debug_print(f"spin_the_roulette: Step 3 complete - Formatted {len(tools_summary)} results")
+
+            return [TextContent(type="text", text=json.dumps({
+                "status": "success",
+                "message": f"Successfully processed text into {len(sequence)} steps and matched with tools",
+                "sequence": sequence,
+                "tools_matched": tools_summary,
+                "metadata": {
+                    "text_analysis": sequence_data.get("metadata", {}),
+                    "tool_retrieval": tools_data.get("metadata", {}),
+                    "model_used": model
+                }
+            }, indent=2))]
+
+        except requests.exceptions.Timeout:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": "Request timed out. LLM processing may take longer for complex texts."
+            }, indent=2))]
+        except requests.exceptions.ConnectionError:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": f"Could not connect to PostgreSQL API at {postgres_api_url}. Make sure the service is running."
+            }, indent=2))]
+        except Exception as e:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": f"Error in spin_the_roulette: {str(e)}"
             }, indent=2))]
 
     else:

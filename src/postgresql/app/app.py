@@ -9,7 +9,9 @@ from sentry_config import configure_sentry, capture_exception
 import sys
 import os
 import json
+import re
 import requests
+import yaml
 
 # Add shared source directory to path
 sys.path.insert(0, '/app/src_shared')
@@ -36,6 +38,32 @@ db = SQLAlchemy(app)
 
 # Transformer service configuration
 TRANSFORMER_API_URL = os.getenv('TRANSFORMER_API_URL', 'http://localhost:16050')
+
+# Load config.yaml for Ollama configuration
+def load_config():
+    """Load configuration from config.yaml."""
+    config_paths = ['/app/config.yaml', 'config.yaml', '../config.yaml']
+    for config_path in config_paths:
+        try:
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f)
+                return config
+        except FileNotFoundError:
+            continue
+        except Exception as e:
+            print(f"Warning: Could not load config.yaml: {e}")
+            continue
+    print("Warning: Configuration file not found: /app/config.yaml")
+    return {}
+
+# Load configuration
+CONFIG = load_config()
+
+# Ollama service configuration - read from config.yaml, fallback to env var
+OLLAMA_API_URL = CONFIG.get('ollama', {}).get('url', os.getenv('OLLAMA_API_URL', 'http://localhost:11434'))
+DEFAULT_OLLAMA_MODEL = CONFIG.get('ollama', {}).get('model', 'tinyllama')
+OLLAMA_TIMEOUT = CONFIG.get('ollama', {}).get('timeout', 120)
+print(f"Using Ollama - URL: {OLLAMA_API_URL}, Model: {DEFAULT_OLLAMA_MODEL}, Timeout: {OLLAMA_TIMEOUT}")
 
 
 def handle_error(e, status_code=500):
@@ -356,8 +384,6 @@ def extract_parameters_from_text(text, tool_name):
     dict
         Extracted parameters as key-value pairs
     """
-    import re
-
     params = {}
     text_lower = text.lower()
 
@@ -438,6 +464,59 @@ def extract_parameters_from_text(text, tool_name):
         params['input'] = text
 
     return params
+
+
+def call_ollama(prompt, model="tinyllama", temperature=0.3, max_tokens=1000):
+    """
+    Call Ollama API to generate text.
+
+    Parameters:
+    -----------
+    prompt : str
+        The prompt to send to Ollama
+    model : str
+        The model name to use (default: tinyllama)
+    temperature : float
+        Temperature for generation (default: 0.3)
+    max_tokens : int
+        Maximum tokens to generate (default: 1000)
+
+    Returns:
+    --------
+    str or None
+        Generated text if successful, None otherwise
+    """
+    try:
+        response = requests.post(
+            f"{OLLAMA_API_URL}/api/generate",
+            json={
+                "model": model,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": temperature,
+                    "num_predict": max_tokens
+                }
+            },
+            timeout=OLLAMA_TIMEOUT
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            return data.get('response', '').strip()
+        else:
+            print(f"Error calling Ollama: {response.status_code} - {response.text}")
+            return None
+
+    except requests.exceptions.Timeout:
+        print("Ollama request timed out")
+        return None
+    except requests.exceptions.ConnectionError:
+        print(f"Could not connect to Ollama at {OLLAMA_API_URL}")
+        return None
+    except Exception as e:
+        print(f"Error calling Ollama: {e}")
+        return None
 
 
 @app.route('/mcp-tools/store', methods=['POST'])
@@ -732,6 +811,217 @@ def retrieve_tools_recursive():
                 'mcp_filter': mcp_filter,
                 'total_prompts': len(prompts),
                 'total_tools_searched': len(tools)
+            }
+        }), 200
+
+    except Exception as e:
+        return handle_error(e)
+
+
+@app.route('/mcp-tools/text-to-sequence', methods=['POST'])
+def text_to_sequence():
+    """
+    Convert a long text into a sequence of individual instruction steps.
+
+    This endpoint uses LLM to:
+    1. Split text into paragraphs/sections
+    2. Analyze each section to determine if it contains multiple instructions
+    3. Further subdivide sections that contain multiple instructions
+    4. Return a flat list of single-instruction steps compatible with retrieve_all_tools
+
+    Request Body:
+    {
+        "text": "Long text containing multiple instructions...",
+        "model": "tinyllama",  // optional, default: "tinyllama"
+        "max_iterations": 3     // optional, default: 3
+    }
+
+    Response:
+    {
+        "status": "success",
+        "sequence": [
+            "First instruction step",
+            "Second instruction step",
+            ...
+        ],
+        "metadata": {
+            "original_length": 1500,
+            "total_steps": 5,
+            "model_used": "tinyllama"
+        }
+    }
+    """
+    try:
+        # Get JSON body
+        data = request.get_json()
+        if data is None:
+            return jsonify({
+                'status': 'error',
+                'message': 'Request body must be valid JSON'
+            }), 400
+
+        # Get required text parameter
+        if 'text' not in data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing required parameter: text'
+            }), 400
+
+        text = data.get('text')
+        if not isinstance(text, str):
+            return jsonify({
+                'status': 'error',
+                'message': 'text must be a string'
+            }), 400
+
+        if len(text.strip()) == 0:
+            return jsonify({
+                'status': 'error',
+                'message': 'text parameter must be non-empty'
+            }), 400
+
+        # Validate maximum length to prevent performance issues and timeouts
+        MAX_TEXT_LENGTH = 50000
+        if len(text) > MAX_TEXT_LENGTH:
+            return jsonify({
+                'status': 'error',
+                'message': f'text parameter exceeds maximum length of {MAX_TEXT_LENGTH} characters'
+            }), 400
+
+        # Get optional parameters
+        model = data.get('model', DEFAULT_OLLAMA_MODEL)
+
+        # Validate model parameter
+        # Expected model names: tinyllama, llama2, llama3.1:8b, mistral, codellama, etc.
+        # Model name should be a non-empty string without special characters except : and .
+        if not isinstance(model, str) or not model.strip():
+            return jsonify({
+                'status': 'error',
+                'message': 'model must be a non-empty string'
+            }), 400
+
+        if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9._:-]*$', model):
+            return jsonify({
+                'status': 'error',
+                'message': 'model name contains invalid characters. Use alphanumeric characters, dots, colons, hyphens, and underscores only.'
+            }), 400
+
+        max_iterations = data.get('max_iterations', 3)
+
+        # Validate max_iterations
+        if not isinstance(max_iterations, int) or max_iterations < 1:
+            max_iterations = 3
+        if max_iterations > 5:
+            max_iterations = 5
+
+        original_length = len(text)
+
+        # Step 1: Split text into initial paragraphs/sections
+        split_prompt = f"""You are a text analysis assistant. Your task is to split the following text into distinct instruction steps or action items. Each step should represent a single, clear instruction or task.
+
+Text to split:
+{text}
+
+Please respond with ONLY a JSON array of strings, where each string is a single instruction step. Do not include any explanation or additional text. Format your response exactly like this:
+["step 1 text here", "step 2 text here", "step 3 text here"]
+
+If the text is already a single instruction, return it as a single-item array."""
+
+        llm_response = call_ollama(split_prompt, model=model, temperature=0.3, max_tokens=2000)
+
+        if not llm_response:
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to get response from LLM service. Make sure Ollama is running.'
+            }), 503
+
+        # Parse the LLM response to extract JSON array
+        try:
+            # Try to extract JSON array from response
+            json_match = re.search(r'\[.*\]', llm_response, re.DOTALL)
+            if json_match:
+                initial_steps = json.loads(json_match.group(0))
+            else:
+                # If no JSON found, treat the response as a single step
+                initial_steps = [llm_response]
+        except json.JSONDecodeError:
+            # If JSON parsing fails, split by newlines as fallback
+            initial_steps = [s.strip() for s in llm_response.split('\n') if s.strip()]
+
+        # Step 2: Iteratively check and subdivide steps that contain multiple instructions
+        final_steps = []
+        iteration = 0
+
+        for iteration in range(max_iterations):
+            steps_to_process = initial_steps if iteration == 0 else final_steps
+            final_steps = []
+
+            for step in steps_to_process:
+                if not step or len(step.strip()) == 0:
+                    continue
+
+                # Ask LLM if this step contains multiple instructions
+                check_prompt = f"""You are analyzing an instruction step. Determine if the following text contains multiple distinct instructions or tool usages that should be separated.
+
+Text to analyze:
+{step}
+
+Respond with ONLY a JSON object in this exact format:
+{{"multiple_instructions": true/false, "steps": ["step1", "step2", ...]}}
+
+- If it contains only ONE instruction, set multiple_instructions to false and return the original text as a single-item array
+- If it contains MULTIPLE instructions, set multiple_instructions to true and split it into separate single-instruction steps
+
+Do not include any explanation or additional text."""
+
+                check_response = call_ollama(check_prompt, model=model, temperature=0.2, max_tokens=1500)
+
+                if not check_response:
+                    # If LLM fails, keep the step as-is
+                    final_steps.append(step)
+                    continue
+
+                # Parse the check response
+                try:
+                    json_match = re.search(r'\{.*\}', check_response, re.DOTALL)
+                    if json_match:
+                        check_data = json.loads(json_match.group(0))
+                        if check_data.get('multiple_instructions', False):
+                            # Add subdivided steps
+                            subdivided = check_data.get('steps', [step])
+                            final_steps.extend(subdivided)
+                        else:
+                            # Single instruction, keep as-is
+                            substeps = check_data.get('steps', [step])
+                            final_steps.extend(substeps)
+                    else:
+                        # Fallback: keep the step
+                        final_steps.append(step)
+                except (json.JSONDecodeError, KeyError):
+                    # If parsing fails, keep the step as-is
+                    final_steps.append(step)
+
+            # If no new subdivisions were made, we're done
+            if len(final_steps) == len(steps_to_process):
+                break
+
+        # Clean up and deduplicate steps
+        cleaned_steps = []
+        seen = set()
+        for step in final_steps:
+            step_clean = step.strip()
+            if step_clean and step_clean.lower() not in seen:
+                cleaned_steps.append(step_clean)
+                seen.add(step_clean.lower())
+
+        return jsonify({
+            'status': 'success',
+            'sequence': cleaned_steps,
+            'metadata': {
+                'original_length': original_length,
+                'total_steps': len(cleaned_steps),
+                'model_used': model,
+                'iterations_performed': min(iteration + 1, max_iterations)
             }
         }), 200
 

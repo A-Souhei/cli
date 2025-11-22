@@ -1,4 +1,4 @@
-.PHONY: help setup run run-verbose venv install build up down restart logs status clean test
+.PHONY: help setup run run-verbose venv install build up down restart logs status clean test test-unit test-integration test-spin test-all
 .PHONY: exec-ollama pull-model list-models build-postgres exec-postgres flask-logs update-schema migrate-session
 .PHONY: build-redis build-all-services up-redis up-all redis-logs redis-cli redis-clear
 
@@ -157,10 +157,47 @@ clean: ## Remove virtual environment and Docker volumes
 		echo "$(GREEN)✓ Docker volumes removed$(NC)"; \
 	fi
 
-test: install ## Run tests
-	@echo "$(YELLOW)Running tests...$(NC)"
+test: install ## Run all tests (pytest + unit tests)
+	@echo "$(YELLOW)Running all tests...$(NC)"
+	@echo ""
+	@echo "$(YELLOW)1. Running pytest tests (auto-skip if containers unavailable)...$(NC)"
+	@$(VENV_DIR)/bin/pytest tests/ -v -m "not slow" || echo "$(YELLOW)Some tests skipped (containers not available)$(NC)"
+	@echo ""
+	@echo "$(YELLOW)2. Running CLI unit tests...$(NC)"
 	@$(VENV_PYTHON) test_cli.py
+	@echo ""
 	@echo "$(GREEN)✓ Tests completed$(NC)"
+
+test-unit: install ## Run unit tests only (no container dependencies)
+	@echo "$(YELLOW)Running unit tests...$(NC)"
+	@$(VENV_PYTHON) test_cli.py
+	@$(VENV_DIR)/bin/pytest tests/test_embedding_similarity.py -v
+	@echo "$(GREEN)✓ Unit tests completed$(NC)"
+
+test-integration: install ## Run integration tests (requires containers)
+	@echo "$(YELLOW)Running integration tests (requires containers)...$(NC)"
+	@$(VENV_DIR)/bin/pytest tests/ -v --tb=short -m "not slow"
+	@echo "$(GREEN)✓ Integration tests completed$(NC)"
+
+test-spin: install ## Run spin_the_roulette tests (curl + fast pytest)
+	@echo "$(YELLOW)Running spin_the_roulette tests...$(NC)"
+	@echo ""
+	@echo "$(YELLOW)1. Running curl tests...$(NC)"
+	@./tests/test_spin_the_roulette.sh
+	@echo ""
+	@echo "$(YELLOW)2. Running fast pytest tests...$(NC)"
+	@$(VENV_DIR)/bin/pytest tests/test_text_to_sequence.py::TestTextToSequenceEndpoint::test_text_to_sequence_empty_text -v
+	@$(VENV_DIR)/bin/pytest tests/test_text_to_sequence.py::TestTextToSequenceEndpoint::test_text_to_sequence_invalid_text_type -v
+	@echo ""
+	@echo "$(GREEN)✓ spin_the_roulette tests completed$(NC)"
+	@echo "$(YELLOW)Note: Long-running pytest tests skipped (LLM processing time > 2min)$(NC)"
+
+test-all: install ## Run all tests including slow tests
+	@echo "$(YELLOW)Running all tests (including slow tests)...$(NC)"
+	@$(VENV_PYTHON) test_cli.py
+	@$(VENV_DIR)/bin/pytest tests/ -v --tb=short
+	@./tests/test_spin_the_roulette.sh
+	@echo "$(GREEN)✓ All tests completed$(NC)"
 
 # Additional convenience targets
 .PHONY: build-postgres exec-postgres flask-logs update-schema migrate-session

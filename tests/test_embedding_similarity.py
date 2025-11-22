@@ -4,17 +4,19 @@ Test script for embedding similarity metrics
 Run this script to see examples of all three distance/similarity metrics in action.
 """
 
+import sys
+from pathlib import Path
+
+import numpy as np
+
+# Add src to path
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
 from transformer.embedding_similarity import (
     calculate_similarity,
     compare_metrics,
     batch_similarity,
 )
-import numpy as np
-import sys
-from pathlib import Path
-
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 
 def test_basic_similarity():

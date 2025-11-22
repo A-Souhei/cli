@@ -38,7 +38,8 @@ RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
     psycopg2-binary \
     python-dotenv \
     pgvector \
-    sentry-sdk
+    sentry-sdk \
+    pyyaml
 
 # Configure PostgreSQL
 RUN echo "host all all 0.0.0.0/0 md5" >> /etc/postgresql/14/main/pg_hba.conf && \
