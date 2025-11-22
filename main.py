@@ -1027,62 +1027,136 @@ def main(verbose=False):
                             console.print(f"  {i}. {step}")
                         console.print()
 
-                        # Execute each step iteratively
-                        console.print("⚡ [cyan]Executing steps...[/cyan]\n")
+                        # Execute each step iteratively with tool matching
+                        console.print("⚡ [cyan]Executing steps with tool matching...[/cyan]\n")
 
                         for i, step in enumerate(steps, 1):
                             console.print(f"[bold]Step {i}/{len(steps)}:[/bold] {step}")
                             console.print()
 
                             try:
-                                # Get AI response for this step
-                                # Add step as user message
-                                chat_manager.add_user_message(step)
-                                messages = chat_manager.get_messages()
+                                # Step 1: Match this step with the best MCP tool
+                                debug_print(f"Matching step {i} with tools...", icon="🔍")
 
-                                # Get response from Ollama
-                                spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
+                                match_response = requests.post(
+                                    f"{POSTGRES_API_URL}/mcp-tools/retrieve",
+                                    json={"prompts": [step], "threshold": 0.3},
+                                    headers={"Content-Type": "application/json"},
+                                    timeout=30
+                                )
 
-                                with Live(spinner, console=console, refresh_per_second=10):
-                                    if stream:
-                                        full_response = ""
-                                        for chunk in ollama_client.chat(
-                                            messages=messages,
-                                            stream=True,
-                                            temperature=temperature
-                                        ):
-                                            full_response += chunk
+                                if match_response.status_code == 200:
+                                    match_data = match_response.json()
+                                    results = match_data.get('results', [])
+
+                                    if results and results[0].get('best_match'):
+                                        best_match = results[0]['best_match']
+                                        tool_name = best_match.get('tool_name')
+                                        mcp_name = best_match.get('mcp_name', 'coder')
+                                        similarity = best_match.get('similarity', 0)
+
+                                        console.print(f"  🔧 [cyan]Matched tool:[/cyan] {tool_name} [dim](similarity: {similarity:.2f})[/dim]")
+
+                                        # Step 2: Extract parameters from the step
+                                        extracted_params = best_match.get('extracted_params', {})
+
+                                        # Add working_dir if not present
+                                        if 'working_dir' not in extracted_params:
+                                            extracted_params['working_dir'] = os.getcwd()
+
+                                        # Add session_id for tools that need it
+                                        if 'session_id' not in extracted_params and session_manager.is_active():
+                                            extracted_params['session_id'] = session_id
+
+                                        debug_print(f"Calling MCP tool: {tool_name}", icon="⚙️")
+                                        console.print(f"  ⚡ [yellow]Executing {tool_name}...[/yellow]\n")
+
+                                        # Step 3: Call the MCP tool
+                                        result = run_async(mcp_client.call_tool(
+                                            mcp_name=mcp_name,
+                                            tool_name=tool_name,
+                                            arguments=extracted_params
+                                        ))
+
+                                        # Step 4: Display result
+                                        try:
+                                            result_data = json.loads(result)
+
+                                            if result_data.get('status') == 'success':
+                                                console.print(f"  ✓ [green]Success[/green]")
+
+                                                # Show relevant output
+                                                if 'stdout' in result_data and result_data['stdout']:
+                                                    console.print(f"\n  [dim]Output:[/dim]")
+                                                    console.print(f"  {result_data['stdout']}")
+
+                                                if 'stderr' in result_data and result_data['stderr']:
+                                                    console.print(f"\n  [yellow]Warnings:[/yellow]")
+                                                    console.print(f"  {result_data['stderr']}")
+
+                                                if 'file_path' in result_data:
+                                                    console.print(f"  📄 [cyan]File:[/cyan] {result_data['file_path']}")
+
+                                                if 'message' in result_data:
+                                                    console.print(f"  💬 {result_data['message']}")
+                                            else:
+                                                console.print(f"  ✗ [red]Failed:[/red] {result_data.get('message', 'Unknown error')}")
+
+                                        except json.JSONDecodeError:
+                                            # Plain text result
+                                            console.print(f"  📄 [dim]{result}[/dim]")
+
+                                        console.print()
+
+                                        # Add to session
+                                        if session_manager.is_active():
+                                            session_manager.add_interaction(
+                                                prompt=step,
+                                                response=result,
+                                                metadata={'model': ollama_client.model, 'step': i, 'tool': tool_name}
+                                            )
+
                                     else:
-                                        response = ollama_client.chat(
-                                            messages=messages,
-                                            stream=False,
-                                            temperature=temperature
-                                        )
-                                        full_response = response.get('message', {}).get('content', '')
+                                        # No tool matched - fall back to LLM
+                                        console.print(f"  ⚠️  [yellow]No matching tool found, using LLM...[/yellow]\n")
 
-                                # Display response
-                                console.print("[bold cyan]▶[/bold cyan]")
-                                console.print(CustomMarkdown(full_response, code_theme="monokai"))
-                                console.print()
+                                        chat_manager.add_user_message(step)
+                                        messages = chat_manager.get_messages()
 
-                                # Add assistant response to context
-                                chat_manager.add_assistant_message(full_response)
+                                        spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
 
-                                # Add to session if active
-                                if session_manager.is_active():
-                                    session_manager.add_interaction(
-                                        prompt=step,
-                                        response=full_response,
-                                        metadata={'model': ollama_client.model, 'step': i}
-                                    )
+                                        with Live(spinner, console=console, refresh_per_second=10):
+                                            if stream:
+                                                full_response = ""
+                                                for chunk in ollama_client.chat(
+                                                    messages=messages,
+                                                    stream=True,
+                                                    temperature=temperature
+                                                ):
+                                                    full_response += chunk
+                                            else:
+                                                response = ollama_client.chat(
+                                                    messages=messages,
+                                                    stream=False,
+                                                    temperature=temperature
+                                                )
+                                                full_response = response.get('message', {}).get('content', '')
 
-                                # Check for code and offer to execute
-                                try:
-                                    exec_result = run_async(handle_code_execution(mcp_client, full_response))
-                                    if exec_result:
-                                        display_execution_result(exec_result)
-                                except Exception as e:
-                                    debug_print(f"Error during code handling in step {i}: {e}", icon="❌")
+                                        console.print("[bold cyan]▶[/bold cyan]")
+                                        console.print(CustomMarkdown(full_response, code_theme="monokai"))
+                                        console.print()
+
+                                        chat_manager.add_assistant_message(full_response)
+
+                                        if session_manager.is_active():
+                                            session_manager.add_interaction(
+                                                prompt=step,
+                                                response=full_response,
+                                                metadata={'model': ollama_client.model, 'step': i}
+                                            )
+
+                                else:
+                                    console.print(f"  ✗ [red]Failed to match tools (HTTP {match_response.status_code})[/red]\n")
 
                             except Exception as e:
                                 console.print(f"[red]✗ Error in step {i}: {e}[/red]\n")
