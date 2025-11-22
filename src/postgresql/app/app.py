@@ -1129,8 +1129,10 @@ def code_command():
 
         # STEP 1: Call text-to-sequence endpoint (spin_the_roulette functionality)
         print(f"[code-command] Step 1: Converting text to sequence (length: {len(text)})")
+        # Use localhost URL for internal requests
+        base_url = "http://localhost:15000"
         sequence_response = requests.post(
-            f"{request.host_url.rstrip('/')}/mcp-tools/text-to-sequence",
+            f"{base_url}/mcp-tools/text-to-sequence",
             json={
                 "text": text,
                 "model": model,
@@ -1177,7 +1179,7 @@ def code_command():
         # STEP 2: Call retrieve endpoint to match tools (retrieve_all_tools functionality)
         print(f"[code-command] Step 2: Retrieving tools for {len(sequence)} prompts")
         retrieve_response = requests.post(
-            f"{request.host_url.rstrip('/')}/mcp-tools/retrieve",
+            f"{base_url}/mcp-tools/retrieve",
             json={"prompts": sequence},
             headers={"Content-Type": "application/json"},
             timeout=60
