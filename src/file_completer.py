@@ -98,8 +98,9 @@ class CombinedCompleter(Completer):
         # If text starts with /, use slash command completer
         if text.startswith('/'):
             yield from self.slash_completer.get_completions(document, complete_event)
-        # If text contains @, use file completer
-        elif '@' in text:
+
+        # If text contains @, use file completer (can work with /code @file.py)
+        if '@' in text:
             yield from self.file_completer.get_completions(document, complete_event)
 
 
