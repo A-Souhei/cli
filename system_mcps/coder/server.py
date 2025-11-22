@@ -167,6 +167,60 @@ def get_postgres_api_url() -> str:
     return os.getenv('POSTGRES_API_URL', 'http://localhost:15000')
 
 
+def get_ollama_api_url() -> str:
+    """Get Ollama API URL from environment or use default."""
+    return os.getenv('OLLAMA_API_URL', 'http://localhost:11434')
+
+
+def call_ollama(prompt: str, model: str = "tinyllama", temperature: float = 0.3) -> Optional[str]:
+    """
+    Call Ollama API to generate text.
+
+    Args:
+        prompt: The prompt to send to Ollama
+        model: The model to use (default: tinyllama)
+        temperature: Temperature for generation (default: 0.3)
+
+    Returns:
+        Generated text or None if request fails
+    """
+    ollama_url = get_ollama_api_url()
+    debug_print(f"call_ollama: Calling Ollama at {ollama_url} with model {model}")
+
+    try:
+        response = requests.post(
+            f"{ollama_url}/api/generate",
+            json={
+                "model": model,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": temperature
+                }
+            },
+            timeout=120
+        )
+
+        if response.status_code == 200:
+            result = response.json()
+            generated_text = result.get("response", "")
+            debug_print(f"call_ollama: Generated {len(generated_text)} characters")
+            return generated_text
+        else:
+            debug_print(f"call_ollama: Error {response.status_code} - {response.text}")
+            return None
+
+    except requests.exceptions.Timeout:
+        debug_print("call_ollama: Request timed out")
+        return None
+    except requests.exceptions.ConnectionError:
+        debug_print(f"call_ollama: Could not connect to Ollama at {ollama_url}")
+        return None
+    except Exception as e:
+        debug_print(f"call_ollama: Error - {str(e)}")
+        return None
+
+
 def add_context_to_redis(file_path: str, content: str, session_id: Optional[str] = None, context_type: str = "file") -> dict:
     """
     Add file or directory context to Redis with RAG embedding.
@@ -1300,38 +1354,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     # Infer parameters based on tool type and prompts
                     tool_arguments = {}
 
-                    if tool_name == "run_python_code":
-                        debug_print(f"roll_the_dice: Inferring parameters for run_python_code")
-                        # Try to extract Python code from prompts or use a simple test
-                        code = None
-                        for prompt in prompts:
-                            code_result = detect_code_language(prompt)
-                            if code_result and code_result[0] == "python":
-                                code = code_result[1]
-                                break
-
-                        if not code:
-                            # Use a simple test code
-                            code = "print('Hello from roll_the_dice!')"
-
-                        tool_arguments = {"code": code, "working_dir": working_dir}
-
-                    elif tool_name == "run_r_code":
-                        # Try to extract R code from prompts or use a simple test
-                        code = None
-                        for prompt in prompts:
-                            code_result = detect_code_language(prompt)
-                            if code_result and code_result[0] == "r":
-                                code = code_result[1]
-                                break
-
-                        if not code:
-                            # Use a simple test code
-                            code = "print('Hello from roll_the_dice!')"
-
-                        tool_arguments = {"code": code, "working_dir": working_dir}
-
-                    elif tool_name == "detect_code":
+                    if tool_name == "detect_code":
                         # Use the first prompt as text to analyze
                         tool_arguments = {"text": prompts[0] if prompts else ""}
 
@@ -1349,13 +1372,77 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                         executions.append(execution_result)
                         continue
 
-                    elif tool_name in ["write_python_code", "write_r_code", "edit_python_code", "edit_r_code"]:
-                        # Skip code writing/editing tools - these require actual code generation
-                        # which should be handled by a separate LLM tool, not hardcoded here
-                        execution_result["status"] = "skipped"
-                        execution_result["message"] = f"{tool_name} requires code generation - use LLM tools for this"
-                        executions.append(execution_result)
-                        continue
+                    elif tool_name in ["write_python_code", "write_r_code", "edit_python_code", "edit_r_code", "run_python_code", "run_r_code"]:
+                        # For code-generation tools, use LLM to generate code first
+                        debug_print(f"roll_the_dice: Code-generation tool detected: {tool_name}")
+
+                        # Find the corresponding prompt for this tool
+                        corresponding_prompt = None
+                        results_list = tools_data.get("results", [])
+                        for result in results_list:
+                            if result.get("best_match", {}).get("tool_name") == tool_name:
+                                corresponding_prompt = result.get("prompt", "")
+                                break
+
+                        if not corresponding_prompt:
+                            corresponding_prompt = prompts[idx] if idx < len(prompts) else ""
+
+                        debug_print(f"roll_the_dice: Using prompt: {corresponding_prompt[:100]}...")
+
+                        # Use Ollama to generate code
+                        code_prompt = f"Generate {tool_name.split('_')[1]} code for: {corresponding_prompt}\n\nProvide only the code in a markdown code block."
+                        llm_response = call_ollama(code_prompt, model="tinyllama", temperature=0.3)
+
+                        if not llm_response:
+                            execution_result["status"] = "failed"
+                            execution_result["error"] = "Failed to generate code using LLM"
+                            executions.append(execution_result)
+                            continue
+
+                        # Detect and extract code from LLM response
+                        detected = detect_code_language(llm_response)
+
+                        if not detected:
+                            execution_result["status"] = "failed"
+                            execution_result["error"] = "No code detected in LLM response"
+                            execution_result["llm_response"] = llm_response[:500]  # Include first 500 chars for debugging
+                            executions.append(execution_result)
+                            continue
+
+                        lang, code = detected
+                        debug_print(f"roll_the_dice: Extracted {lang} code ({len(code)} chars)")
+
+                        # Extract file_path from prompt using @ prefix
+                        file_path = None
+                        import re
+                        file_match = re.search(r'@([\w\-./]+\.(?:py|r|R))', corresponding_prompt)
+                        if file_match:
+                            file_path = file_match.group(1)
+                            debug_print(f"roll_the_dice: Extracted file_path: {file_path}")
+
+                        # Build tool arguments based on tool type
+                        if tool_name in ["write_python_code", "write_r_code", "edit_python_code", "edit_r_code"]:
+                            # These tools require both code and file_path
+                            if not file_path:
+                                execution_result["status"] = "failed"
+                                execution_result["error"] = "No file path found in prompt (use @ prefix, e.g., @file.py)"
+                                executions.append(execution_result)
+                                continue
+
+                            tool_arguments = {
+                                "file_path": file_path,
+                                "code": code,
+                                "working_dir": working_dir
+                            }
+                        elif tool_name in ["run_python_code", "run_r_code"]:
+                            # These tools just need code
+                            tool_arguments = {
+                                "code": code,
+                                "working_dir": working_dir
+                            }
+
+                        execution_result["code_generated"] = len(code)
+                        execution_result["file_path"] = file_path
 
                     else:
                         # Skip unknown tools
