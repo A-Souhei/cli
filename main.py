@@ -1069,8 +1069,14 @@ def main(verbose=False):
                                             # For run_python_code/run_r_code, check if we should read existing file
                                             if tool_name in ['run_python_code', 'run_r_code'] and file_path:
                                                 # Check if prompt is about running an existing file
-                                                run_file_keywords = ['run the file', 'execute the file', 'run @', 'execute @', 'run file']
-                                                is_run_file = any(keyword in step.lower() for keyword in run_file_keywords)
+                                                # More flexible: check if it mentions "file" or "script" with @
+                                                step_lower = step.lower()
+                                                is_run_file = (
+                                                    ('file' in step_lower and '@' in step_lower) or
+                                                    ('script' in step_lower and '@' in step_lower) or
+                                                    'run @' in step_lower or
+                                                    'execute @' in step_lower
+                                                )
 
                                                 if is_run_file:
                                                     console.print(f"  📂 [yellow]Reading file: {file_path}[/yellow]")

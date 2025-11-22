@@ -1401,8 +1401,14 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                         code = None
                         if tool_name in ["run_python_code", "run_r_code"] and file_path:
                             # Check if prompt is about running an existing file
-                            run_file_keywords = ['run the file', 'execute the file', 'run @', 'execute @', 'run file']
-                            is_run_file = any(keyword in corresponding_prompt.lower() for keyword in run_file_keywords)
+                            # More flexible: check if it mentions "file" or "script" with @
+                            prompt_lower = corresponding_prompt.lower()
+                            is_run_file = (
+                                ('file' in prompt_lower and '@' in prompt_lower) or
+                                ('script' in prompt_lower and '@' in prompt_lower) or
+                                'run @' in prompt_lower or
+                                'execute @' in prompt_lower
+                            )
 
                             if is_run_file:
                                 debug_print(f"roll_the_dice: Reading file: {file_path}")
