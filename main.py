@@ -1057,8 +1057,64 @@ def main(verbose=False):
 
                                         console.print(f"  🔧 [cyan]Matched tool:[/cyan] {tool_name} [dim](similarity: {similarity:.2f})[/dim]")
 
-                                        # Step 2: Extract parameters from the step
-                                        extracted_params = best_match.get('extracted_params', {})
+                                        # Step 2: For code generation tools, use LLM to generate code first
+                                        code_generation_tools = ['write_python_code', 'edit_python_code', 'write_r_code', 'edit_r_code', 'run_python_code', 'run_r_code']
+
+                                        if tool_name in code_generation_tools:
+                                            console.print(f"  🤖 [yellow]Generating code with LLM...[/yellow]")
+
+                                            # Use LLM to generate code for this step
+                                            chat_manager.add_user_message(step)
+                                            messages = chat_manager.get_messages()
+
+                                            spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
+
+                                            with Live(spinner, console=console, refresh_per_second=10):
+                                                if stream:
+                                                    full_response = ""
+                                                    for chunk in ollama_client.chat(
+                                                        messages=messages,
+                                                        stream=True,
+                                                        temperature=temperature
+                                                    ):
+                                                        full_response += chunk
+                                                else:
+                                                    response = ollama_client.chat(
+                                                        messages=messages,
+                                                        stream=False,
+                                                        temperature=temperature
+                                                    )
+                                                    full_response = response.get('message', {}).get('content', '')
+
+                                            chat_manager.add_assistant_message(full_response)
+
+                                            # Detect code in the response
+                                            detected = mcp_client.detect_code(full_response)
+
+                                            if not detected:
+                                                console.print(f"  ⚠️  [yellow]No code detected in LLM response, skipping tool execution[/yellow]\n")
+                                                continue
+
+                                            code = detected['code']
+                                            console.print(f"  ✓ [green]Code generated ({len(code)} chars)[/green]\n")
+
+                                            # Build parameters for the tool
+                                            extracted_params = best_match.get('extracted_params', {})
+
+                                            # Add the generated code
+                                            extracted_params['code'] = code
+
+                                            # Add file_path if extracted or from @ prefix in step
+                                            import re
+                                            file_match = re.search(r'@([\w\-./]+\.(?:py|r|R))', step)
+                                            if file_match:
+                                                extracted_params['file_path'] = file_match.group(1)
+                                            elif 'file_path' not in extracted_params and tool_name in ['write_python_code', 'edit_python_code', 'write_r_code', 'edit_r_code']:
+                                                console.print(f"  ⚠️  [yellow]No file path specified, skipping {tool_name}[/yellow]\n")
+                                                continue
+                                        else:
+                                            # Non-code-generation tools: use extracted params
+                                            extracted_params = best_match.get('extracted_params', {})
 
                                         # Add working_dir if not present
                                         if 'working_dir' not in extracted_params:
@@ -1068,7 +1124,7 @@ def main(verbose=False):
                                         if 'session_id' not in extracted_params and session_manager.is_active():
                                             extracted_params['session_id'] = session_id
 
-                                        debug_print(f"Calling MCP tool: {tool_name}", icon="⚙️")
+                                        debug_print(f"Calling MCP tool: {tool_name} with params: {list(extracted_params.keys())}", icon="⚙️")
                                         console.print(f"  ⚡ [yellow]Executing {tool_name}...[/yellow]\n")
 
                                         # Step 3: Call the MCP tool
