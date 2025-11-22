@@ -347,7 +347,6 @@ class TestRecursiveToolRetrieval:
 
         # API only returns best_match per prompt (no sorting needed)
         # This test is not applicable to current API implementation
-        pass
 
     def test_retrieve_metadata(self):
         """Test that metadata is returned correctly."""

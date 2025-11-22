@@ -699,7 +699,7 @@ async def list_tools() -> list[Tool]:
                         "description": "Maximum iterations for subdividing steps (default: 3, max: 5)"
                     }
                 },
-                "required": []
+                "required": ["text"]
             }
         )
     ]

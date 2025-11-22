@@ -2,7 +2,6 @@
 
 import pytest
 import requests
-import json
 import time
 import sys
 from pathlib import Path
@@ -108,7 +107,9 @@ class TestTextToSequenceEndpoint:
             "text": "Run this Python code: print('hello world')"
         }
 
-        response = make_request_with_retry(f"{POSTGRES_URL}/mcp-tools/text-to-sequence", request_data
+        response = make_request_with_retry(
+            f"{POSTGRES_URL}/mcp-tools/text-to-sequence",
+            request_data
         )
 
         assert response.status_code == 200
@@ -129,7 +130,9 @@ class TestTextToSequenceEndpoint:
             """
         }
 
-        response = make_request_with_retry(f"{POSTGRES_URL}/mcp-tools/text-to-sequence", request_data
+        response = make_request_with_retry(
+            f"{POSTGRES_URL}/mcp-tools/text-to-sequence",
+            request_data
         )
 
         assert response.status_code == 200
@@ -146,7 +149,9 @@ class TestTextToSequenceEndpoint:
             "model": CONFIGURED_MODEL
         }
 
-        response = make_request_with_retry(f"{POSTGRES_URL}/mcp-tools/text-to-sequence", request_data
+        response = make_request_with_retry(
+            f"{POSTGRES_URL}/mcp-tools/text-to-sequence",
+            request_data
         )
 
         assert response.status_code == 200
@@ -161,7 +166,9 @@ class TestTextToSequenceEndpoint:
             "max_iterations": 2
         }
 
-        response = make_request_with_retry(f"{POSTGRES_URL}/mcp-tools/text-to-sequence", request_data
+        response = make_request_with_retry(
+            f"{POSTGRES_URL}/mcp-tools/text-to-sequence",
+            request_data
         )
 
         assert response.status_code == 200
@@ -176,7 +183,9 @@ class TestTextToSequenceEndpoint:
             "text": ""
         }
 
-        response = make_request_with_retry(f"{POSTGRES_URL}/mcp-tools/text-to-sequence", request_data
+        response = make_request_with_retry(
+            f"{POSTGRES_URL}/mcp-tools/text-to-sequence",
+            request_data
         )
 
         assert response.status_code == 400
@@ -188,7 +197,9 @@ class TestTextToSequenceEndpoint:
         """Test without text parameter."""
         request_data = {}
 
-        response = make_request_with_retry(f"{POSTGRES_URL}/mcp-tools/text-to-sequence", request_data
+        response = make_request_with_retry(
+            f"{POSTGRES_URL}/mcp-tools/text-to-sequence",
+            request_data
         )
 
         assert response.status_code == 400
@@ -202,7 +213,9 @@ class TestTextToSequenceEndpoint:
             "text": 123
         }
 
-        response = make_request_with_retry(f"{POSTGRES_URL}/mcp-tools/text-to-sequence", request_data
+        response = make_request_with_retry(
+            f"{POSTGRES_URL}/mcp-tools/text-to-sequence",
+            request_data
         )
 
         assert response.status_code == 400
@@ -217,7 +230,9 @@ class TestTextToSequenceEndpoint:
             "max_iterations": -1
         }
 
-        response = make_request_with_retry(f"{POSTGRES_URL}/mcp-tools/text-to-sequence", request_data
+        response = make_request_with_retry(
+            f"{POSTGRES_URL}/mcp-tools/text-to-sequence",
+            request_data
         )
 
         # Should still work but use default value
@@ -232,7 +247,9 @@ class TestTextToSequenceEndpoint:
             "max_iterations": 100  # Should be capped to 5
         }
 
-        response = make_request_with_retry(f"{POSTGRES_URL}/mcp-tools/text-to-sequence", request_data
+        response = make_request_with_retry(
+            f"{POSTGRES_URL}/mcp-tools/text-to-sequence",
+            request_data
         )
 
         assert response.status_code == 200
@@ -255,7 +272,9 @@ class TestTextToSequenceWithoutOllama:
             "text": "Run Python code and create a file"
         }
 
-        response = make_request_with_retry(f"{POSTGRES_URL}/mcp-tools/text-to-sequence", request_data
+        response = make_request_with_retry(
+            f"{POSTGRES_URL}/mcp-tools/text-to-sequence",
+            request_data
         )
 
         # Should return 503 (Service Unavailable) when Ollama is not running

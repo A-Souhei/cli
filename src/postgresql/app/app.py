@@ -9,6 +9,7 @@ from sentry_config import configure_sentry, capture_exception
 import sys
 import os
 import json
+import re
 import requests
 import yaml
 
@@ -383,8 +384,6 @@ def extract_parameters_from_text(text, tool_name):
     dict
         Extracted parameters as key-value pairs
     """
-    import re
-
     params = {}
     text_lower = text.lower()
 
@@ -499,7 +498,7 @@ def call_ollama(prompt, model="tinyllama", temperature=0.3, max_tokens=1000):
                     "num_predict": max_tokens
                 }
             },
-            timeout=120
+            timeout=OLLAMA_TIMEOUT
         )
 
         if response.status_code == 200:
@@ -881,8 +880,32 @@ def text_to_sequence():
                 'message': 'text parameter must be non-empty'
             }), 400
 
+        # Validate maximum length to prevent performance issues and timeouts
+        MAX_TEXT_LENGTH = 50000
+        if len(text) > MAX_TEXT_LENGTH:
+            return jsonify({
+                'status': 'error',
+                'message': f'text parameter exceeds maximum length of {MAX_TEXT_LENGTH} characters'
+            }), 400
+
         # Get optional parameters
         model = data.get('model', DEFAULT_OLLAMA_MODEL)
+
+        # Validate model parameter
+        # Expected model names: tinyllama, llama2, llama3.1:8b, mistral, codellama, etc.
+        # Model name should be a non-empty string without special characters except : and .
+        if not isinstance(model, str) or not model.strip():
+            return jsonify({
+                'status': 'error',
+                'message': 'model must be a non-empty string'
+            }), 400
+
+        if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9._:-]*$', model):
+            return jsonify({
+                'status': 'error',
+                'message': 'model name contains invalid characters. Use alphanumeric characters, dots, colons, hyphens, and underscores only.'
+            }), 400
+
         max_iterations = data.get('max_iterations', 3)
 
         # Validate max_iterations
@@ -915,7 +938,6 @@ If the text is already a single instruction, return it as a single-item array.""
         # Parse the LLM response to extract JSON array
         try:
             # Try to extract JSON array from response
-            import re
             json_match = re.search(r'\[.*\]', llm_response, re.DOTALL)
             if json_match:
                 initial_steps = json.loads(json_match.group(0))
@@ -928,6 +950,7 @@ If the text is already a single instruction, return it as a single-item array.""
 
         # Step 2: Iteratively check and subdivide steps that contain multiple instructions
         final_steps = []
+        iteration = 0
 
         for iteration in range(max_iterations):
             steps_to_process = initial_steps if iteration == 0 else final_steps
@@ -960,7 +983,6 @@ Do not include any explanation or additional text."""
 
                 # Parse the check response
                 try:
-                    import re
                     json_match = re.search(r'\{.*\}', check_response, re.DOTALL)
                     if json_match:
                         check_data = json.loads(json_match.group(0))

@@ -7,6 +7,8 @@ Run this script to see examples of all three distance/similarity metrics in acti
 import sys
 from pathlib import Path
 
+import numpy as np
+
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
@@ -15,7 +17,6 @@ from transformer.embedding_similarity import (
     compare_metrics,
     batch_similarity,
 )
-import numpy as np
 
 
 def test_basic_similarity():
