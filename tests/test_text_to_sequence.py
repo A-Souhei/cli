@@ -4,6 +4,16 @@ import pytest
 import requests
 import json
 import time
+import sys
+from pathlib import Path
+
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from src.config import ConfigManager
+
+# Load model from config
+config = ConfigManager()
+CONFIGURED_MODEL = config.get_ollama_model()
 
 
 # Check if services are available
@@ -19,7 +29,8 @@ def is_postgres_available():
 def is_ollama_available():
     """Check if Ollama service is available."""
     try:
-        response = requests.get("http://localhost:11434/api/tags", timeout=2)
+        ollama_url = config.get_ollama_url()
+        response = requests.get(f"{ollama_url}/api/tags", timeout=2)
         return response.status_code == 200
     except Exception:
         return False
@@ -132,7 +143,7 @@ class TestTextToSequenceEndpoint:
         """Test with custom model parameter."""
         request_data = {
             "text": "Do task A and task B",
-            "model": "tinyllama"
+            "model": CONFIGURED_MODEL
         }
 
         response = make_request_with_retry(f"{POSTGRES_URL}/mcp-tools/text-to-sequence", request_data
@@ -141,7 +152,7 @@ class TestTextToSequenceEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "success"
-        assert data["metadata"]["model_used"] == "tinyllama"
+        assert data["metadata"]["model_used"] == CONFIGURED_MODEL
 
     def test_text_to_sequence_with_max_iterations(self):
         """Test with custom max_iterations parameter."""

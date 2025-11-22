@@ -9,6 +9,11 @@ from pathlib import Path
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from src.config import ConfigManager
+
+# Load model from config
+config = ConfigManager()
+CONFIGURED_MODEL = config.get_ollama_model()
 
 
 async def communicate_with_mcp(server_path, requests, timeout=10.0):
@@ -806,7 +811,7 @@ summary(data)
                     "name": "spin_the_roulette",
                     "arguments": {
                         "text": "Do task A and task B",
-                        "model": "tinyllama"
+                        "model": CONFIGURED_MODEL
                     }
                 }
             }
@@ -829,7 +834,7 @@ summary(data)
         # Check that model is used
         if result_data.get("status") == "success":
             assert "metadata" in result_data
-            assert result_data["metadata"].get("model_used") == "tinyllama"
+            assert result_data["metadata"].get("model_used") == CONFIGURED_MODEL
 
     @pytest.mark.asyncio
     async def test_spin_the_roulette_missing_text(self, server_path):

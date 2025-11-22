@@ -38,10 +38,7 @@ db = SQLAlchemy(app)
 # Transformer service configuration
 TRANSFORMER_API_URL = os.getenv('TRANSFORMER_API_URL', 'http://localhost:16050')
 
-# Ollama service configuration
-OLLAMA_API_URL = os.getenv('OLLAMA_API_URL', 'http://localhost:11434')
-
-# Load config.yaml for default model
+# Load config.yaml for Ollama configuration
 def load_config():
     """Load configuration from config.yaml."""
     config_paths = ['/app/config.yaml', 'config.yaml', '../config.yaml']
@@ -60,6 +57,9 @@ def load_config():
 
 # Load configuration
 CONFIG = load_config()
+
+# Ollama service configuration - read from config.yaml, fallback to env var
+OLLAMA_API_URL = CONFIG.get('ollama', {}).get('url', os.getenv('OLLAMA_API_URL', 'http://localhost:11434'))
 DEFAULT_OLLAMA_MODEL = CONFIG.get('ollama', {}).get('model', 'tinyllama')
 OLLAMA_TIMEOUT = CONFIG.get('ollama', {}).get('timeout', 120)
 print(f"Using Ollama - URL: {OLLAMA_API_URL}, Model: {DEFAULT_OLLAMA_MODEL}, Timeout: {OLLAMA_TIMEOUT}")
