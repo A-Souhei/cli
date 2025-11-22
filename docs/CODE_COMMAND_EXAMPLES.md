@@ -5,11 +5,12 @@ This document provides example prompts for the `/code` command that are optimize
 ## Quick Start
 
 ```bash
-# 1. Start a session (required)
-/session start
-
-# 2. Use the /code command with any prompt below
+# Simply use the /code command with any prompt below
+# (A session will auto-start if needed)
 /code <your prompt here>
+
+# Optional: Start a session manually first
+/session start
 ```
 
 ---

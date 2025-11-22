@@ -978,11 +978,10 @@ def main(verbose=False):
                         console.print("[dim]Example: /code create a python script that reads a CSV and plots the data[/dim]\n")
                         continue
 
-                    # Check if session is active
+                    # Auto-start session if not active (required by roll_the_dice)
                     if not session_manager.is_active():
-                        console.print("\n⚠️  [yellow]The /code command requires an active session.[/yellow]")
-                        console.print("[dim]Start a session with: session start[/dim]\n")
-                        continue
+                        console.print("\n[cyan]ℹ️  Starting a new session for /code command...[/cyan]")
+                        session_manager.start_session()
 
                     session_id = session_manager.get_session_id()
 

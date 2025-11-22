@@ -30,20 +30,19 @@ The `/code` command chains together:
 
 ### Prerequisites
 
-⚠️ **Important**: The `/code` command requires an active session.
+The `/code` command requires a session (needed by `roll_the_dice` for context persistence).
 
-Start a session first:
+**Auto-Session**: If no session is active, `/code` will automatically start one for you.
+
+You can also manually start a session:
 ```
-session start
+/session start
 ```
 
 ### Example Usage
 
 ```bash
-# Start a session
-session start
-
-# Execute a complex coding task
+# Execute a complex coding task (session will auto-start if needed)
 /code create a python script that reads data from users.csv, filters active users, and generates a bar chart showing user distribution by country
 
 # The command will:
