@@ -475,6 +475,202 @@ def clear_temp():
         return handle_error(e)
 
 
+# ========================================================================
+# SESSION PERSISTENCE ENDPOINTS (NO TTL - PERMANENT STORAGE)
+# ========================================================================
+
+@app.route('/session/store', methods=['POST'])
+def store_session():
+    """
+    Store a session permanently in Redis (no TTL).
+
+    Request body:
+    {
+        "key": "cli:session:session-id",
+        "data": {
+            "session_id": "...",
+            "history": [...],
+            "start_time": "...",
+            "metadata": {...}
+        }
+    }
+    """
+    try:
+        data = request.get_json()
+        key = data.get('key')
+        session_data = data.get('data')
+
+        if not key or not session_data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing required fields: key, data'
+            }), 400
+
+        # Store session in Redis (no TTL - permanent)
+        redis_client.set(key, json.dumps(session_data))
+
+        # Add to sessions index for listing
+        sessions_index_key = "cli:sessions:index"
+        redis_client.sadd(sessions_index_key, key)
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Session stored successfully'
+        }), 200
+
+    except Exception as e:
+        return handle_error(e)
+
+
+@app.route('/session/retrieve', methods=['GET'])
+def retrieve_session():
+    """
+    Retrieve a session from Redis.
+
+    Query params:
+    - key: session key (e.g., cli:session:session-id)
+    """
+    try:
+        key = request.args.get('key')
+
+        if not key:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing required parameter: key'
+            }), 400
+
+        session_data = redis_client.get(key)
+
+        if not session_data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Session not found'
+            }), 404
+
+        return json.loads(session_data), 200
+
+    except Exception as e:
+        return handle_error(e)
+
+
+@app.route('/session/list', methods=['GET'])
+def list_sessions():
+    """
+    List all saved sessions.
+
+    Query params:
+    - prefix: optional key prefix to filter by (default: cli:session:)
+    """
+    try:
+        prefix = request.args.get('prefix', 'cli:session:')
+
+        # Get all session keys from index
+        sessions_index_key = "cli:sessions:index"
+        all_keys = redis_client.smembers(sessions_index_key)
+
+        # Filter by prefix
+        filtered_keys = [k for k in all_keys if k.startswith(prefix)]
+
+        sessions = []
+        for key in filtered_keys:
+            session_data = redis_client.get(key)
+            if session_data:
+                try:
+                    session = json.loads(session_data)
+                    # Extract summary info
+                    summary = {
+                        'session_id': session.get('session_id'),
+                        'num_interactions': len(session.get('history', [])),
+                        'start_time': session.get('start_time'),
+                        'saved_at': session.get('saved_at')
+                    }
+                    sessions.append(summary)
+                except:
+                    # Skip malformed sessions
+                    pass
+
+        return jsonify({
+            'status': 'success',
+            'sessions': sessions,
+            'count': len(sessions)
+        }), 200
+
+    except Exception as e:
+        return handle_error(e)
+
+
+@app.route('/session/delete', methods=['DELETE'])
+def delete_session():
+    """
+    Delete a specific session.
+
+    Query params:
+    - key: session key to delete
+    """
+    try:
+        key = request.args.get('key')
+
+        if not key:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing required parameter: key'
+            }), 400
+
+        # Delete from Redis
+        deleted = redis_client.delete(key)
+
+        # Remove from sessions index
+        sessions_index_key = "cli:sessions:index"
+        redis_client.srem(sessions_index_key, key)
+
+        if deleted:
+            return jsonify({
+                'status': 'success',
+                'message': 'Session deleted successfully'
+            }), 200
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'Session not found'
+            }), 404
+
+    except Exception as e:
+        return handle_error(e)
+
+
+@app.route('/session/clear', methods=['DELETE'])
+def clear_all_sessions():
+    """
+    Clear all saved sessions.
+
+    Query params:
+    - prefix: optional key prefix to filter by (default: cli:session:)
+    """
+    try:
+        prefix = request.args.get('prefix', 'cli:session:')
+
+        # Get all session keys from index
+        sessions_index_key = "cli:sessions:index"
+        all_keys = redis_client.smembers(sessions_index_key)
+
+        # Filter by prefix and delete
+        deleted_count = 0
+        for key in all_keys:
+            if key.startswith(prefix):
+                if redis_client.delete(key):
+                    deleted_count += 1
+                    redis_client.srem(sessions_index_key, key)
+
+        return jsonify({
+            'status': 'success',
+            'message': f'Cleared {deleted_count} sessions',
+            'deleted_count': deleted_count
+        }), 200
+
+    except Exception as e:
+        return handle_error(e)
+
+
 # Global error handler for uncaught exceptions
 @app.errorhandler(Exception)
 def handle_uncaught_exception(e):

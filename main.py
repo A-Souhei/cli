@@ -786,6 +786,9 @@ def print_banner():
     console.print("  [bold]'/session start'[/bold] - Start a context session")
     console.print("  [bold]'/session end'[/bold] - End the current session")
     console.print("  [bold]'/session info'[/bold] - View current session info")
+    console.print("  [bold]'/session restore <id>'[/bold] - Restore a saved session")
+    console.print("  [bold]'/session list'[/bold] - List all saved sessions")
+    console.print("  [bold]'/session clear'[/bold] - Clear all saved sessions")
     console.print("  [bold]'/code <prompt>'[/bold] - Analyze and execute code tasks (requires session)")
     console.print()
 
@@ -953,6 +956,11 @@ def main(verbose=False):
                 if user_input_normalized.lower() == 'session end':
                     summary = session_manager.end_session()
                     if summary:
+                        # Auto-save session when ending
+                        try:
+                            session_manager.save_to_redis()
+                        except Exception as e:
+                            debug_print(f"Failed to save session on end: {e}", icon="⚠️")
                         console.print()
                     continue
 
@@ -966,6 +974,52 @@ def main(verbose=False):
                         console.print()
                     else:
                         console.print("\n⚠️  [yellow]No active session[/yellow]\n")
+                    continue
+
+                if user_input_normalized.lower().startswith('session restore '):
+                    session_id = user_input_normalized[16:].strip()
+                    if not session_id:
+                        console.print("\n❌ [red]Usage: /session restore <session_id>[/red]\n")
+                    else:
+                        if session_manager.is_active():
+                            console.print("\n⚠️  [yellow]Please end current session before restoring.[/yellow]\n")
+                        else:
+                            success = session_manager.restore_from_redis(session_id)
+                            if success:
+                                console.print()
+                    continue
+
+                if user_input_normalized.lower() in ['session list', 'sessions list', 'sessions']:
+                    console.print("\n📋 [bold]Saved Sessions:[/bold]")
+                    sessions = session_manager.list_saved_sessions()
+                    if sessions:
+                        for sess in sessions:
+                            console.print(f"  • [cyan]{sess['session_id'][:16]}...[/cyan]")
+                            console.print(f"    Interactions: {sess.get('num_interactions', 0)}, "
+                                        f"Started: {sess.get('start_time', 'N/A')}")
+                    else:
+                        console.print("  [dim]No saved sessions found[/dim]")
+                    console.print()
+                    continue
+
+                if user_input_normalized.lower() in ['session clear', 'clear sessions']:
+                    console.print()
+                    try:
+                        # Interactive confirmation
+                        selector = InteractiveSelector(
+                            title="⚠️  Clear ALL saved sessions?",
+                            choices=["No", "Yes"],
+                            current="No"
+                        )
+                        choice = selector.show()
+
+                        if choice == "Yes":
+                            count = session_manager.clear_all_sessions()
+                            console.print()
+                        else:
+                            console.print("\n[dim]Cancelled[/dim]\n")
+                    except Exception as e:
+                        console.print(f"❌ [red]Error clearing sessions: {e}[/red]\n")
                     continue
 
                 # Handle /code command - simplified version
@@ -1264,6 +1318,11 @@ def main(verbose=False):
                                                 response=result,
                                                 metadata={'model': ollama_client.model, 'step': i, 'tool': tool_name}
                                             )
+                                            # Auto-save session
+                                            try:
+                                                session_manager.save_to_redis()
+                                            except Exception as e:
+                                                debug_print(f"Failed to auto-save session: {e}", icon="⚠️")
 
                                     else:
                                         # No tool matched - fall back to LLM
@@ -1303,6 +1362,11 @@ def main(verbose=False):
                                                 response=full_response,
                                                 metadata={'model': ollama_client.model, 'step': i}
                                             )
+                                            # Auto-save session
+                                            try:
+                                                session_manager.save_to_redis()
+                                            except Exception as e:
+                                                debug_print(f"Failed to auto-save session: {e}", icon="⚠️")
 
                                 else:
                                     console.print(f"  ✗ [red]Failed to match tools (HTTP {match_response.status_code})[/red]\n")
@@ -1630,6 +1694,12 @@ Ensure all imports are correct, syntax is valid, and the code runs without error
                         response=full_response,
                         metadata={'model': ollama_client.model, 'temperature': temperature}
                     )
+
+                    # Auto-save session to Redis after each interaction
+                    try:
+                        session_manager.save_to_redis()
+                    except Exception as e:
+                        debug_print(f"Failed to auto-save session: {e}", icon="⚠️")
 
                 console.print()  # Extra line for readability
 

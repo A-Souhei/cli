@@ -254,3 +254,82 @@ class ErrorResponse(BaseModel):
     error: str
     detail: Optional[str] = None
     status_code: int = 500
+
+
+# ============================================================================
+# SESSION MANAGEMENT MODELS
+# ============================================================================
+
+class SessionMessage(BaseModel):
+    """Message stored in session."""
+    role: str
+    content: str
+    timestamp: Optional[str] = None
+
+
+class SessionContextItem(BaseModel):
+    """Context item stored in session (RAG)."""
+    path: str
+    content: str
+    embedding_stored: bool = False
+    timestamp: Optional[str] = None
+
+
+class SessionData(BaseModel):
+    """Complete session data for persistence."""
+    session_id: str
+    messages: List[SessionMessage] = []
+    context_items: List[SessionContextItem] = []
+    model: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+    created_at: str
+    updated_at: str
+
+
+class SessionSaveRequest(BaseModel):
+    """Request to save a session."""
+    session_id: str
+    messages: Optional[List[SessionMessage]] = None
+    context_items: Optional[List[SessionContextItem]] = None
+    model: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class SessionSaveResponse(BaseModel):
+    """Response after saving session."""
+    success: bool
+    session_id: str
+    message: str
+    saved_at: str
+
+
+class SessionRestoreResponse(BaseModel):
+    """Response when restoring a session."""
+    success: bool
+    session_data: SessionData
+    message: str
+
+
+class SessionListItem(BaseModel):
+    """Summary of a session for listing."""
+    session_id: str
+    message_count: int
+    context_count: int
+    model: Optional[str] = None
+    created_at: str
+    updated_at: str
+    last_message_preview: Optional[str] = None
+
+
+class SessionListResponse(BaseModel):
+    """Response for listing sessions."""
+    success: bool
+    sessions: List[SessionListItem]
+    total: int
+
+
+class SessionDeleteResponse(BaseModel):
+    """Response after deleting session(s)."""
+    success: bool
+    message: str
+    deleted_count: int = 1
