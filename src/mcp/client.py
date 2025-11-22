@@ -321,7 +321,18 @@ class MCPClient:
             if "result" in response_data and "content" in response_data["result"]:
                 content = response_data["result"]["content"]
                 if content and len(content) > 0:
-                    result_text = content[0].get("text", "")
+                    # Handle both dict and object formats
+                    if isinstance(content[0], dict):
+                        result_text = content[0].get("text", "")
+                    else:
+                        # If it's an object with a text attribute
+                        result_text = getattr(content[0], "text", "")
+
+                    # Debug: log if result is empty
+                    if not result_text:
+                        self.debug_print(f"Warning: Tool returned empty result. Content: {content}", "⚠️")
+                        return ""
+
                     self.debug_print(f"Tool executed successfully", "✓")
                     return result_text
 
