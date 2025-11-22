@@ -1,0 +1,26 @@
+# FastAPI and server
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20  # For file uploads
+
+# Pydantic for data validation
+pydantic==2.10.6
+pydantic-settings==2.7.1
+
+# CORS middleware is included in starlette (FastAPI dependency)
+
+# Note: We mount src/ from parent directory which includes:
+# - PyYAML (config)
+# - httpx (ollama client)
+# - mcp (MCP client)
+# - redis (redis client)
+# - psycopg2-binary (postgresql)
+# - sentence-transformers (embeddings)
+
+# So we need to make sure those are also available
+PyYAML>=6.0.1
+httpx>=0.27.2
+mcp>=0.9.0
+redis>=5.2.1
+psycopg2-binary>=2.9.10
+sentence-transformers>=3.3.1
