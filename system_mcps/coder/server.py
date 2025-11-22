@@ -789,6 +789,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             )
 
             output = {
+                "status": "success" if result.returncode == 0 else "error",
                 "stdout": result.stdout,
                 "stderr": result.stderr,
                 "exit_code": result.returncode,
@@ -838,6 +839,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             )
 
             output = {
+                "status": "success" if result.returncode == 0 else "error",
                 "stdout": result.stdout,
                 "stderr": result.stderr,
                 "exit_code": result.returncode

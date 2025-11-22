@@ -779,6 +779,15 @@ def retrieve_tools_recursive():
             for tool in tools:
                 if tool.embedding:
                     similarity = cosine_similarity(prompt_embedding, tool.embedding)
+
+                    # Boost similarity if tool name is explicitly mentioned in the prompt
+                    # This helps when steps say "using run_python_code" or similar
+                    prompt_lower = prompt.lower()
+                    tool_name_lower = tool.tool_name.lower()
+                    if tool_name_lower in prompt_lower:
+                        # Apply significant boost for exact tool name mentions
+                        similarity = min(similarity + 0.3, 1.0)
+
                     if similarity >= threshold:
                         match = {
                             'mcp_name': tool.mcp_name,
@@ -801,7 +810,8 @@ def retrieve_tools_recursive():
                                 if 'file_path' not in extracted or not extracted.get('file_path'):
                                     # Tools that need file_path
                                     file_path_tools = ['write_python_code', 'edit_python_code', 'write_r_code',
-                                                      'edit_r_code', 'verify_file_modifications', 'add_file_context']
+                                                      'edit_r_code', 'run_python_code', 'run_r_code',
+                                                      'verify_file_modifications', 'add_file_context']
                                     if tool.tool_name in file_path_tools:
                                         # Find first file reference (ends with .py, .r, .R)
                                         for ref in context_references:

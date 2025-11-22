@@ -1105,6 +1105,10 @@ def main(verbose=False):
                                                         # Build parameters
                                                         extracted_params = best_match.get('extracted_params', {})
                                                         extracted_params['code'] = code
+                                                        # Remove file_path - run_python_code/run_r_code don't accept it
+                                                        if 'file_path' in extracted_params:
+                                                            extracted_params.pop('file_path')
+                                                            debug_print(f"Removed file_path from params for {tool_name}", icon="🔧")
                                                     except FileNotFoundError:
                                                         console.print(f"  ❌ [red]File not found: {file_path}[/red]\n")
                                                         continue
@@ -1150,6 +1154,10 @@ def main(verbose=False):
 
                                                     extracted_params = best_match.get('extracted_params', {})
                                                     extracted_params['code'] = code
+                                                    # Remove file_path for run_python_code/run_r_code
+                                                    if tool_name in ['run_python_code', 'run_r_code'] and 'file_path' in extracted_params:
+                                                        extracted_params.pop('file_path')
+                                                        debug_print(f"Removed file_path from params for {tool_name}", icon="🔧")
                                             else:
                                                 # For write/edit tools or run without file path, generate code with LLM
                                                 console.print(f"  🤖 [yellow]Generating code with LLM...[/yellow]")
@@ -1190,8 +1198,8 @@ def main(verbose=False):
                                                 extracted_params = best_match.get('extracted_params', {})
                                                 extracted_params['code'] = code
 
-                                            # Add file_path if extracted from @ prefix
-                                            if file_path:
+                                            # Add file_path if extracted from @ prefix (only for write/edit tools)
+                                            if file_path and tool_name in ['write_python_code', 'edit_python_code', 'write_r_code', 'edit_r_code']:
                                                 extracted_params['file_path'] = file_path
                                             elif 'file_path' not in extracted_params and tool_name in ['write_python_code', 'edit_python_code', 'write_r_code', 'edit_r_code']:
                                                 console.print(f"  ⚠️  [yellow]No file path specified, skipping {tool_name}[/yellow]\n")
@@ -1240,11 +1248,15 @@ def main(verbose=False):
                                                 if 'message' in result_data:
                                                     console.print(f"  💬 {result_data['message']}")
                                             else:
-                                                console.print(f"  ✗ [red]Failed:[/red] {result_data.get('message', 'Unknown error')}")
+                                                error_msg = result_data.get('message') or result_data.get('error') or 'Unknown error'
+                                                console.print(f"  ✗ [red]Failed:[/red] {error_msg}")
+                                                # Log full result for debugging
+                                                debug_print(f"Full error result: {json.dumps(result_data, indent=2)}", icon="🔍")
 
-                                        except json.JSONDecodeError:
-                                            # Plain text result
+                                        except json.JSONDecodeError as e:
+                                            # Plain text result (might be an error message)
                                             console.print(f"  📄 [dim]{result}[/dim]")
+                                            debug_print(f"JSON decode error: {e}. Raw result: {result}", icon="⚠️")
 
                                         console.print()
 
