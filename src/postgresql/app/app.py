@@ -919,6 +919,8 @@ def text_to_sequence():
         # Step 1: Split text into initial paragraphs/sections
         split_prompt = f"""You are a text analysis assistant. Your task is to split the following text into distinct instruction steps or action items. Each step should represent a single, clear instruction or task.
 
+IMPORTANT: Preserve ALL file paths that use @ prefix (e.g., @file.py, @path/to/file.py) EXACTLY as they appear. Do not rephrase or remove these references.
+
 Text to split:
 {text}
 
@@ -962,6 +964,8 @@ If the text is already a single instruction, return it as a single-item array.""
 
                 # Ask LLM if this step contains multiple instructions
                 check_prompt = f"""You are analyzing an instruction step. Determine if the following text contains multiple distinct instructions or tool usages that should be separated.
+
+IMPORTANT: Preserve ALL file paths that use @ prefix (e.g., @file.py, @path/to/file.py) EXACTLY as they appear. Do not rephrase or remove these references.
 
 Text to analyze:
 {step}
@@ -1109,6 +1113,8 @@ User Request:
 {text}
 
 Your task: Break down the user's request into clear, sequential steps where EACH step is designed to use ONE tool from the list above.
+
+IMPORTANT: Preserve ALL file paths that use @ prefix (e.g., @file.py, @path/to/file.py) EXACTLY as they appear in the user's request. Do not rephrase or remove these references.
 
 Each step should be a complete, actionable prompt that clearly describes what needs to be done.
 
