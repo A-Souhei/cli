@@ -1029,6 +1029,140 @@ Do not include any explanation or additional text."""
         return handle_error(e)
 
 
+@app.route('/mcp-tools/code-command-simple', methods=['POST'])
+def code_command_simple():
+    """
+    Simplified /code command endpoint.
+
+    Uses LLM with all MCP tools in context to split user prompt into clear steps,
+    where each step is designed to use ONE tool.
+
+    Request Body:
+    {
+        "text": "User's prompt with multiple instructions...",
+        "session_id": "session-123",  // required
+        "model": "tinyllama"  // optional, default from config
+    }
+
+    Response:
+    {
+        "status": "success",
+        "steps": [
+            "Clear prompt for step 1 (designed for one tool)",
+            "Clear prompt for step 2 (designed for one tool)",
+            ...
+        ],
+        "session_id": "session-123",
+        "metadata": {
+            "total_steps": 3,
+            "model_used": "tinyllama",
+            "tools_available": 15
+        }
+    }
+    """
+    try:
+        # Get JSON body
+        data = request.get_json()
+        if data is None:
+            return jsonify({
+                'status': 'error',
+                'message': 'Request body must be valid JSON'
+            }), 400
+
+        # Get required parameters
+        text = data.get('text')
+        if not text or not isinstance(text, str) or not text.strip():
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing or invalid required parameter: text'
+            }), 400
+
+        session_id = data.get('session_id')
+        if not session_id:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing required parameter: session_id'
+            }), 400
+
+        # Get optional parameters
+        model = data.get('model', DEFAULT_OLLAMA_MODEL)
+
+        # Step 1: Get all MCP tools from database
+        tools = MCPTool.query.all()
+
+        if not tools:
+            return jsonify({
+                'status': 'error',
+                'message': 'No MCP tools found in database. Please initialize tools first.'
+            }), 404
+
+        # Step 2: Format tools as RAG context for LLM
+        tools_context = "Available MCP Tools:\n\n"
+        for tool in tools:
+            tools_context += f"- {tool.tool_name} (MCP: {tool.mcp_name})\n"
+            tools_context += f"  Description: {tool.description}\n\n"
+
+        # Step 3: Create prompt for LLM to split the user's request
+        llm_prompt = f"""{tools_context}
+
+User Request:
+{text}
+
+Your task: Break down the user's request into clear, sequential steps where EACH step is designed to use ONE tool from the list above.
+
+Each step should be a complete, actionable prompt that clearly describes what needs to be done.
+
+Respond with ONLY a JSON array of step strings. Format exactly like this:
+["step 1 prompt here", "step 2 prompt here", "step 3 prompt here"]
+
+Do not include any explanation or additional text. Just the JSON array."""
+
+        # Step 4: Call LLM
+        print(f"[code-command-simple] Calling LLM to split prompt (length: {len(text)})")
+        llm_response = call_ollama(llm_prompt, model=model, temperature=0.3, max_tokens=2000)
+
+        if not llm_response:
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to get response from LLM. Make sure Ollama is running.'
+            }), 503
+
+        # Step 5: Parse LLM response to extract steps
+        try:
+            # Try to extract JSON array from response
+            json_match = re.search(r'\[.*\]', llm_response, re.DOTALL)
+            if json_match:
+                steps = json.loads(json_match.group(0))
+            else:
+                # If no JSON found, treat the response as a single step
+                steps = [text]  # Fallback to original text
+        except json.JSONDecodeError:
+            # If JSON parsing fails, split by newlines as fallback
+            steps = [s.strip() for s in llm_response.split('\n') if s.strip()]
+
+        # Clean up steps
+        cleaned_steps = [step.strip() for step in steps if step and step.strip()]
+
+        if not cleaned_steps:
+            cleaned_steps = [text]  # Fallback to original text
+
+        print(f"[code-command-simple] Successfully generated {len(cleaned_steps)} steps")
+
+        return jsonify({
+            'status': 'success',
+            'steps': cleaned_steps,
+            'session_id': session_id,
+            'metadata': {
+                'total_steps': len(cleaned_steps),
+                'model_used': model,
+                'tools_available': len(tools)
+            }
+        }), 200
+
+    except Exception as e:
+        return handle_error(e)
+
+
 @app.route('/mcp-tools/code-command', methods=['POST'])
 def code_command():
     """

@@ -969,16 +969,16 @@ def main(verbose=False):
                         console.print("\n⚠️  [yellow]No active session[/yellow]\n")
                     continue
 
-                # Handle /code command - combines spin_the_roulette, retrieve_all_tools, and roll_the_dice
+                # Handle /code command - simplified version
                 if user_input_normalized.lower().startswith('code '):
                     prompt_text = user_input_normalized[5:].strip()  # Extract text after "code "
 
                     if not prompt_text:
                         console.print("\n❌ [red]Usage: /code <prompt_sentences>[/red]")
-                        console.print("[dim]Example: /code create a python script that reads a CSV and plots the data[/dim]\n")
+                        console.print("[dim]Example: /code write Python code to calculate fibonacci(20) and save to testing/fib.py then run testing/fib.py[/dim]\n")
                         continue
 
-                    # Auto-start session if not active (required by roll_the_dice)
+                    # Auto-start session if not active
                     if not session_manager.is_active():
                         console.print("\n[cyan]ℹ️  Starting a new session for /code command...[/cyan]")
                         session_manager.start_session()
@@ -989,14 +989,13 @@ def main(verbose=False):
                     console.print(f"[dim]Prompt: {prompt_text[:100]}{'...' if len(prompt_text) > 100 else ''}[/dim]\n")
 
                     try:
-                        # Step 1: Call the code-command endpoint
-                        console.print("📝 [cyan]Step 1/2: Analyzing prompt and matching tools...[/cyan]")
+                        # Call the simplified code-command endpoint to get steps
+                        console.print("📝 [cyan]Analyzing prompt and creating execution steps...[/cyan]")
                         response = requests.post(
-                            f"{POSTGRES_API_URL}/mcp-tools/code-command",
+                            f"{POSTGRES_API_URL}/mcp-tools/code-command-simple",
                             json={
                                 "text": prompt_text,
-                                "session_id": session_id,
-                                "max_tools": 5  # Allow up to 5 tools to be executed
+                                "session_id": session_id
                             },
                             headers={"Content-Type": "application/json"},
                             timeout=180
@@ -1013,88 +1012,86 @@ def main(verbose=False):
                             console.print(f"\n❌ [red]Code command failed: {data.get('message')}[/red]\n")
                             continue
 
-                        # Display the analysis results
-                        sequence = data.get('sequence', [])
-                        tools_matched = data.get('tools_matched', [])
+                        # Get the execution steps
+                        steps = data.get('steps', [])
 
-                        console.print(f"✓ [green]Found {len(sequence)} instruction steps[/green]")
-                        console.print(f"✓ [green]Matched {len(tools_matched)} tools[/green]\n")
+                        if not steps:
+                            console.print("\n⚠️  [yellow]No execution steps generated[/yellow]\n")
+                            continue
 
-                        # Show the sequence
-                        if sequence:
-                            console.print("📋 [bold]Instruction Sequence:[/bold]")
-                            for i, step in enumerate(sequence, 1):
-                                console.print(f"  {i}. {step}")
+                        console.print(f"✓ [green]Generated {len(steps)} execution steps[/green]\n")
+
+                        # Show the steps
+                        console.print("📋 [bold]Execution Steps:[/bold]")
+                        for i, step in enumerate(steps, 1):
+                            console.print(f"  {i}. {step}")
+                        console.print()
+
+                        # Execute each step iteratively
+                        console.print("⚡ [cyan]Executing steps...[/cyan]\n")
+
+                        for i, step in enumerate(steps, 1):
+                            console.print(f"[bold]Step {i}/{len(steps)}:[/bold] {step}")
                             console.print()
 
-                        # Show matched tools
-                        if tools_matched:
-                            console.print("🔧 [bold]Matched Tools:[/bold]")
-                            for match in tools_matched:
-                                best = match.get('best_match', {})
-                                tool_name = best.get('tool_name', 'unknown')
-                                similarity = best.get('similarity', 0)
-                                console.print(f"  • {tool_name} [dim](similarity: {similarity:.2f})[/dim]")
-                            console.print()
-
-                        # Step 2: Execute tools using roll_the_dice
-                        console.print("⚡ [cyan]Step 2/2: Executing tools...[/cyan]\n")
-
-                        execution_params = data.get('execution_ready', {})
-                        if execution_params:
-                            result = run_async(mcp_client.call_tool(
-                                'coder',
-                                'roll_the_dice',
-                                {
-                                    'prompts': execution_params['prompts'],
-                                    'session_id': execution_params['session_id'],
-                                    'max_tools': execution_params['max_tools'],
-                                    'working_dir': os.getcwd()
-                                }
-                            ))
-
-                            # Parse and display execution result
                             try:
-                                result_data = json.loads(result)
+                                # Get AI response for this step
+                                # Add step as user message
+                                chat_manager.add_user_message(step)
+                                messages = chat_manager.get_messages()
 
-                                if result_data.get('status') == 'success':
-                                    executions = result_data.get('executions', [])
-                                    console.print(f"✓ [bold green]Execution Complete[/bold green]")
-                                    console.print(f"  • Tools executed: {result_data.get('tools_attempted', 0)}\n")
+                                # Get response from Ollama
+                                spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
 
-                                    # Show execution results
-                                    for i, execution in enumerate(executions, 1):
-                                        tool_name = execution.get('tool_name', 'unknown')
-                                        status = execution.get('status', 'unknown')
+                                with Live(spinner, console=console, refresh_per_second=10):
+                                    if stream:
+                                        full_response = ""
+                                        for chunk in ollama_client.chat(
+                                            messages=messages,
+                                            stream=True,
+                                            temperature=temperature
+                                        ):
+                                            full_response += chunk
+                                    else:
+                                        response = ollama_client.chat(
+                                            messages=messages,
+                                            stream=False,
+                                            temperature=temperature
+                                        )
+                                        full_response = response.get('message', {}).get('content', '')
 
-                                        if status == 'executed':
-                                            console.print(f"[green]▶ {i}. {tool_name}[/green]")
-
-                                            # Show result if available
-                                            result_json = execution.get('result_json')
-                                            if result_json:
-                                                if 'stdout' in result_json and result_json['stdout']:
-                                                    console.print(f"[dim]Output:[/dim]")
-                                                    console.print(result_json['stdout'])
-                                                if 'stderr' in result_json and result_json['stderr']:
-                                                    console.print(f"[yellow]Warnings:[/yellow]")
-                                                    console.print(result_json['stderr'])
-                                                if 'exit_code' in result_json:
-                                                    exit_code = result_json['exit_code']
-                                                    color = 'green' if exit_code == 0 else 'red'
-                                                    console.print(f"[{color}]Exit Code: {exit_code}[/{color}]")
-                                            console.print()
-                                        elif status == 'skipped':
-                                            console.print(f"[yellow]⏭  {i}. {tool_name} (skipped)[/yellow]")
-                                        else:
-                                            console.print(f"[red]✗ {i}. {tool_name} (failed)[/red]")
-
-                                else:
-                                    console.print(f"[red]Execution failed: {result_data.get('message')}[/red]\n")
-                            except json.JSONDecodeError:
-                                console.print(f"[dim]Raw result:[/dim]")
-                                console.print(result)
+                                # Display response
+                                console.print("[bold cyan]▶[/bold cyan]")
+                                console.print(CustomMarkdown(full_response, code_theme="monokai"))
                                 console.print()
+
+                                # Add assistant response to context
+                                chat_manager.add_assistant_message(full_response)
+
+                                # Add to session if active
+                                if session_manager.is_active():
+                                    session_manager.add_interaction(
+                                        prompt=step,
+                                        response=full_response,
+                                        metadata={'model': ollama_client.model, 'step': i}
+                                    )
+
+                                # Check for code and offer to execute
+                                try:
+                                    exec_result = run_async(handle_code_execution(mcp_client, full_response))
+                                    if exec_result:
+                                        display_execution_result(exec_result)
+                                except Exception as e:
+                                    debug_print(f"Error during code handling in step {i}: {e}", icon="❌")
+
+                            except Exception as e:
+                                console.print(f"[red]✗ Error in step {i}: {e}[/red]\n")
+                                if verbose:
+                                    import traceback
+                                    console.print(f"[dim]{traceback.format_exc()}[/dim]")
+                                # Continue with next step even if this one fails
+
+                        console.print(f"\n✓ [bold green]Completed all {len(steps)} steps[/bold green]\n")
 
                     except requests.exceptions.Timeout:
                         console.print("\n❌ [red]Request timeout - the command took too long to process[/red]\n")
