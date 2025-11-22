@@ -1029,6 +1029,241 @@ Do not include any explanation or additional text."""
         return handle_error(e)
 
 
+@app.route('/mcp-tools/code-command', methods=['POST'])
+def code_command():
+    """
+    Unified endpoint that chains the three major coder MCP tools:
+    1. spin_the_roulette (text-to-sequence + tool matching)
+    2. retrieve_all_tools (get best matching tools)
+    3. Returns data ready for roll_the_dice execution
+
+    This endpoint orchestrates the complete flow for the /code command.
+
+    Request Body:
+    {
+        "text": "Long prompt with multiple instructions...",
+        "session_id": "session-123",  // required for potential execution
+        "model": "tinyllama",  // optional, default: "tinyllama"
+        "max_iterations": 3,    // optional, default: 3
+        "max_tools": 3         // optional, default: 3, max tools to execute
+    }
+
+    Response:
+    {
+        "status": "success",
+        "message": "Successfully processed prompt and matched tools",
+        "sequence": ["step 1", "step 2", ...],
+        "tools_matched": [
+            {
+                "step": "instruction text",
+                "step_index": 0,
+                "best_match": {
+                    "mcp_name": "coder",
+                    "tool_name": "run_python_code",
+                    "description": "...",
+                    "similarity": 0.87
+                }
+            },
+            ...
+        ],
+        "execution_ready": {
+            "prompts": ["step 1", "step 2", ...],
+            "session_id": "session-123",
+            "max_tools": 3
+        },
+        "metadata": {
+            "text_analysis": {...},
+            "tool_retrieval": {...},
+            "total_steps": 5,
+            "total_tools_matched": 3
+        }
+    }
+    """
+    try:
+        # Get JSON body
+        data = request.get_json()
+        if data is None:
+            return jsonify({
+                'status': 'error',
+                'message': 'Request body must be valid JSON'
+            }), 400
+
+        # Get required text parameter
+        if 'text' not in data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing required parameter: text'
+            }), 400
+
+        text = data.get('text')
+        if not isinstance(text, str) or not text.strip():
+            return jsonify({
+                'status': 'error',
+                'message': 'text must be a non-empty string'
+            }), 400
+
+        # Get required session_id parameter
+        session_id = data.get('session_id')
+        if not session_id:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing required parameter: session_id (required for roll_the_dice execution)'
+            }), 400
+
+        # Get optional parameters
+        model = data.get('model', DEFAULT_OLLAMA_MODEL)
+        max_iterations = data.get('max_iterations', 3)
+        max_tools = data.get('max_tools', 3)
+
+        # Validate max_iterations
+        if not isinstance(max_iterations, int) or max_iterations < 1:
+            max_iterations = 3
+        if max_iterations > 5:
+            max_iterations = 5
+
+        # Validate max_tools
+        if not isinstance(max_tools, int) or max_tools < 1:
+            max_tools = 3
+        if max_tools > 10:
+            max_tools = 10
+
+        # STEP 1: Call text-to-sequence endpoint (spin_the_roulette functionality)
+        print(f"[code-command] Step 1: Converting text to sequence (length: {len(text)})")
+        sequence_response = requests.post(
+            f"{request.host_url.rstrip('/')}/mcp-tools/text-to-sequence",
+            json={
+                "text": text,
+                "model": model,
+                "max_iterations": max_iterations
+            },
+            headers={"Content-Type": "application/json"},
+            timeout=180
+        )
+
+        if sequence_response.status_code != 200:
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to convert text to sequence',
+                'step': 'text-to-sequence',
+                'status_code': sequence_response.status_code,
+                'response': sequence_response.text
+            }), 500
+
+        sequence_data = sequence_response.json()
+        if sequence_data.get('status') != 'success':
+            return jsonify({
+                'status': 'error',
+                'message': 'text-to-sequence endpoint returned error',
+                'details': sequence_data
+            }), 500
+
+        sequence = sequence_data.get('sequence', [])
+        print(f"[code-command] Step 1 complete: Got {len(sequence)} steps")
+
+        if not sequence:
+            return jsonify({
+                'status': 'success',
+                'message': 'No instruction steps found in text',
+                'sequence': [],
+                'tools_matched': [],
+                'execution_ready': None,
+                'metadata': {
+                    'text_analysis': sequence_data.get('metadata', {}),
+                    'total_steps': 0,
+                    'total_tools_matched': 0
+                }
+            }), 200
+
+        # STEP 2: Call retrieve endpoint to match tools (retrieve_all_tools functionality)
+        print(f"[code-command] Step 2: Retrieving tools for {len(sequence)} prompts")
+        retrieve_response = requests.post(
+            f"{request.host_url.rstrip('/')}/mcp-tools/retrieve",
+            json={"prompts": sequence},
+            headers={"Content-Type": "application/json"},
+            timeout=60
+        )
+
+        if retrieve_response.status_code != 200:
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to retrieve tools',
+                'step': 'retrieve_all_tools',
+                'status_code': retrieve_response.status_code,
+                'sequence': sequence,
+                'response': retrieve_response.text
+            }), 500
+
+        tools_data = retrieve_response.json()
+        if tools_data.get('status') != 'success':
+            return jsonify({
+                'status': 'error',
+                'message': 'retrieve endpoint returned error',
+                'details': tools_data
+            }), 500
+
+        print(f"[code-command] Step 2 complete: Retrieved tool matches")
+
+        # STEP 3: Format the matched tools with their corresponding steps
+        tools_matched = []
+        results = tools_data.get('results', [])
+
+        for result in results:
+            step_text = result.get('prompt', '')
+            step_index = result.get('prompt_index', 0)
+            best_match = result.get('best_match')
+
+            if best_match:
+                tools_matched.append({
+                    'step': step_text,
+                    'step_index': step_index,
+                    'best_match': best_match
+                })
+
+        print(f"[code-command] Step 3 complete: Formatted {len(tools_matched)} tool matches")
+
+        # Prepare execution parameters for roll_the_dice
+        execution_ready = {
+            'prompts': sequence,
+            'session_id': session_id,
+            'max_tools': max_tools
+        }
+
+        # Build response
+        response_data = {
+            'status': 'success',
+            'message': f'Successfully processed text into {len(sequence)} steps and matched with {len(tools_matched)} tools',
+            'sequence': sequence,
+            'tools_matched': tools_matched,
+            'execution_ready': execution_ready,
+            'metadata': {
+                'text_analysis': sequence_data.get('metadata', {}),
+                'tool_retrieval': tools_data.get('metadata', {}),
+                'total_steps': len(sequence),
+                'total_tools_matched': len(tools_matched),
+                'model_used': model,
+                'max_tools': max_tools
+            }
+        }
+
+        print(f"[code-command] Complete: {len(sequence)} steps, {len(tools_matched)} tools matched")
+        return jsonify(response_data), 200
+
+    except requests.exceptions.Timeout as e:
+        return jsonify({
+            'status': 'error',
+            'message': 'Request timeout while processing',
+            'error': str(e)
+        }), 504
+    except requests.exceptions.RequestException as e:
+        return jsonify({
+            'status': 'error',
+            'message': 'Network error while processing',
+            'error': str(e)
+        }), 500
+    except Exception as e:
+        return handle_error(e)
+
+
 # Global error handler for uncaught exceptions
 @app.errorhandler(Exception)
 def handle_uncaught_exception(e):
