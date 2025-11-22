@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 from src.config import ConfigManager
 from src.ollama_client import OllamaClient
+from src.anthropic_client import AnthropicClient
 from src.chat import ChatManager
 from src.selector import InteractiveSelector
 from src.mcp import MCPClient
@@ -799,12 +800,29 @@ def main(verbose=False):
         # Load configuration
         config = ConfigManager()
 
-        # Initialize Ollama client
-        ollama_client = OllamaClient(
-            host=config.get_ollama_url(),
-            model=config.get_ollama_model(),
-            timeout=config.get_ollama_timeout()
-        )
+        # Get provider setting
+        provider = config.get_provider()
+
+        # Initialize the appropriate client based on provider
+        if provider == "anthropic":
+            api_key = config.get_anthropic_api_key()
+            if not api_key:
+                console = Console()
+                console.print("❌ [red]Error: Anthropic API key not found in secrets.yml[/red]")
+                console.print("[yellow]Please add your API key to secrets.yml (see secrets.yaml.example)[/yellow]")
+                sys.exit(1)
+
+            client = AnthropicClient(
+                api_key=api_key,
+                model=config.get_anthropic_model(),
+                timeout=config.get_anthropic_timeout()
+            )
+        else:  # default to ollama
+            client = OllamaClient(
+                host=config.get_ollama_url(),
+                model=config.get_ollama_model(),
+                timeout=config.get_ollama_timeout()
+            )
 
         # Initialize chat manager
         chat_manager = ChatManager(
@@ -841,8 +859,11 @@ def main(verbose=False):
         console.clear()
 
         print_banner()
-        console.print(f"  📦 Model: [bold]{ollama_client.model}[/bold]")
-        console.print(f"  🔗 Server: [dim]{config.get_ollama_url()}[/dim]")
+        console.print(f"  📦 Model: [bold]{client.model}[/bold]")
+        if provider == "anthropic":
+            console.print(f"  🤖 Provider: [dim]Anthropic Claude[/dim]")
+        else:
+            console.print(f"  🔗 Server: [dim]{config.get_ollama_url()}[/dim]")
         console.print()
 
         # Initialize command history
@@ -887,9 +908,9 @@ def main(verbose=False):
                 if user_input_normalized.lower() == 'models':
                     console.print("\n📋 [bold]Available models:[/bold]")
                     try:
-                        models = ollama_client.list_models()
+                        models = client.list_models()
                         for model in models:
-                            if model == ollama_client.model:
+                            if model == client.model:
                                 console.print(f"  • {model} [cyan](current)[/cyan]")
                             else:
                                 console.print(f"  • {model}")
@@ -901,7 +922,7 @@ def main(verbose=False):
                 if user_input_normalized.lower() == 'switch':
                     console.print()
                     try:
-                        models = ollama_client.list_models()
+                        models = client.list_models()
                         if not models:
                             console.print("❌ [red]No models available[/red]\n")
                             continue
@@ -910,13 +931,13 @@ def main(verbose=False):
                         selector = InteractiveSelector(
                             title="🔄 Select Model",
                             choices=models,
-                            current=ollama_client.model
+                            current=client.model
                         )
                         selected = selector.show()
 
-                        if selected and selected != ollama_client.model:
+                        if selected and selected != client.model:
                             # Update the model
-                            ollama_client.model = selected
+                            client.model = selected
                             console.print(f"\n✓ [green]Switched to model:[/green] [bold]{selected}[/bold]\n")
                         elif selected:
                             console.print(f"\n[dim]Already using {selected}[/dim]\n")
@@ -1124,14 +1145,14 @@ def main(verbose=False):
                                                     with Live(spinner, console=console, refresh_per_second=10):
                                                         if stream:
                                                             full_response = ""
-                                                            for chunk in ollama_client.chat(
+                                                            for chunk in client.chat(
                                                                 messages=messages,
                                                                 stream=True,
                                                                 temperature=temperature
                                                             ):
                                                                 full_response += chunk
                                                         else:
-                                                            response = ollama_client.chat(
+                                                            response = client.chat(
                                                                 messages=messages,
                                                                 stream=False,
                                                                 temperature=temperature
@@ -1167,14 +1188,14 @@ def main(verbose=False):
                                                 with Live(spinner, console=console, refresh_per_second=10):
                                                     if stream:
                                                         full_response = ""
-                                                        for chunk in ollama_client.chat(
+                                                        for chunk in client.chat(
                                                             messages=messages,
                                                             stream=True,
                                                             temperature=temperature
                                                         ):
                                                             full_response += chunk
                                                     else:
-                                                        response = ollama_client.chat(
+                                                        response = client.chat(
                                                             messages=messages,
                                                             stream=False,
                                                             temperature=temperature
@@ -1262,7 +1283,7 @@ def main(verbose=False):
                                             session_manager.add_interaction(
                                                 prompt=step,
                                                 response=result,
-                                                metadata={'model': ollama_client.model, 'step': i, 'tool': tool_name}
+                                                metadata={'model': client.model, 'step': i, 'tool': tool_name}
                                             )
 
                                     else:
@@ -1277,14 +1298,14 @@ def main(verbose=False):
                                         with Live(spinner, console=console, refresh_per_second=10):
                                             if stream:
                                                 full_response = ""
-                                                for chunk in ollama_client.chat(
+                                                for chunk in client.chat(
                                                     messages=messages,
                                                     stream=True,
                                                     temperature=temperature
                                                 ):
                                                     full_response += chunk
                                             else:
-                                                response = ollama_client.chat(
+                                                response = client.chat(
                                                     messages=messages,
                                                     stream=False,
                                                     temperature=temperature
@@ -1301,7 +1322,7 @@ def main(verbose=False):
                                             session_manager.add_interaction(
                                                 prompt=step,
                                                 response=full_response,
-                                                metadata={'model': ollama_client.model, 'step': i}
+                                                metadata={'model': client.model, 'step': i}
                                             )
 
                                 else:
@@ -1589,7 +1610,7 @@ Ensure all imports are correct, syntax is valid, and the code runs without error
                     spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
 
                     with Live(spinner, console=console, refresh_per_second=10):
-                        for chunk in ollama_client.chat(
+                        for chunk in client.chat(
                             messages=messages,
                             stream=True,
                             temperature=temperature
@@ -1604,7 +1625,7 @@ Ensure all imports are correct, syntax is valid, and the code runs without error
                     spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
 
                     with Live(spinner, console=console, refresh_per_second=10):
-                        response = ollama_client.chat(
+                        response = client.chat(
                             messages=messages,
                             stream=False,
                             temperature=temperature
@@ -1623,7 +1644,7 @@ Ensure all imports are correct, syntax is valid, and the code runs without error
                     session_manager.add_interaction(
                         prompt=user_input,
                         response=full_response,
-                        metadata={'model': ollama_client.model, 'temperature': temperature}
+                        metadata={'model': client.model, 'temperature': temperature}
                     )
 
                 console.print()  # Extra line for readability

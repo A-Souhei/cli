@@ -1,10 +1,16 @@
 # Example configuration for AI CLI
 # This shows different configuration options you can use
 
-# Example 1: Default Docker Compose setup
+# Example 1: Default Docker Compose setup with Ollama
+provider: "ollama"
+
 ollama:
   url: "http://localhost:11434"
   model: "tinyllama"
+  timeout: 120
+
+anthropic:
+  model: "claude-3-5-sonnet-20241022"
   timeout: 120
 
 chat:
@@ -15,7 +21,29 @@ chat:
 
 ---
 
-# Example 2: Remote Ollama server
+# Example 2: Using Anthropic Claude
+# provider: "anthropic"
+#
+# ollama:
+#   url: "http://localhost:11434"
+#   model: "tinyllama"
+#   timeout: 120
+#
+# anthropic:
+#   model: "claude-3-5-sonnet-20241022"
+#   timeout: 120
+#
+# chat:
+#   system_prompt: "You are a helpful AI assistant."
+#   max_context_length: 10
+#   temperature: 0.7
+#   stream: true
+
+---
+
+# Example 3: Remote Ollama server
+# provider: "ollama"
+#
 # ollama:
 #   url: "http://192.168.1.100:11434"  # Remote server IP
 #   model: "mistral"
@@ -23,12 +51,14 @@ chat:
 
 ---
 
-# Example 3: Code-focused assistant
+# Example 4: Code-focused assistant
+# provider: "ollama"
+#
 # ollama:
 #   url: "http://localhost:11434"
 #   model: "codellama"
 #   timeout: 120
-# 
+#
 # chat:
 #   system_prompt: "You are an expert programming assistant. Provide clear, concise code examples and explanations."
 #   max_context_length: 15
@@ -37,12 +67,14 @@ chat:
 
 ---
 
-# Example 4: Creative writing assistant
+# Example 5: Creative writing assistant
+# provider: "ollama"
+#
 # ollama:
 #   url: "http://localhost:11434"
 #   model: "llama2"
 #   timeout: 120
-# 
+#
 # chat:
 #   system_prompt: "You are a creative writing assistant. Help with storytelling, character development, and plot ideas."
 #   max_context_length: 20
@@ -51,15 +83,32 @@ chat:
 
 ---
 
-# Available Ollama models (examples):
+# Available Models:
+#
+# Ollama models (examples):
 # - tinyllama: Lightweight model (~1GB, CPU-friendly) - Default in Docker setup
 # - llama2: General-purpose model
+# - llama3.1: Latest Llama version
 # - mistral: Fast and efficient model
 # - codellama: Specialized for code
 # - phi: Smaller, faster model
 # - neural-chat: Conversational model
 # - starling-lm: Instruction-following model
-# 
-# Docker Compose: docker compose exec ollama ollama pull <model-name>
-# Local installation: ollama pull <model-name>
-# CLI command: use 'models' to list available models
+#
+# Ollama setup:
+# - Docker Compose: docker compose exec ollama ollama pull <model-name>
+# - Local installation: ollama pull <model-name>
+# - CLI command: use 'switch' to select from available models
+#
+# Anthropic Claude models:
+# - claude-sonnet-4-5-20250929: Latest Claude Sonnet 4.5 (most powerful)
+# - claude-3-5-sonnet-20241022: Claude 3.5 Sonnet (October 2024)
+# - claude-3-5-sonnet-20240620: Claude 3.5 Sonnet (June 2024)
+# - claude-3-opus-20240229: Claude 3 Opus (most capable)
+# - claude-3-sonnet-20240229: Claude 3 Sonnet (balanced)
+# - claude-3-haiku-20240307: Claude 3 Haiku (fastest)
+#
+# Anthropic setup:
+# - Add your API key to secrets.yml (see secrets.yaml.example)
+# - Set provider: "anthropic" in this config file
+# - CLI command: use 'switch' to select from available models

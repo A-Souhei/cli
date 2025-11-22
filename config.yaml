@@ -1,4 +1,7 @@
-# Ollama AI CLI Configuration
+# AI CLI Configuration
+
+# Provider selection: "ollama" or "anthropic"
+provider: "ollama"
 
 # Ollama service configuration
 ollama:
@@ -10,6 +13,16 @@ ollama:
   
   # Optional: Request timeout in seconds
   timeout: 120
+
+# Anthropic service configuration
+anthropic:
+  # Model to use (e.g., claude-3-5-sonnet-20241022, claude-3-opus-20240229, etc.)
+  model: "claude-3-5-sonnet-20241022"
+
+  # Optional: Request timeout in seconds
+  timeout: 120
+
+  # Note: API key is stored in secrets.yml
 
 # Chat configuration
 chat:
