@@ -331,7 +331,7 @@ class MCPClient:
                     # Debug: log if result is empty
                     if not result_text:
                         self.debug_print(f"Warning: Tool returned empty result. Content: {content}", "⚠️")
-                        return None
+                        return ""
 
                     self.debug_print(f"Tool executed successfully", "✓")
                     return result_text
