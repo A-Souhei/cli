@@ -1,0 +1,24 @@
+# Test dependencies for Ollama++ API
+# Install with: pip install -r tests/requirements-test.txt
+
+# Core testing framework
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+
+# HTTP client for API testing
+httpx>=0.25.0
+
+# Optional but recommended
+pytest-cov>=4.1.0        # Coverage reporting
+pytest-timeout>=2.1.0    # Timeout handling
+pytest-xdist>=3.3.0      # Parallel test execution
+pytest-mock>=3.11.0      # Mocking support
+
+# Code quality
+black>=23.7.0            # Code formatting
+flake8>=6.1.0            # Linting
+mypy>=1.5.0              # Type checking
+
+# For better test output
+pytest-json-report>=1.5.0
+pytest-html>=3.2.0
