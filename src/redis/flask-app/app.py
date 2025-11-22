@@ -285,7 +285,8 @@ def search_context():
             paths = redis_client.smembers(f"session:{session_id}:contexts")
             keys = [f"session:{session_id}:context:{path}" for path in paths]
         else:
-            paths = redis_client.smembers("temp:contexts")
+            # temp:contexts is a sorted set, not a regular set
+            paths = redis_client.zrange("temp:contexts", 0, -1)
             keys = [f"temp:context:{path}" for path in paths]
 
         matches = []
@@ -336,7 +337,8 @@ def list_contexts():
             paths = redis_client.smembers(f"session:{session_id}:contexts")
             keys = [f"session:{session_id}:context:{path}" for path in paths]
         else:
-            paths = redis_client.smembers("temp:contexts")
+            # temp:contexts is a sorted set, not a regular set
+            paths = redis_client.zrange("temp:contexts", 0, -1)
             keys = [f"temp:context:{path}" for path in paths]
 
         contexts = []
@@ -386,7 +388,8 @@ def delete_context():
             redis_client.srem(f"session:{session_id}:contexts", path)
         else:
             key = f"temp:context:{path}"
-            redis_client.srem("temp:contexts", path)
+            # temp:contexts is a sorted set, use zrem instead of srem
+            redis_client.zrem("temp:contexts", path)
 
         deleted = redis_client.delete(key)
 
@@ -449,8 +452,8 @@ def clear_session():
 def clear_temp():
     """Clear all temporary contexts."""
     try:
-        # Get all temp context paths
-        paths = redis_client.smembers("temp:contexts")
+        # Get all temp context paths (temp:contexts is a sorted set)
+        paths = redis_client.zrange("temp:contexts", 0, -1)
 
         # Delete all temp contexts
         deleted_count = 0
@@ -459,7 +462,7 @@ def clear_temp():
             if redis_client.delete(key):
                 deleted_count += 1
 
-        # Delete the temp contexts set
+        # Delete the temp contexts sorted set
         redis_client.delete("temp:contexts")
 
         return jsonify({

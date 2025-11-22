@@ -1355,14 +1355,20 @@ def main(verbose=False):
                         result = run_async(mcp_client.call_tool('coder', 'add_file_context', args))
 
                         # Parse result to extract file content
-                        try:
-                            result_data = json.loads(result)
-                            if result_data.get('status') == 'success' and result_data.get('content'):
-                                # Add file content to injected context
-                                file_content = result_data['content']
-                                injected_context_parts.append(f"File: {file_path}\n```\n{file_content}\n```")
-                        except json.JSONDecodeError as e:
-                            debug_print(f"Failed to parse file context result for {file_path}: {e}", icon="⚠️", style="yellow")
+                        if not result:
+                            debug_print(f"No result returned from add_file_context for {file_path}", icon="⚠️", style="yellow")
+                        elif not result.strip():
+                            debug_print(f"Empty result returned from add_file_context for {file_path}", icon="⚠️", style="yellow")
+                        else:
+                            try:
+                                result_data = json.loads(result)
+                                if result_data.get('status') == 'success' and result_data.get('content'):
+                                    # Add file content to injected context
+                                    file_content = result_data['content']
+                                    injected_context_parts.append(f"File: {file_path}\n```\n{file_content}\n```")
+                            except json.JSONDecodeError as e:
+                                debug_print(f"Failed to parse file context result for {file_path}: {e}", icon="⚠️", style="yellow")
+                                debug_print(f"Result was: {result[:200]}...", icon="🔍", style="dim")
 
                         debug_print(f"Added file context: {file_path}", icon="📄", style="cyan")
                         context_added = True
