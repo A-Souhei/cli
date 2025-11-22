@@ -1140,8 +1140,18 @@ Do not include any explanation or additional text. Just the JSON array."""
             # If JSON parsing fails, split by newlines as fallback
             steps = [s.strip() for s in llm_response.split('\n') if s.strip()]
 
-        # Clean up steps
-        cleaned_steps = [step.strip() for step in steps if step and step.strip()]
+        # Clean up steps - handle both string and dict formats
+        cleaned_steps = []
+        for step in steps:
+            if isinstance(step, dict):
+                # LLM returned dict format like {"prompt": "...", "tool": "..."}
+                # Extract just the prompt text
+                prompt_text = step.get('prompt', '')
+                if prompt_text and prompt_text.strip():
+                    cleaned_steps.append(prompt_text.strip())
+            elif isinstance(step, str) and step.strip():
+                # LLM returned plain string (expected format)
+                cleaned_steps.append(step.strip())
 
         if not cleaned_steps:
             cleaned_steps = [text]  # Fallback to original text
