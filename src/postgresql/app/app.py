@@ -740,6 +740,11 @@ def retrieve_tools_recursive():
                 'message': 'mcp_filter must be a list of MCP names'
             }), 400
 
+        # Get context_references (@ file/folder paths from original prompt)
+        context_references = data.get('context_references', [])
+        if not isinstance(context_references, list):
+            context_references = []
+
         # Get batch embeddings for all prompts
         prompt_embeddings = get_batch_embeddings(prompts)
         if not prompt_embeddings:
@@ -784,10 +789,36 @@ def retrieve_tools_recursive():
 
                         # Extract parameters if requested
                         if extract_params:
-                            match['extracted_params'] = extract_parameters_from_text(
+                            extracted = extract_parameters_from_text(
                                 prompt,
                                 tool.tool_name
                             )
+
+                            # Inject context_references if tool needs file_path or dir_path
+                            # and they're not already in the step text
+                            if context_references:
+                                # Check if tool needs file_path and doesn't have it
+                                if 'file_path' not in extracted or not extracted.get('file_path'):
+                                    # Tools that need file_path
+                                    file_path_tools = ['write_python_code', 'edit_python_code', 'write_r_code',
+                                                      'edit_r_code', 'verify_file_modifications', 'add_file_context']
+                                    if tool.tool_name in file_path_tools:
+                                        # Find first file reference (ends with .py, .r, .R)
+                                        for ref in context_references:
+                                            if ref.endswith(('.py', '.r', '.R')):
+                                                extracted['file_path'] = ref
+                                                break
+
+                                # Check if tool needs dir_path and doesn't have it
+                                if 'dir_path' not in extracted or not extracted.get('dir_path'):
+                                    if tool.tool_name == 'add_directory_context':
+                                        # Find first directory reference (doesn't end with file extension)
+                                        for ref in context_references:
+                                            if not ref.endswith(('.py', '.r', '.R')):
+                                                extracted['dir_path'] = ref
+                                                break
+
+                            match['extracted_params'] = extracted
 
                         matches.append(match)
 

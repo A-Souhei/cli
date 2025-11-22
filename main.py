@@ -978,12 +978,23 @@ def main(verbose=False):
                         console.print("[dim]Example: /code write Python code to calculate fibonacci(20) and save to testing/fib.py then run testing/fib.py[/dim]\n")
                         continue
 
+                    # Extract ALL @ references from the original prompt for context
+                    import re
+                    at_references = re.findall(r'@([\w\-./]+)', prompt_text)
+                    debug_print(f"Extracted @ references from prompt: {at_references}", icon="📎")
+
                     # Auto-start session if not active
                     if not session_manager.is_active():
                         console.print("\n[cyan]ℹ️  Starting a new session for /code command...[/cyan]")
                         session_manager.start_session()
 
                     session_id = session_manager.get_session_id()
+
+                    # Store @ references in session metadata for access by all tools
+                    if at_references:
+                        session_manager.session_metadata['at_references'] = at_references
+                        session_manager.session_metadata['working_dir'] = os.getcwd()
+                        debug_print(f"Stored @ references in session context: {at_references}", icon="📎")
 
                     console.print(f"\n🎯 [bold cyan]Processing code command...[/bold cyan]")
                     console.print(f"[dim]Prompt: {prompt_text[:100]}{'...' if len(prompt_text) > 100 else ''}[/dim]\n")
@@ -1040,7 +1051,11 @@ def main(verbose=False):
 
                                 match_response = requests.post(
                                     f"{POSTGRES_API_URL}/mcp-tools/retrieve",
-                                    json={"prompts": [step], "threshold": 0.3},
+                                    json={
+                                        "prompts": [step],
+                                        "threshold": 0.3,
+                                        "context_references": at_references  # Pass @ references for parameter injection
+                                    },
                                     headers={"Content-Type": "application/json"},
                                     timeout=30
                                 )
