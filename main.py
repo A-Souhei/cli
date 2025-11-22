@@ -751,24 +751,43 @@ async def get_mcp_tools(mcp_name):
         console.print(f"❌ [red]Error getting tools from MCP '{mcp_name}': {e}[/red]\n")
 
 
+def load_banner():
+    """Load banner from file."""
+    banner_file = Path(__file__).parent / "assets" / "banner.txt"
+    try:
+        if banner_file.exists():
+            return banner_file.read_text()
+        else:
+            # Fallback banner if file doesn't exist
+            return """
+           ╦  ╦╦ ╦╦ ╦╦╔╦╗╦═╗╔═╗  ╔═╗╦  ╦
+           ╚╗╔╝║ ║╠═╣║ ║ ╠╦╝╠═╣  ║  ║  ║
+            ╚╝ ╚═╝╩ ╩╩ ╩ ╩╚═╩ ╩  ╚═╝╩═╝╩
+
+           Powered by Ollama
+"""
+    except Exception:
+        return "VUHITRA CLI - Powered by Ollama"
+
+
 def print_banner():
     """Print CLI banner."""
-    banner_text = Text()
-    banner_text.append("🤖 AI CLI", style="bold cyan")
-    banner_text.append(" - Powered by Ollama", style="dim")
+    # Load and display the ASCII art banner
+    banner_text = load_banner()
+    console.print(banner_text, style="bold cyan")
 
-    console.print()
-    console.print(Panel(banner_text, border_style="cyan"))
-    console.print("  Type [bold]'/exit'[/bold] or [bold]'/quit'[/bold] to exit")
-    console.print("  Type [bold]'/clear'[/bold] to clear chat history")
-    console.print("  Type [bold]'/models'[/bold] to list available models")
-    console.print("  Type [bold]'/switch'[/bold] to change model")
-    console.print("  Type [bold]'/mcps'[/bold] to list system MCPs")
-    console.print("  Type [bold]'/mcp-tools <name>'[/bold] to list tools in an MCP")
-    console.print("  Type [bold]'/session start'[/bold] to start a context session")
-    console.print("  Type [bold]'/session end'[/bold] to end the current session")
-    console.print("  Type [bold]'/session info'[/bold] to view current session info")
-    console.print("  Type [bold]'/code <prompt>'[/bold] to analyze and execute code tasks (requires session)")
+    # Print command help
+    console.print("\n[bold cyan]Commands:[/bold cyan]")
+    console.print("  [bold]'/exit'[/bold] or [bold]'/quit'[/bold] - Exit the CLI")
+    console.print("  [bold]'/clear'[/bold] - Clear chat history")
+    console.print("  [bold]'/models'[/bold] - List available models")
+    console.print("  [bold]'/switch'[/bold] - Switch to a different model")
+    console.print("  [bold]'/mcps'[/bold] - List system MCPs")
+    console.print("  [bold]'/mcp-tools <name>'[/bold] - List tools in an MCP")
+    console.print("  [bold]'/session start'[/bold] - Start a context session")
+    console.print("  [bold]'/session end'[/bold] - End the current session")
+    console.print("  [bold]'/session info'[/bold] - View current session info")
+    console.print("  [bold]'/code <prompt>'[/bold] - Analyze and execute code tasks (requires session)")
     console.print()
 
 
