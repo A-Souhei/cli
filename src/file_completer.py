@@ -2,7 +2,7 @@
 
 import os
 from typing import Iterable
-from prompt_toolkit.completion import Completer, Completion, merge_completers
+from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
 
 

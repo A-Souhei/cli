@@ -1435,7 +1435,10 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                         # If we haven't read code from file, generate it with LLM
                         if not code:
                             debug_print(f"roll_the_dice: Generating code with LLM")
-                            code_prompt = f"Generate {tool_name.split('_')[1]} code for: {corresponding_prompt}\n\nProvide only the code in a markdown code block."
+                            # Safely extract language from tool_name (e.g., "write_python_code" -> "python")
+                            lang_parts = tool_name.split('_')
+                            language = lang_parts[1] if len(lang_parts) > 1 else "python"
+                            code_prompt = f"Generate {language} code for: {corresponding_prompt}\n\nProvide only the code in a markdown code block."
                             llm_response = call_ollama(code_prompt, model="tinyllama", temperature=0.3)
 
                             if not llm_response:

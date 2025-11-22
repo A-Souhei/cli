@@ -981,7 +981,7 @@ If the text is already a single instruction, return it as a single-item array.""
         # Parse the LLM response to extract JSON array
         try:
             # Try to extract JSON array from response
-            json_match = re.search(r'\[.*\]', llm_response, re.DOTALL)
+            json_match = re.search(r'\[.*?\]', llm_response, re.DOTALL)
             if json_match:
                 initial_steps = json.loads(json_match.group(0))
             else:
@@ -1028,7 +1028,7 @@ Do not include any explanation or additional text."""
 
                 # Parse the check response
                 try:
-                    json_match = re.search(r'\{.*\}', check_response, re.DOTALL)
+                    json_match = re.search(r'\{.*?\}', check_response, re.DOTALL)
                     if json_match:
                         check_data = json.loads(json_match.group(0))
                         if check_data.get('multiple_instructions', False):
@@ -1177,7 +1177,7 @@ Do not include any explanation or additional text. Just the JSON array."""
         # Step 5: Parse LLM response to extract steps
         try:
             # Try to extract JSON array from response
-            json_match = re.search(r'\[.*\]', llm_response, re.DOTALL)
+            json_match = re.search(r'\[.*?\]', llm_response, re.DOTALL)
             if json_match:
                 steps = json.loads(json_match.group(0))
             else:

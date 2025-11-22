@@ -3,6 +3,7 @@
 import sys
 import json
 import argparse
+import re
 import requests
 import urllib.parse
 import subprocess
@@ -384,8 +385,6 @@ async def handle_file_modifications(mcp_client: MCPClient, response_text: str, f
     Returns:
         Dict with results for each file
     """
-    import re
-
     results = {
         'modified': [],
         'created': [],
@@ -979,7 +978,6 @@ def main(verbose=False):
                         continue
 
                     # Extract ALL @ references from the original prompt for context
-                    import re
                     at_references = re.findall(r'@([\w\-./]+)', prompt_text)
                     debug_print(f"Extracted @ references from prompt: {at_references}", icon="📎")
 
@@ -1077,7 +1075,6 @@ def main(verbose=False):
 
                                         if tool_name in code_generation_tools:
                                             # Check if there's a file path with @ prefix
-                                            import re
                                             file_match = re.search(r'@([\w\-./]+\.(?:py|r|R))', step)
                                             file_path = file_match.group(1) if file_match else None
 
@@ -1477,7 +1474,6 @@ def main(verbose=False):
                     all_files_to_create = list(at_context['non_existing'])
 
                     # Look for additional files to create mentioned in the prompt (like "create base.py")
-                    import re
                     create_pattern = r'create\s+((?:[\w/]+/)?[\w.]+\.(?:py|r|R))'
                     create_matches = re.findall(create_pattern, user_input_lower)
                     if create_matches:
