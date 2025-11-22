@@ -740,6 +740,11 @@ def retrieve_tools_recursive():
                 'message': 'mcp_filter must be a list of MCP names'
             }), 400
 
+        # Get context_references (@ file/folder paths from original prompt)
+        context_references = data.get('context_references', [])
+        if not isinstance(context_references, list):
+            context_references = []
+
         # Get batch embeddings for all prompts
         prompt_embeddings = get_batch_embeddings(prompts)
         if not prompt_embeddings:
@@ -774,6 +779,15 @@ def retrieve_tools_recursive():
             for tool in tools:
                 if tool.embedding:
                     similarity = cosine_similarity(prompt_embedding, tool.embedding)
+
+                    # Boost similarity if tool name is explicitly mentioned in the prompt
+                    # This helps when steps say "using run_python_code" or similar
+                    prompt_lower = prompt.lower()
+                    tool_name_lower = tool.tool_name.lower()
+                    if tool_name_lower in prompt_lower:
+                        # Apply significant boost for exact tool name mentions
+                        similarity = min(similarity + 0.3, 1.0)
+
                     if similarity >= threshold:
                         match = {
                             'mcp_name': tool.mcp_name,
@@ -784,10 +798,37 @@ def retrieve_tools_recursive():
 
                         # Extract parameters if requested
                         if extract_params:
-                            match['extracted_params'] = extract_parameters_from_text(
+                            extracted = extract_parameters_from_text(
                                 prompt,
                                 tool.tool_name
                             )
+
+                            # Inject context_references if tool needs file_path or dir_path
+                            # and they're not already in the step text
+                            if context_references:
+                                # Check if tool needs file_path and doesn't have it
+                                if 'file_path' not in extracted or not extracted.get('file_path'):
+                                    # Tools that need file_path
+                                    file_path_tools = ['write_python_code', 'edit_python_code', 'write_r_code',
+                                                      'edit_r_code', 'run_python_code', 'run_r_code',
+                                                      'verify_file_modifications', 'add_file_context']
+                                    if tool.tool_name in file_path_tools:
+                                        # Find first file reference (ends with .py, .r, .R)
+                                        for ref in context_references:
+                                            if ref.endswith(('.py', '.r', '.R')):
+                                                extracted['file_path'] = ref
+                                                break
+
+                                # Check if tool needs dir_path and doesn't have it
+                                if 'dir_path' not in extracted or not extracted.get('dir_path'):
+                                    if tool.tool_name == 'add_directory_context':
+                                        # Find first directory reference (doesn't end with file extension)
+                                        for ref in context_references:
+                                            if not ref.endswith(('.py', '.r', '.R')):
+                                                extracted['dir_path'] = ref
+                                                break
+
+                            match['extracted_params'] = extracted
 
                         matches.append(match)
 
@@ -919,6 +960,8 @@ def text_to_sequence():
         # Step 1: Split text into initial paragraphs/sections
         split_prompt = f"""You are a text analysis assistant. Your task is to split the following text into distinct instruction steps or action items. Each step should represent a single, clear instruction or task.
 
+IMPORTANT: Preserve ALL file paths that use @ prefix (e.g., @file.py, @path/to/file.py) EXACTLY as they appear. Do not rephrase or remove these references.
+
 Text to split:
 {text}
 
@@ -938,7 +981,7 @@ If the text is already a single instruction, return it as a single-item array.""
         # Parse the LLM response to extract JSON array
         try:
             # Try to extract JSON array from response
-            json_match = re.search(r'\[.*\]', llm_response, re.DOTALL)
+            json_match = re.search(r'\[.*?\]', llm_response, re.DOTALL)
             if json_match:
                 initial_steps = json.loads(json_match.group(0))
             else:
@@ -963,6 +1006,8 @@ If the text is already a single instruction, return it as a single-item array.""
                 # Ask LLM if this step contains multiple instructions
                 check_prompt = f"""You are analyzing an instruction step. Determine if the following text contains multiple distinct instructions or tool usages that should be separated.
 
+IMPORTANT: Preserve ALL file paths that use @ prefix (e.g., @file.py, @path/to/file.py) EXACTLY as they appear. Do not rephrase or remove these references.
+
 Text to analyze:
 {step}
 
@@ -983,7 +1028,7 @@ Do not include any explanation or additional text."""
 
                 # Parse the check response
                 try:
-                    json_match = re.search(r'\{.*\}', check_response, re.DOTALL)
+                    json_match = re.search(r'\{.*?\}', check_response, re.DOTALL)
                     if json_match:
                         check_data = json.loads(json_match.group(0))
                         if check_data.get('multiple_instructions', False):
@@ -1025,6 +1070,389 @@ Do not include any explanation or additional text."""
             }
         }), 200
 
+    except Exception as e:
+        return handle_error(e)
+
+
+@app.route('/mcp-tools/code-command-simple', methods=['POST'])
+def code_command_simple():
+    """
+    Simplified /code command endpoint.
+
+    Uses LLM with all MCP tools in context to split user prompt into clear steps,
+    where each step is designed to use ONE tool.
+
+    Request Body:
+    {
+        "text": "User's prompt with multiple instructions...",
+        "session_id": "session-123",  // required
+        "model": "tinyllama"  // optional, default from config
+    }
+
+    Response:
+    {
+        "status": "success",
+        "steps": [
+            "Clear prompt for step 1 (designed for one tool)",
+            "Clear prompt for step 2 (designed for one tool)",
+            ...
+        ],
+        "session_id": "session-123",
+        "metadata": {
+            "total_steps": 3,
+            "model_used": "tinyllama",
+            "tools_available": 15
+        }
+    }
+    """
+    try:
+        # Get JSON body
+        data = request.get_json()
+        if data is None:
+            return jsonify({
+                'status': 'error',
+                'message': 'Request body must be valid JSON'
+            }), 400
+
+        # Get required parameters
+        text = data.get('text')
+        if not text or not isinstance(text, str) or not text.strip():
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing or invalid required parameter: text'
+            }), 400
+
+        session_id = data.get('session_id')
+        if not session_id:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing required parameter: session_id'
+            }), 400
+
+        # Get optional parameters
+        model = data.get('model', DEFAULT_OLLAMA_MODEL)
+
+        # Step 1: Get all MCP tools from database
+        tools = MCPTool.query.all()
+
+        if not tools:
+            return jsonify({
+                'status': 'error',
+                'message': 'No MCP tools found in database. Please initialize tools first.'
+            }), 404
+
+        # Step 2: Format tools as RAG context for LLM
+        tools_context = "Available MCP Tools:\n\n"
+        for tool in tools:
+            tools_context += f"- {tool.tool_name} (MCP: {tool.mcp_name})\n"
+            tools_context += f"  Description: {tool.description}\n\n"
+
+        # Step 3: Create prompt for LLM to split the user's request
+        llm_prompt = f"""{tools_context}
+
+User Request:
+{text}
+
+Your task: Break down the user's request into clear, sequential steps where EACH step is designed to use ONE tool from the list above.
+
+IMPORTANT: Preserve ALL file paths that use @ prefix (e.g., @file.py, @path/to/file.py) EXACTLY as they appear in the user's request. Do not rephrase or remove these references.
+
+Each step should be a complete, actionable prompt that clearly describes what needs to be done.
+
+Respond with ONLY a JSON array of step strings. Format exactly like this:
+["step 1 prompt here", "step 2 prompt here", "step 3 prompt here"]
+
+Do not include any explanation or additional text. Just the JSON array."""
+
+        # Step 4: Call LLM
+        print(f"[code-command-simple] Calling LLM to split prompt (length: {len(text)})")
+        llm_response = call_ollama(llm_prompt, model=model, temperature=0.3, max_tokens=2000)
+
+        if not llm_response:
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to get response from LLM. Make sure Ollama is running.'
+            }), 503
+
+        # Step 5: Parse LLM response to extract steps
+        try:
+            # Try to extract JSON array from response
+            json_match = re.search(r'\[.*?\]', llm_response, re.DOTALL)
+            if json_match:
+                steps = json.loads(json_match.group(0))
+            else:
+                # If no JSON found, treat the response as a single step
+                steps = [text]  # Fallback to original text
+        except json.JSONDecodeError:
+            # If JSON parsing fails, split by newlines as fallback
+            steps = [s.strip() for s in llm_response.split('\n') if s.strip()]
+
+        # Clean up steps - handle both string and dict formats
+        cleaned_steps = []
+        for step in steps:
+            if isinstance(step, dict):
+                # LLM returned dict format like {"prompt": "...", "tool": "..."}
+                # Extract just the prompt text
+                prompt_text = step.get('prompt', '')
+                if prompt_text and prompt_text.strip():
+                    cleaned_steps.append(prompt_text.strip())
+            elif isinstance(step, str) and step.strip():
+                # LLM returned plain string (expected format)
+                cleaned_steps.append(step.strip())
+
+        if not cleaned_steps:
+            cleaned_steps = [text]  # Fallback to original text
+
+        print(f"[code-command-simple] Successfully generated {len(cleaned_steps)} steps")
+
+        return jsonify({
+            'status': 'success',
+            'steps': cleaned_steps,
+            'session_id': session_id,
+            'metadata': {
+                'total_steps': len(cleaned_steps),
+                'model_used': model,
+                'tools_available': len(tools)
+            }
+        }), 200
+
+    except Exception as e:
+        return handle_error(e)
+
+
+@app.route('/mcp-tools/code-command', methods=['POST'])
+def code_command():
+    """
+    Unified endpoint that chains the three major coder MCP tools:
+    1. spin_the_roulette (text-to-sequence + tool matching)
+    2. retrieve_all_tools (get best matching tools)
+    3. Returns data ready for roll_the_dice execution
+
+    This endpoint orchestrates the complete flow for the /code command.
+
+    Request Body:
+    {
+        "text": "Long prompt with multiple instructions...",
+        "session_id": "session-123",  // required for potential execution
+        "model": "tinyllama",  // optional, default: "tinyllama"
+        "max_iterations": 3,    // optional, default: 3
+        "max_tools": 3         // optional, default: 3, max tools to execute
+    }
+
+    Response:
+    {
+        "status": "success",
+        "message": "Successfully processed prompt and matched tools",
+        "sequence": ["step 1", "step 2", ...],
+        "tools_matched": [
+            {
+                "step": "instruction text",
+                "step_index": 0,
+                "best_match": {
+                    "mcp_name": "coder",
+                    "tool_name": "run_python_code",
+                    "description": "...",
+                    "similarity": 0.87
+                }
+            },
+            ...
+        ],
+        "execution_ready": {
+            "prompts": ["step 1", "step 2", ...],
+            "session_id": "session-123",
+            "max_tools": 3
+        },
+        "metadata": {
+            "text_analysis": {...},
+            "tool_retrieval": {...},
+            "total_steps": 5,
+            "total_tools_matched": 3
+        }
+    }
+    """
+    try:
+        # Get JSON body
+        data = request.get_json()
+        if data is None:
+            return jsonify({
+                'status': 'error',
+                'message': 'Request body must be valid JSON'
+            }), 400
+
+        # Get required text parameter
+        if 'text' not in data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing required parameter: text'
+            }), 400
+
+        text = data.get('text')
+        if not isinstance(text, str) or not text.strip():
+            return jsonify({
+                'status': 'error',
+                'message': 'text must be a non-empty string'
+            }), 400
+
+        # Get required session_id parameter
+        session_id = data.get('session_id')
+        if not session_id:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing required parameter: session_id (required for roll_the_dice execution)'
+            }), 400
+
+        # Get optional parameters
+        model = data.get('model', DEFAULT_OLLAMA_MODEL)
+        max_iterations = data.get('max_iterations', 3)
+        max_tools = data.get('max_tools', 3)
+
+        # Validate max_iterations
+        if not isinstance(max_iterations, int) or max_iterations < 1:
+            max_iterations = 3
+        if max_iterations > 5:
+            max_iterations = 5
+
+        # Validate max_tools
+        if not isinstance(max_tools, int) or max_tools < 1:
+            max_tools = 3
+        if max_tools > 10:
+            max_tools = 10
+
+        # STEP 1: Call text-to-sequence endpoint (spin_the_roulette functionality)
+        print(f"[code-command] Step 1: Converting text to sequence (length: {len(text)})")
+        # Use localhost URL for internal requests (port 5000 is the internal Flask port)
+        base_url = "http://localhost:5000"
+        sequence_response = requests.post(
+            f"{base_url}/mcp-tools/text-to-sequence",
+            json={
+                "text": text,
+                "model": model,
+                "max_iterations": max_iterations
+            },
+            headers={"Content-Type": "application/json"},
+            timeout=180
+        )
+
+        if sequence_response.status_code != 200:
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to convert text to sequence',
+                'step': 'text-to-sequence',
+                'status_code': sequence_response.status_code,
+                'response': sequence_response.text
+            }), 500
+
+        sequence_data = sequence_response.json()
+        if sequence_data.get('status') != 'success':
+            return jsonify({
+                'status': 'error',
+                'message': 'text-to-sequence endpoint returned error',
+                'details': sequence_data
+            }), 500
+
+        sequence = sequence_data.get('sequence', [])
+        print(f"[code-command] Step 1 complete: Got {len(sequence)} steps")
+
+        if not sequence:
+            return jsonify({
+                'status': 'success',
+                'message': 'No instruction steps found in text',
+                'sequence': [],
+                'tools_matched': [],
+                'execution_ready': None,
+                'metadata': {
+                    'text_analysis': sequence_data.get('metadata', {}),
+                    'total_steps': 0,
+                    'total_tools_matched': 0
+                }
+            }), 200
+
+        # STEP 2: Call retrieve endpoint to match tools (retrieve_all_tools functionality)
+        print(f"[code-command] Step 2: Retrieving tools for {len(sequence)} prompts")
+        retrieve_response = requests.post(
+            f"{base_url}/mcp-tools/retrieve",
+            json={"prompts": sequence, "threshold": 0.35},
+            headers={"Content-Type": "application/json"},
+            timeout=60
+        )
+
+        if retrieve_response.status_code != 200:
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to retrieve tools',
+                'step': 'retrieve_all_tools',
+                'status_code': retrieve_response.status_code,
+                'sequence': sequence,
+                'response': retrieve_response.text
+            }), 500
+
+        tools_data = retrieve_response.json()
+        if tools_data.get('status') != 'success':
+            return jsonify({
+                'status': 'error',
+                'message': 'retrieve endpoint returned error',
+                'details': tools_data
+            }), 500
+
+        print(f"[code-command] Step 2 complete: Retrieved tool matches")
+
+        # STEP 3: Format the matched tools with their corresponding steps
+        tools_matched = []
+        results = tools_data.get('results', [])
+
+        for result in results:
+            step_text = result.get('prompt', '')
+            step_index = result.get('prompt_index', 0)
+            best_match = result.get('best_match')
+
+            if best_match:
+                tools_matched.append({
+                    'step': step_text,
+                    'step_index': step_index,
+                    'best_match': best_match
+                })
+
+        print(f"[code-command] Step 3 complete: Formatted {len(tools_matched)} tool matches")
+
+        # Prepare execution parameters for roll_the_dice
+        execution_ready = {
+            'prompts': sequence,
+            'session_id': session_id,
+            'max_tools': max_tools
+        }
+
+        # Build response
+        response_data = {
+            'status': 'success',
+            'message': f'Successfully processed text into {len(sequence)} steps and matched with {len(tools_matched)} tools',
+            'sequence': sequence,
+            'tools_matched': tools_matched,
+            'execution_ready': execution_ready,
+            'metadata': {
+                'text_analysis': sequence_data.get('metadata', {}),
+                'tool_retrieval': tools_data.get('metadata', {}),
+                'total_steps': len(sequence),
+                'total_tools_matched': len(tools_matched),
+                'model_used': model,
+                'max_tools': max_tools
+            }
+        }
+
+        print(f"[code-command] Complete: {len(sequence)} steps, {len(tools_matched)} tools matched")
+        return jsonify(response_data), 200
+
+    except requests.exceptions.Timeout as e:
+        return jsonify({
+            'status': 'error',
+            'message': 'Request timeout while processing',
+            'error': str(e)
+        }), 504
+    except requests.exceptions.RequestException as e:
+        return jsonify({
+            'status': 'error',
+            'message': 'Network error while processing',
+            'error': str(e)
+        }), 500
     except Exception as e:
         return handle_error(e)
 

@@ -1,9 +1,107 @@
-"""File and directory completer for @ prefix in CLI."""
+"""File and directory completer for @ prefix and / commands in CLI."""
 
 import os
 from typing import Iterable
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
+
+
+class SlashCommandCompleter(Completer):
+    """
+    Custom completer that provides slash command completions.
+
+    When the user types / at the beginning of input, this completer shows
+    available commands with their descriptions.
+    """
+
+    # Define all available slash commands with descriptions
+    COMMANDS = [
+        ('/exit', 'Exit the CLI'),
+        ('/quit', 'Exit the CLI'),
+        ('/clear', 'Clear chat history'),
+        ('/models', 'List available models'),
+        ('/switch', 'Switch to a different model'),
+        ('/mcps', 'List system MCPs'),
+        ('/mcp-tools <name>', 'List tools in an MCP'),
+        ('/session start', 'Start a context session'),
+        ('/session end', 'End the current session'),
+        ('/session info', 'View current session info'),
+        ('/code <prompt>', 'Analyze and execute code tasks (requires session)'),
+    ]
+
+    def get_completions(self, document: Document, complete_event) -> Iterable[Completion]:
+        """
+        Get completions for slash commands.
+
+        Args:
+            document: The current document
+            complete_event: The completion event
+
+        Yields:
+            Completion objects for matching slash commands
+        """
+        text = document.text_before_cursor
+
+        # Only provide completions if the text starts with /
+        if not text.startswith('/'):
+            return
+
+        # Get the command prefix (everything after /)
+        command_prefix = text[1:].lower()
+
+        # Find matching commands
+        for command, description in self.COMMANDS:
+            command_without_slash = command[1:]  # Remove the leading /
+
+            # Check if this command matches the prefix
+            if command_without_slash.lower().startswith(command_prefix):
+                # Calculate how much to replace (from the / to cursor)
+                start_position = -len(text)
+
+                yield Completion(
+                    text=command,
+                    start_position=start_position,
+                    display=command,
+                    display_meta=description
+                )
+
+
+class CombinedCompleter(Completer):
+    """
+    Combined completer that handles both slash commands and @ file paths.
+    """
+
+    def __init__(self, working_dir: str = None):
+        """
+        Initialize the combined completer.
+
+        Args:
+            working_dir: Working directory for file completion
+        """
+        self.working_dir = working_dir or os.getcwd()
+        self.slash_completer = SlashCommandCompleter()
+        self.file_completer = AtPrefixFileCompleter(working_dir)
+
+    def get_completions(self, document: Document, complete_event) -> Iterable[Completion]:
+        """
+        Get completions from both slash commands and file paths.
+
+        Args:
+            document: The current document
+            complete_event: The completion event
+
+        Yields:
+            Completion objects from both completers
+        """
+        text = document.text_before_cursor
+
+        # If text starts with /, use slash command completer
+        if text.startswith('/'):
+            yield from self.slash_completer.get_completions(document, complete_event)
+
+        # If text contains @, use file completer (can work with /code @file.py)
+        if '@' in text:
+            yield from self.file_completer.get_completions(document, complete_event)
 
 
 class AtPrefixFileCompleter(Completer):

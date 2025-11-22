@@ -3,6 +3,7 @@
 import sys
 import json
 import argparse
+import re
 import requests
 import urllib.parse
 import subprocess
@@ -27,7 +28,7 @@ from rich.live import Live
 from prompt_toolkit import prompt
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.formatted_text import FormattedText
-from src.file_completer import AtPrefixFileCompleter, extract_at_context, remove_at_prefixed_paths
+from src.file_completer import CombinedCompleter, extract_at_context, remove_at_prefixed_paths
 
 # Apply nest_asyncio once globally to allow nested event loops
 import nest_asyncio
@@ -384,8 +385,6 @@ async def handle_file_modifications(mcp_client: MCPClient, response_text: str, f
     Returns:
         Dict with results for each file
     """
-    import re
-
     results = {
         'modified': [],
         'created': [],
@@ -751,22 +750,43 @@ async def get_mcp_tools(mcp_name):
         console.print(f"❌ [red]Error getting tools from MCP '{mcp_name}': {e}[/red]\n")
 
 
+def load_banner():
+    """Load banner from file."""
+    banner_file = Path(__file__).parent / "assets" / "banner.txt"
+    try:
+        if banner_file.exists():
+            return banner_file.read_text()
+        else:
+            # Fallback banner if file doesn't exist
+            return """
+           ╦  ╦╦ ╦╦ ╦╦╔╦╗╦═╗╔═╗  ╔═╗╦  ╦
+           ╚╗╔╝║ ║╠═╣║ ║ ╠╦╝╠═╣  ║  ║  ║
+            ╚╝ ╚═╝╩ ╩╩ ╩ ╩╚═╩ ╩  ╚═╝╩═╝╩
+
+           Powered by Ollama
+"""
+    except Exception:
+        return "VUHITRA CLI - Powered by Ollama"
+
+
 def print_banner():
     """Print CLI banner."""
-    banner_text = Text()
-    banner_text.append("🤖 AI CLI", style="bold cyan")
-    banner_text.append(" - Powered by Ollama", style="dim")
+    # Load and display the ASCII art banner
+    banner_text = load_banner()
+    console.print(banner_text, style="bold cyan")
 
-    console.print()
-    console.print(Panel(banner_text, border_style="cyan"))
-    console.print("  Type [bold]'exit'[/bold] or [bold]'quit'[/bold] to exit")
-    console.print("  Type [bold]'clear'[/bold] to clear chat history")
-    console.print("  Type [bold]'models'[/bold] to list available models")
-    console.print("  Type [bold]'switch'[/bold] to change model")
-    console.print("  Type [bold]'mcps'[/bold] to list system MCPs")
-    console.print("  Type [bold]'mcp-tools <name>'[/bold] to list tools in an MCP")
-    console.print("  Type [bold]'session start'[/bold] to start a context session")
-    console.print("  Type [bold]'session end'[/bold] to end the current session")
+    # Print command help
+    console.print("\n[bold cyan]Commands:[/bold cyan]")
+    console.print("  [bold]'/exit'[/bold] or [bold]'/quit'[/bold] - Exit the CLI")
+    console.print("  [bold]'/clear'[/bold] - Clear chat history")
+    console.print("  [bold]'/models'[/bold] - List available models")
+    console.print("  [bold]'/switch'[/bold] - Switch to a different model")
+    console.print("  [bold]'/mcps'[/bold] - List system MCPs")
+    console.print("  [bold]'/mcp-tools <name>'[/bold] - List tools in an MCP")
+    console.print("  [bold]'/session start'[/bold] - Start a context session")
+    console.print("  [bold]'/session end'[/bold] - End the current session")
+    console.print("  [bold]'/session info'[/bold] - View current session info")
+    console.print("  [bold]'/code <prompt>'[/bold] - Analyze and execute code tasks (requires session)")
     console.print()
 
 
@@ -828,21 +848,24 @@ def main(verbose=False):
         # Initialize command history
         history = FileHistory(str(HISTORY_FILE))
 
-        # Initialize file completer for @ prefix
-        file_completer = AtPrefixFileCompleter(working_dir=os.getcwd())
+        # Initialize combined completer for / commands and @ file paths
+        combined_completer = CombinedCompleter(working_dir=os.getcwd())
 
         # Main chat loop
         while True:
             try:
-                # Get user input with history support and file completion
+                # Get user input with history support and command/file completion
                 user_input = prompt(
                     FormattedText([('ansigreen bold', '▶ ')]),
                     history=history,
-                    completer=file_completer
+                    completer=combined_completer
                 ).strip()
 
+                # Normalize command input - support both with and without / prefix
+                user_input_normalized = user_input.lstrip('/').strip()
+
                 # Handle special commands
-                if user_input.lower() in ['exit', 'quit']:
+                if user_input_normalized.lower() in ['exit', 'quit']:
                     # Cleanup MCP client
                     console.print("\n👋 [bold]Goodbye![/bold]")
                     try:
@@ -856,12 +879,12 @@ def main(verbose=False):
                     sys.stderr = open(os.devnull, 'w')
                     sys.exit(0)
 
-                if user_input.lower() == 'clear':
+                if user_input_normalized.lower() == 'clear':
                     chat_manager.clear_history()
                     console.print("\n🗑️ [yellow]Chat history cleared[/yellow]\n")
                     continue
 
-                if user_input.lower() == 'models':
+                if user_input_normalized.lower() == 'models':
                     console.print("\n📋 [bold]Available models:[/bold]")
                     try:
                         models = ollama_client.list_models()
@@ -875,7 +898,7 @@ def main(verbose=False):
                     console.print()
                     continue
 
-                if user_input.lower() == 'switch':
+                if user_input_normalized.lower() == 'switch':
                     console.print()
                     try:
                         models = ollama_client.list_models()
@@ -903,14 +926,14 @@ def main(verbose=False):
                         console.print(f"\n❌ [red]Error switching model: {e}[/red]\n")
                     continue
 
-                if user_input.lower() == 'mcps':
+                if user_input_normalized.lower() == 'mcps':
                     list_system_mcps()
                     continue
 
-                if user_input.lower().startswith('mcp-tools '):
-                    mcp_name = user_input[10:].strip()
+                if user_input_normalized.lower().startswith('mcp-tools '):
+                    mcp_name = user_input_normalized[10:].strip()
                     if not mcp_name:
-                        console.print("❌ [red]Usage: mcp-tools <mcp_name>[/red]\n")
+                        console.print("❌ [red]Usage: /mcp-tools <mcp_name>[/red]\n")
                     else:
                         try:
                             run_async(get_mcp_tools(mcp_name))
@@ -919,7 +942,7 @@ def main(verbose=False):
                     continue
 
                 # Handle session commands
-                if user_input.lower() == 'session start':
+                if user_input_normalized.lower() == 'session start':
                     if session_manager.is_active():
                         console.print("\n⚠️  [yellow]Session already active. End current session first.[/yellow]\n")
                     else:
@@ -927,13 +950,13 @@ def main(verbose=False):
                         console.print()
                     continue
 
-                if user_input.lower() == 'session end':
+                if user_input_normalized.lower() == 'session end':
                     summary = session_manager.end_session()
                     if summary:
                         console.print()
                     continue
 
-                if user_input.lower() == 'session info':
+                if user_input_normalized.lower() == 'session info':
                     info = session_manager.get_session_info()
                     if info:
                         console.print("\n📊 [bold]Session Info:[/bold]")
@@ -943,6 +966,366 @@ def main(verbose=False):
                         console.print()
                     else:
                         console.print("\n⚠️  [yellow]No active session[/yellow]\n")
+                    continue
+
+                # Handle /code command - simplified version
+                if user_input_normalized.lower().startswith('code '):
+                    prompt_text = user_input_normalized[5:].strip()  # Extract text after "code "
+
+                    if not prompt_text:
+                        console.print("\n❌ [red]Usage: /code <prompt_sentences>[/red]")
+                        console.print("[dim]Example: /code write Python code to calculate fibonacci(20) and save to testing/fib.py then run testing/fib.py[/dim]\n")
+                        continue
+
+                    # Extract ALL @ references from the original prompt for context
+                    at_references = re.findall(r'@([\w\-./]+)', prompt_text)
+                    debug_print(f"Extracted @ references from prompt: {at_references}", icon="📎")
+
+                    # Auto-start session if not active
+                    if not session_manager.is_active():
+                        console.print("\n[cyan]ℹ️  Starting a new session for /code command...[/cyan]")
+                        session_manager.start_session()
+
+                    session_id = session_manager.get_session_id()
+
+                    # Store @ references in session metadata for access by all tools
+                    if at_references:
+                        session_manager.session_metadata['at_references'] = at_references
+                        session_manager.session_metadata['working_dir'] = os.getcwd()
+                        debug_print(f"Stored @ references in session context: {at_references}", icon="📎")
+
+                    console.print(f"\n🎯 [bold cyan]Processing code command...[/bold cyan]")
+                    console.print(f"[dim]Prompt: {prompt_text[:100]}{'...' if len(prompt_text) > 100 else ''}[/dim]\n")
+
+                    try:
+                        # Call the simplified code-command endpoint to get steps
+                        console.print("📝 [cyan]Analyzing prompt and creating execution steps...[/cyan]")
+                        response = requests.post(
+                            f"{POSTGRES_API_URL}/mcp-tools/code-command-simple",
+                            json={
+                                "text": prompt_text,
+                                "session_id": session_id
+                            },
+                            headers={"Content-Type": "application/json"},
+                            timeout=180
+                        )
+
+                        if response.status_code != 200:
+                            console.print(f"\n❌ [red]Failed to process code command: HTTP {response.status_code}[/red]")
+                            console.print(f"[dim]{response.text}[/dim]\n")
+                            continue
+
+                        data = response.json()
+
+                        if data.get('status') != 'success':
+                            console.print(f"\n❌ [red]Code command failed: {data.get('message')}[/red]\n")
+                            continue
+
+                        # Get the execution steps
+                        steps = data.get('steps', [])
+
+                        if not steps:
+                            console.print("\n⚠️  [yellow]No execution steps generated[/yellow]\n")
+                            continue
+
+                        console.print(f"✓ [green]Generated {len(steps)} execution steps[/green]\n")
+
+                        # Show the steps
+                        console.print("📋 [bold]Execution Steps:[/bold]")
+                        for i, step in enumerate(steps, 1):
+                            console.print(f"  {i}. {step}")
+                        console.print()
+
+                        # Execute each step iteratively with tool matching
+                        console.print("⚡ [cyan]Executing steps with tool matching...[/cyan]\n")
+
+                        for i, step in enumerate(steps, 1):
+                            console.print(f"[bold]Step {i}/{len(steps)}:[/bold] {step}")
+                            console.print()
+
+                            try:
+                                # Step 1: Match this step with the best MCP tool
+                                debug_print(f"Matching step {i} with tools...", icon="🔍")
+
+                                match_response = requests.post(
+                                    f"{POSTGRES_API_URL}/mcp-tools/retrieve",
+                                    json={
+                                        "prompts": [step],
+                                        "threshold": 0.3,
+                                        "context_references": at_references  # Pass @ references for parameter injection
+                                    },
+                                    headers={"Content-Type": "application/json"},
+                                    timeout=30
+                                )
+
+                                if match_response.status_code == 200:
+                                    match_data = match_response.json()
+                                    results = match_data.get('results', [])
+
+                                    if results and results[0].get('best_match'):
+                                        best_match = results[0]['best_match']
+                                        tool_name = best_match.get('tool_name')
+                                        mcp_name = best_match.get('mcp_name', 'coder')
+                                        similarity = best_match.get('similarity', 0)
+
+                                        console.print(f"  🔧 [cyan]Matched tool:[/cyan] {tool_name} [dim](similarity: {similarity:.2f})[/dim]")
+
+                                        # Step 2: For code generation tools, use LLM to generate code first
+                                        code_generation_tools = ['write_python_code', 'edit_python_code', 'write_r_code', 'edit_r_code', 'run_python_code', 'run_r_code']
+
+                                        if tool_name in code_generation_tools:
+                                            # Check if there's a file path with @ prefix
+                                            file_match = re.search(r'@([\w\-./]+\.(?:py|r|R))', step)
+                                            file_path = file_match.group(1) if file_match else None
+
+                                            # For run_python_code/run_r_code, check if we should read existing file
+                                            if tool_name in ['run_python_code', 'run_r_code'] and file_path:
+                                                # Check if prompt is about running an existing file
+                                                # More flexible: check if it mentions "file" or "script" with @
+                                                step_lower = step.lower()
+                                                is_run_file = (
+                                                    ('file' in step_lower and '@' in step_lower) or
+                                                    ('script' in step_lower and '@' in step_lower) or
+                                                    'run @' in step_lower or
+                                                    'execute @' in step_lower
+                                                )
+
+                                                if is_run_file:
+                                                    console.print(f"  📂 [yellow]Reading file: {file_path}[/yellow]")
+
+                                                    # Read the file
+                                                    try:
+                                                        with open(file_path, 'r') as f:
+                                                            code = f.read()
+                                                        console.print(f"  ✓ [green]File read ({len(code)} chars)[/green]\n")
+
+                                                        # Build parameters
+                                                        extracted_params = best_match.get('extracted_params', {})
+                                                        extracted_params['code'] = code
+                                                        # Remove file_path - run_python_code/run_r_code don't accept it
+                                                        if 'file_path' in extracted_params:
+                                                            extracted_params.pop('file_path')
+                                                            debug_print(f"Removed file_path from params for {tool_name}", icon="🔧")
+                                                    except FileNotFoundError:
+                                                        console.print(f"  ❌ [red]File not found: {file_path}[/red]\n")
+                                                        continue
+                                                    except Exception as e:
+                                                        console.print(f"  ❌ [red]Error reading file: {str(e)}[/red]\n")
+                                                        continue
+                                                else:
+                                                    # Generate code with LLM
+                                                    console.print(f"  🤖 [yellow]Generating code with LLM...[/yellow]")
+
+                                                    chat_manager.add_user_message(step)
+                                                    messages = chat_manager.get_messages()
+
+                                                    spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
+
+                                                    with Live(spinner, console=console, refresh_per_second=10):
+                                                        if stream:
+                                                            full_response = ""
+                                                            for chunk in ollama_client.chat(
+                                                                messages=messages,
+                                                                stream=True,
+                                                                temperature=temperature
+                                                            ):
+                                                                full_response += chunk
+                                                        else:
+                                                            response = ollama_client.chat(
+                                                                messages=messages,
+                                                                stream=False,
+                                                                temperature=temperature
+                                                            )
+                                                            full_response = response.get('message', {}).get('content', '')
+
+                                                    chat_manager.add_assistant_message(full_response)
+
+                                                    detected = mcp_client.detect_code(full_response)
+
+                                                    if not detected:
+                                                        console.print(f"  ⚠️  [yellow]No code detected in LLM response, skipping tool execution[/yellow]\n")
+                                                        continue
+
+                                                    code = detected['code']
+                                                    console.print(f"  ✓ [green]Code generated ({len(code)} chars)[/green]\n")
+
+                                                    extracted_params = best_match.get('extracted_params', {})
+                                                    extracted_params['code'] = code
+                                                    # Remove file_path for run_python_code/run_r_code
+                                                    if tool_name in ['run_python_code', 'run_r_code'] and 'file_path' in extracted_params:
+                                                        extracted_params.pop('file_path')
+                                                        debug_print(f"Removed file_path from params for {tool_name}", icon="🔧")
+                                            else:
+                                                # For write/edit tools or run without file path, generate code with LLM
+                                                console.print(f"  🤖 [yellow]Generating code with LLM...[/yellow]")
+
+                                                chat_manager.add_user_message(step)
+                                                messages = chat_manager.get_messages()
+
+                                                spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
+
+                                                with Live(spinner, console=console, refresh_per_second=10):
+                                                    if stream:
+                                                        full_response = ""
+                                                        for chunk in ollama_client.chat(
+                                                            messages=messages,
+                                                            stream=True,
+                                                            temperature=temperature
+                                                        ):
+                                                            full_response += chunk
+                                                    else:
+                                                        response = ollama_client.chat(
+                                                            messages=messages,
+                                                            stream=False,
+                                                            temperature=temperature
+                                                        )
+                                                        full_response = response.get('message', {}).get('content', '')
+
+                                                chat_manager.add_assistant_message(full_response)
+
+                                                detected = mcp_client.detect_code(full_response)
+
+                                                if not detected:
+                                                    console.print(f"  ⚠️  [yellow]No code detected in LLM response, skipping tool execution[/yellow]\n")
+                                                    continue
+
+                                                code = detected['code']
+                                                console.print(f"  ✓ [green]Code generated ({len(code)} chars)[/green]\n")
+
+                                                extracted_params = best_match.get('extracted_params', {})
+                                                extracted_params['code'] = code
+
+                                            # Add file_path if extracted from @ prefix (only for write/edit tools)
+                                            if file_path and tool_name in ['write_python_code', 'edit_python_code', 'write_r_code', 'edit_r_code']:
+                                                extracted_params['file_path'] = file_path
+                                            elif 'file_path' not in extracted_params and tool_name in ['write_python_code', 'edit_python_code', 'write_r_code', 'edit_r_code']:
+                                                console.print(f"  ⚠️  [yellow]No file path specified, skipping {tool_name}[/yellow]\n")
+                                                continue
+                                        else:
+                                            # Non-code-generation tools: use extracted params
+                                            extracted_params = best_match.get('extracted_params', {})
+
+                                        # Add working_dir if not present
+                                        if 'working_dir' not in extracted_params:
+                                            extracted_params['working_dir'] = os.getcwd()
+
+                                        # Add session_id for tools that need it
+                                        if 'session_id' not in extracted_params and session_manager.is_active():
+                                            extracted_params['session_id'] = session_id
+
+                                        debug_print(f"Calling MCP tool: {tool_name} with params: {list(extracted_params.keys())}", icon="⚙️")
+                                        console.print(f"  ⚡ [yellow]Executing {tool_name}...[/yellow]\n")
+
+                                        # Step 3: Call the MCP tool
+                                        result = run_async(mcp_client.call_tool(
+                                            mcp_name=mcp_name,
+                                            tool_name=tool_name,
+                                            arguments=extracted_params
+                                        ))
+
+                                        # Step 4: Display result
+                                        try:
+                                            result_data = json.loads(result)
+
+                                            if result_data.get('status') == 'success':
+                                                console.print(f"  ✓ [green]Success[/green]")
+
+                                                # Show relevant output
+                                                if 'stdout' in result_data and result_data['stdout']:
+                                                    console.print(f"\n  [dim]Output:[/dim]")
+                                                    console.print(f"  {result_data['stdout']}")
+
+                                                if 'stderr' in result_data and result_data['stderr']:
+                                                    console.print(f"\n  [yellow]Warnings:[/yellow]")
+                                                    console.print(f"  {result_data['stderr']}")
+
+                                                if 'file_path' in result_data:
+                                                    console.print(f"  📄 [cyan]File:[/cyan] {result_data['file_path']}")
+
+                                                if 'message' in result_data:
+                                                    console.print(f"  💬 {result_data['message']}")
+                                            else:
+                                                error_msg = result_data.get('message') or result_data.get('error') or 'Unknown error'
+                                                console.print(f"  ✗ [red]Failed:[/red] {error_msg}")
+                                                # Log full result for debugging
+                                                debug_print(f"Full error result: {json.dumps(result_data, indent=2)}", icon="🔍")
+
+                                        except json.JSONDecodeError as e:
+                                            # Plain text result (might be an error message)
+                                            console.print(f"  📄 [dim]{result}[/dim]")
+                                            debug_print(f"JSON decode error: {e}. Raw result: {result}", icon="⚠️")
+
+                                        console.print()
+
+                                        # Add to session
+                                        if session_manager.is_active():
+                                            session_manager.add_interaction(
+                                                prompt=step,
+                                                response=result,
+                                                metadata={'model': ollama_client.model, 'step': i, 'tool': tool_name}
+                                            )
+
+                                    else:
+                                        # No tool matched - fall back to LLM
+                                        console.print(f"  ⚠️  [yellow]No matching tool found, using LLM...[/yellow]\n")
+
+                                        chat_manager.add_user_message(step)
+                                        messages = chat_manager.get_messages()
+
+                                        spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
+
+                                        with Live(spinner, console=console, refresh_per_second=10):
+                                            if stream:
+                                                full_response = ""
+                                                for chunk in ollama_client.chat(
+                                                    messages=messages,
+                                                    stream=True,
+                                                    temperature=temperature
+                                                ):
+                                                    full_response += chunk
+                                            else:
+                                                response = ollama_client.chat(
+                                                    messages=messages,
+                                                    stream=False,
+                                                    temperature=temperature
+                                                )
+                                                full_response = response.get('message', {}).get('content', '')
+
+                                        console.print("[bold cyan]▶[/bold cyan]")
+                                        console.print(CustomMarkdown(full_response, code_theme="monokai"))
+                                        console.print()
+
+                                        chat_manager.add_assistant_message(full_response)
+
+                                        if session_manager.is_active():
+                                            session_manager.add_interaction(
+                                                prompt=step,
+                                                response=full_response,
+                                                metadata={'model': ollama_client.model, 'step': i}
+                                            )
+
+                                else:
+                                    console.print(f"  ✗ [red]Failed to match tools (HTTP {match_response.status_code})[/red]\n")
+
+                            except Exception as e:
+                                console.print(f"[red]✗ Error in step {i}: {e}[/red]\n")
+                                if verbose:
+                                    import traceback
+                                    console.print(f"[dim]{traceback.format_exc()}[/dim]")
+                                # Continue with next step even if this one fails
+
+                        console.print(f"\n✓ [bold green]Completed all {len(steps)} steps[/bold green]\n")
+
+                    except requests.exceptions.Timeout:
+                        console.print("\n❌ [red]Request timeout - the command took too long to process[/red]\n")
+                    except requests.exceptions.RequestException as e:
+                        console.print(f"\n❌ [red]Network error: {e}[/red]\n")
+                    except Exception as e:
+                        console.print(f"\n❌ [red]Error executing /code command: {e}[/red]\n")
+                        if verbose:
+                            import traceback
+                            console.print(f"[dim]{traceback.format_exc()}[/dim]")
+
                     continue
 
                 # Skip empty input
@@ -1091,7 +1474,6 @@ def main(verbose=False):
                     all_files_to_create = list(at_context['non_existing'])
 
                     # Look for additional files to create mentioned in the prompt (like "create base.py")
-                    import re
                     create_pattern = r'create\s+((?:[\w/]+/)?[\w.]+\.(?:py|r|R))'
                     create_matches = re.findall(create_pattern, user_input_lower)
                     if create_matches:
