@@ -1061,54 +1061,117 @@ def main(verbose=False):
                                         code_generation_tools = ['write_python_code', 'edit_python_code', 'write_r_code', 'edit_r_code', 'run_python_code', 'run_r_code']
 
                                         if tool_name in code_generation_tools:
-                                            console.print(f"  🤖 [yellow]Generating code with LLM...[/yellow]")
-
-                                            # Use LLM to generate code for this step
-                                            chat_manager.add_user_message(step)
-                                            messages = chat_manager.get_messages()
-
-                                            spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
-
-                                            with Live(spinner, console=console, refresh_per_second=10):
-                                                if stream:
-                                                    full_response = ""
-                                                    for chunk in ollama_client.chat(
-                                                        messages=messages,
-                                                        stream=True,
-                                                        temperature=temperature
-                                                    ):
-                                                        full_response += chunk
-                                                else:
-                                                    response = ollama_client.chat(
-                                                        messages=messages,
-                                                        stream=False,
-                                                        temperature=temperature
-                                                    )
-                                                    full_response = response.get('message', {}).get('content', '')
-
-                                            chat_manager.add_assistant_message(full_response)
-
-                                            # Detect code in the response
-                                            detected = mcp_client.detect_code(full_response)
-
-                                            if not detected:
-                                                console.print(f"  ⚠️  [yellow]No code detected in LLM response, skipping tool execution[/yellow]\n")
-                                                continue
-
-                                            code = detected['code']
-                                            console.print(f"  ✓ [green]Code generated ({len(code)} chars)[/green]\n")
-
-                                            # Build parameters for the tool
-                                            extracted_params = best_match.get('extracted_params', {})
-
-                                            # Add the generated code
-                                            extracted_params['code'] = code
-
-                                            # Add file_path if extracted or from @ prefix in step
+                                            # Check if there's a file path with @ prefix
                                             import re
                                             file_match = re.search(r'@([\w\-./]+\.(?:py|r|R))', step)
-                                            if file_match:
-                                                extracted_params['file_path'] = file_match.group(1)
+                                            file_path = file_match.group(1) if file_match else None
+
+                                            # For run_python_code/run_r_code, check if we should read existing file
+                                            if tool_name in ['run_python_code', 'run_r_code'] and file_path:
+                                                # Check if prompt is about running an existing file
+                                                run_file_keywords = ['run the file', 'execute the file', 'run @', 'execute @', 'run file']
+                                                is_run_file = any(keyword in step.lower() for keyword in run_file_keywords)
+
+                                                if is_run_file:
+                                                    console.print(f"  📂 [yellow]Reading file: {file_path}[/yellow]")
+
+                                                    # Read the file
+                                                    try:
+                                                        with open(file_path, 'r') as f:
+                                                            code = f.read()
+                                                        console.print(f"  ✓ [green]File read ({len(code)} chars)[/green]\n")
+
+                                                        # Build parameters
+                                                        extracted_params = best_match.get('extracted_params', {})
+                                                        extracted_params['code'] = code
+                                                    except FileNotFoundError:
+                                                        console.print(f"  ❌ [red]File not found: {file_path}[/red]\n")
+                                                        continue
+                                                    except Exception as e:
+                                                        console.print(f"  ❌ [red]Error reading file: {str(e)}[/red]\n")
+                                                        continue
+                                                else:
+                                                    # Generate code with LLM
+                                                    console.print(f"  🤖 [yellow]Generating code with LLM...[/yellow]")
+
+                                                    chat_manager.add_user_message(step)
+                                                    messages = chat_manager.get_messages()
+
+                                                    spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
+
+                                                    with Live(spinner, console=console, refresh_per_second=10):
+                                                        if stream:
+                                                            full_response = ""
+                                                            for chunk in ollama_client.chat(
+                                                                messages=messages,
+                                                                stream=True,
+                                                                temperature=temperature
+                                                            ):
+                                                                full_response += chunk
+                                                        else:
+                                                            response = ollama_client.chat(
+                                                                messages=messages,
+                                                                stream=False,
+                                                                temperature=temperature
+                                                            )
+                                                            full_response = response.get('message', {}).get('content', '')
+
+                                                    chat_manager.add_assistant_message(full_response)
+
+                                                    detected = mcp_client.detect_code(full_response)
+
+                                                    if not detected:
+                                                        console.print(f"  ⚠️  [yellow]No code detected in LLM response, skipping tool execution[/yellow]\n")
+                                                        continue
+
+                                                    code = detected['code']
+                                                    console.print(f"  ✓ [green]Code generated ({len(code)} chars)[/green]\n")
+
+                                                    extracted_params = best_match.get('extracted_params', {})
+                                                    extracted_params['code'] = code
+                                            else:
+                                                # For write/edit tools or run without file path, generate code with LLM
+                                                console.print(f"  🤖 [yellow]Generating code with LLM...[/yellow]")
+
+                                                chat_manager.add_user_message(step)
+                                                messages = chat_manager.get_messages()
+
+                                                spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
+
+                                                with Live(spinner, console=console, refresh_per_second=10):
+                                                    if stream:
+                                                        full_response = ""
+                                                        for chunk in ollama_client.chat(
+                                                            messages=messages,
+                                                            stream=True,
+                                                            temperature=temperature
+                                                        ):
+                                                            full_response += chunk
+                                                    else:
+                                                        response = ollama_client.chat(
+                                                            messages=messages,
+                                                            stream=False,
+                                                            temperature=temperature
+                                                        )
+                                                        full_response = response.get('message', {}).get('content', '')
+
+                                                chat_manager.add_assistant_message(full_response)
+
+                                                detected = mcp_client.detect_code(full_response)
+
+                                                if not detected:
+                                                    console.print(f"  ⚠️  [yellow]No code detected in LLM response, skipping tool execution[/yellow]\n")
+                                                    continue
+
+                                                code = detected['code']
+                                                console.print(f"  ✓ [green]Code generated ({len(code)} chars)[/green]\n")
+
+                                                extracted_params = best_match.get('extracted_params', {})
+                                                extracted_params['code'] = code
+
+                                            # Add file_path if extracted from @ prefix
+                                            if file_path:
+                                                extracted_params['file_path'] = file_path
                                             elif 'file_path' not in extracted_params and tool_name in ['write_python_code', 'edit_python_code', 'write_r_code', 'edit_r_code']:
                                                 console.print(f"  ⚠️  [yellow]No file path specified, skipping {tool_name}[/yellow]\n")
                                                 continue

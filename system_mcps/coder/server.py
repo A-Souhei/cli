@@ -1389,29 +1389,6 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
                         debug_print(f"roll_the_dice: Using prompt: {corresponding_prompt[:100]}...")
 
-                        # Use Ollama to generate code
-                        code_prompt = f"Generate {tool_name.split('_')[1]} code for: {corresponding_prompt}\n\nProvide only the code in a markdown code block."
-                        llm_response = call_ollama(code_prompt, model="tinyllama", temperature=0.3)
-
-                        if not llm_response:
-                            execution_result["status"] = "failed"
-                            execution_result["error"] = "Failed to generate code using LLM"
-                            executions.append(execution_result)
-                            continue
-
-                        # Detect and extract code from LLM response
-                        detected = detect_code_language(llm_response)
-
-                        if not detected:
-                            execution_result["status"] = "failed"
-                            execution_result["error"] = "No code detected in LLM response"
-                            execution_result["llm_response"] = llm_response[:500]  # Include first 500 chars for debugging
-                            executions.append(execution_result)
-                            continue
-
-                        lang, code = detected
-                        debug_print(f"roll_the_dice: Extracted {lang} code ({len(code)} chars)")
-
                         # Extract file_path from prompt using @ prefix
                         file_path = None
                         import re
@@ -1419,6 +1396,59 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                         if file_match:
                             file_path = file_match.group(1)
                             debug_print(f"roll_the_dice: Extracted file_path: {file_path}")
+
+                        # For run_python_code/run_r_code, check if we should read existing file
+                        code = None
+                        if tool_name in ["run_python_code", "run_r_code"] and file_path:
+                            # Check if prompt is about running an existing file
+                            run_file_keywords = ['run the file', 'execute the file', 'run @', 'execute @', 'run file']
+                            is_run_file = any(keyword in corresponding_prompt.lower() for keyword in run_file_keywords)
+
+                            if is_run_file:
+                                debug_print(f"roll_the_dice: Reading file: {file_path}")
+                                # Read the file
+                                try:
+                                    full_path = file_path if os.path.isabs(file_path) else os.path.join(working_dir, file_path)
+                                    with open(full_path, 'r') as f:
+                                        code = f.read()
+                                    debug_print(f"roll_the_dice: File read successfully ({len(code)} chars)")
+                                    execution_result["code_source"] = "file"
+                                except FileNotFoundError:
+                                    execution_result["status"] = "failed"
+                                    execution_result["error"] = f"File not found: {file_path}"
+                                    executions.append(execution_result)
+                                    continue
+                                except Exception as e:
+                                    execution_result["status"] = "failed"
+                                    execution_result["error"] = f"Error reading file: {str(e)}"
+                                    executions.append(execution_result)
+                                    continue
+
+                        # If we haven't read code from file, generate it with LLM
+                        if not code:
+                            debug_print(f"roll_the_dice: Generating code with LLM")
+                            code_prompt = f"Generate {tool_name.split('_')[1]} code for: {corresponding_prompt}\n\nProvide only the code in a markdown code block."
+                            llm_response = call_ollama(code_prompt, model="tinyllama", temperature=0.3)
+
+                            if not llm_response:
+                                execution_result["status"] = "failed"
+                                execution_result["error"] = "Failed to generate code using LLM"
+                                executions.append(execution_result)
+                                continue
+
+                            # Detect and extract code from LLM response
+                            detected = detect_code_language(llm_response)
+
+                            if not detected:
+                                execution_result["status"] = "failed"
+                                execution_result["error"] = "No code detected in LLM response"
+                                execution_result["llm_response"] = llm_response[:500]  # Include first 500 chars for debugging
+                                executions.append(execution_result)
+                                continue
+
+                            lang, code = detected
+                            debug_print(f"roll_the_dice: Extracted {lang} code ({len(code)} chars)")
+                            execution_result["code_source"] = "llm"
 
                         # Build tool arguments based on tool type
                         if tool_name in ["write_python_code", "write_r_code", "edit_python_code", "edit_r_code"]:
