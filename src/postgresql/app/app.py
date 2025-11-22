@@ -855,20 +855,20 @@ def text_to_sequence():
     try:
         # Get JSON body
         data = request.get_json()
-        if not data:
+        if data is None:
             return jsonify({
                 'status': 'error',
                 'message': 'Request body must be valid JSON'
             }), 400
 
         # Get required text parameter
-        text = data.get('text')
-        if not text:
+        if 'text' not in data:
             return jsonify({
                 'status': 'error',
                 'message': 'Missing required parameter: text'
             }), 400
 
+        text = data.get('text')
         if not isinstance(text, str):
             return jsonify({
                 'status': 'error',

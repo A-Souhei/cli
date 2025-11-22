@@ -669,7 +669,7 @@ async def list_tools() -> list[Tool]:
                         "description": "Optional working directory for tool executions"
                     }
                 },
-                "required": ["prompts", "session_id"]
+                "required": ["prompts"]
             }
         ),
         Tool(
@@ -699,7 +699,7 @@ async def list_tools() -> list[Tool]:
                         "description": "Maximum iterations for subdividing steps (default: 3, max: 5)"
                     }
                 },
-                "required": ["text"]
+                "required": []
             }
         )
     ]
