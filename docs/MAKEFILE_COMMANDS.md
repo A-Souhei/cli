@@ -27,7 +27,7 @@ make restart              # Restart containers (down + up)
 
 ### Service URLs (after `make up-all`)
 - **Ollama**: http://localhost:11434
-- **PostgreSQL**: localhost:25432 (user: postgres, db: vuhitra)
+- **PostgreSQL**: localhost:35432 (user: postgres, db: vuhitra)
 - **PostgreSQL API**: http://localhost:15000
 - **Redis**: localhost:26379
 - **Redis API**: http://localhost:17000
@@ -238,7 +238,7 @@ Key variables for @ prefixer feature:
 REDIS_HOST_PORT=26379         # Redis port on host
 REDIS_API_PORT=17000          # Redis API port
 TRANSFORMER_HOST_PORT=16050   # Transformer service port
-POSTGRES_HOST_PORT=25432      # PostgreSQL port
+POSTGRES_HOST_PORT=35432      # PostgreSQL port
 FLASK_HOST_PORT=15000         # PostgreSQL API port
 ```
 

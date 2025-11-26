@@ -26,7 +26,7 @@ async def list_models(req: Request):
     Returns list of models available in the Ollama instance.
     """
     try:
-        from app import app_state as state
+        from ollama_api_service.app import app_state as state
 
         # Get models from Ollama
         models_data = await state.ollama_client.list_models()
@@ -34,12 +34,24 @@ async def list_models(req: Request):
         # Convert to Ollama format
         models_list = []
         for model_data in models_data.get("models", []):
+            # Handle modified_at - convert to string if it's a datetime
+            modified_at = model_data.get("modified_at", "")
+            if hasattr(modified_at, 'isoformat'):
+                modified_at = modified_at.isoformat()
+            elif not isinstance(modified_at, str):
+                modified_at = str(modified_at)
+            
+            # Handle details - convert to dict if it's an object
+            details = model_data.get("details")
+            if details and not isinstance(details, dict):
+                details = details.model_dump() if hasattr(details, 'model_dump') else dict(details)
+            
             models_list.append(ModelInfo(
                 name=model_data.get("name", "unknown"),
-                modified_at=model_data.get("modified_at", datetime.utcnow().isoformat() + "Z"),
+                modified_at=modified_at or datetime.utcnow().isoformat() + "Z",
                 size=model_data.get("size", 0),
                 digest=model_data.get("digest", ""),
-                details=model_data.get("details")
+                details=details
             ))
 
         logger.info(f"Listed {len(models_list)} models")

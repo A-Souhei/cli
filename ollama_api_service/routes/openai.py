@@ -29,7 +29,7 @@ async def chat_completions(request: OpenAIChatRequest, req: Request):
     This allows clients that use OpenAI's API format to work with our service.
     """
     try:
-        from app import app_state as state
+        from ollama_api_service.app import app_state as state
 
         # Convert OpenAI messages to Ollama format
         ollama_messages = []
@@ -43,7 +43,7 @@ async def chat_completions(request: OpenAIChatRequest, req: Request):
         model = request.model
         if model.startswith("gpt-"):
             # Map GPT models to Ollama model
-            model = state.config.get("ollama.model", "llama3.1:8b")
+            model = state.config.get_ollama_model()
             logger.info(f"Mapped OpenAI model {request.model} to {model}")
 
         # Prepare options
@@ -179,7 +179,7 @@ async def list_openai_models(req: Request):
     OpenAI-compatible models list endpoint.
     """
     try:
-        from app import app_state as state
+        from ollama_api_service.app import app_state as state
 
         # Get models from Ollama
         models_data = await state.ollama_client.list_models()

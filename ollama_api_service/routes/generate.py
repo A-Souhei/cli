@@ -28,15 +28,15 @@ async def generate(request: GenerateRequest, req: Request):
     """
     try:
         # Get app state
-        from app import app_state as state
+        from ollama_api_service.app import app_state as state
 
         # Get model
-        model = request.model or state.config.get("ollama.model", "llama3.1:8b")
+        model = request.model or state.config.get_ollama_model()
 
         # Prepare options
         options = request.options or {}
         if "temperature" not in options:
-            options["temperature"] = state.config.get("chat.temperature", 0.7)
+            options["temperature"] = state.config.get_temperature()
 
         logger.info(f"Generate request: model={model}, stream={request.stream}")
 

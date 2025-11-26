@@ -76,21 +76,18 @@ async def lifespan(app: FastAPI):
         logger.info(f"Loading config from: {config_path}")
         app_state.config = ConfigManager(str(config_path))
 
-        # Initialize Ollama client adapter
-        ollama_url = app_state.config.get("ollama.url", "http://ollama:11434")
-        ollama_timeout = app_state.config.get("ollama.timeout", 120)
+        # Initialize Ollama client adapter - prefer env var over config file
+        ollama_url = os.environ.get("OLLAMA_API_URL") or app_state.config.get_ollama_url()
+        ollama_timeout = app_state.config.get_ollama_timeout()
         logger.info(f"Connecting to Ollama at: {ollama_url}")
         app_state.ollama_client = OllamaAPIAdapter(
             base_url=ollama_url,
             timeout=ollama_timeout
         )
 
-        # Initialize chat manager
-        system_prompt = app_state.config.get(
-            "chat.system_prompt",
-            "You are a helpful AI assistant with access to tools and code execution."
-        )
-        max_context_length = app_state.config.get("chat.max_context_length", 10)
+        # Initialize chat manager - use ConfigManager's methods
+        system_prompt = app_state.config.get_system_prompt()
+        max_context_length = app_state.config.get_max_context_length()
         app_state.chat_manager = ChatManager(
             system_prompt=system_prompt,
             max_context_length=max_context_length
@@ -101,8 +98,15 @@ async def lifespan(app: FastAPI):
 
         # Initialize MCP client
         logger.info("Initializing MCP client...")
-        app_state.mcp_client = MCPClient(config_manager=app_state.config)
-        await app_state.mcp_client.initialize()
+        system_mcps_dir = Path("/app/system_mcps")
+        if not system_mcps_dir.exists():
+            system_mcps_dir = Path(__file__).parent.parent / "system_mcps"
+        postgres_api_url = os.environ.get("POSTGRES_API_URL", "http://postgres-api:5000")
+        app_state.mcp_client = MCPClient(
+            system_mcps_dir=system_mcps_dir,
+            postgres_url=postgres_api_url,
+            verbose=os.environ.get("MCP_DEBUG", "false").lower() == "true"
+        )
 
         logger.info("✅ Ollama API Service started successfully!")
 
@@ -114,8 +118,7 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down Ollama API Service...")
-    if app_state.mcp_client:
-        await app_state.mcp_client.cleanup()
+    # MCPClient doesn't have a cleanup method - servers are managed per-request
     logger.info("✅ Shutdown complete")
 
 

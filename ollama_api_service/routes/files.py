@@ -45,7 +45,7 @@ async def upload_files(
         List of uploaded file metadata with @ reference paths
     """
     try:
-        from app import app_state as state
+        from ollama_api_service.app import app_state as state
 
         if not session_id:
             # Create new session if not provided
@@ -111,7 +111,7 @@ async def add_context(request: ContextAddRequest, req: Request):
     This is useful for injecting context without uploading files.
     """
     try:
-        from app import app_state as state
+        from ollama_api_service.app import app_state as state
 
         # Use MCP client to add context
         result = await state.mcp_client.call_tool(
@@ -160,7 +160,7 @@ async def chat_with_files(
         - files: [data.csv]
     """
     try:
-        from app import app_state as state
+        from ollama_api_service.app import app_state as state
         from routes.chat import stream_chat_response
 
         # Create session if needed
@@ -201,7 +201,7 @@ async def chat_with_files(
             full_message = f"{message}\n\n[Attached files: {file_list}]"
 
         # Get model
-        model = model or state.config.get("ollama.model", "llama3.1:8b")
+        model = model or state.config.get_ollama_model()
 
         # Prepare messages
         messages = [{"role": "user", "content": full_message}]
@@ -211,7 +211,7 @@ async def chat_with_files(
         if temperature is not None:
             options["temperature"] = temperature
         else:
-            options["temperature"] = state.config.get("chat.temperature", 0.7)
+            options["temperature"] = state.config.get_temperature()
 
         # Stream response
         if stream:

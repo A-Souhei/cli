@@ -123,7 +123,7 @@ up-all: ## Start all Docker containers (Ollama + PostgreSQL + Redis + Transforme
 	@echo ""
 	@echo "Services:"
 	@echo "  - Ollama: http://localhost:11434"
-	@echo "  - PostgreSQL: localhost:25432"
+	@echo "  - PostgreSQL: localhost:35432"
 	@echo "  - Flask API: http://localhost:15000"
 	@echo "  - Redis: localhost:26379"
 	@echo "  - Redis API: http://localhost:17000"

@@ -139,8 +139,11 @@ class OllamaAPIAdapter:
                     models_list.append(model)
                 else:
                     # Convert model object to dict
+                    # Note: Ollama library uses 'model' attr for name, not 'name'
+                    model_name = getattr(model, 'model', None) or getattr(model, 'name', '')
                     models_list.append({
-                        'name': getattr(model, 'name', ''),
+                        'name': model_name,
+                        'model': model_name,
                         'modified_at': getattr(model, 'modified_at', ''),
                         'size': getattr(model, 'size', 0),
                         'digest': getattr(model, 'digest', ''),

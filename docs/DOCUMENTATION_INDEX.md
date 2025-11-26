@@ -107,7 +107,7 @@ Output + Code Execution (MCP)
 - **Ollama (11434)**: LLM inference via official client
 - **PostgreSQL API (15000)**: Flask endpoints for ratings & tools
 - **Transformer (16050)**: NLP tasks (embed, similarity, keywords)
-- **PostgreSQL (25432)**: Persistent data storage
+- **PostgreSQL (35432)**: Persistent data storage
 
 ### Command Patterns
 - **Direct commands**: exit, clear, models, switch, mcps, mcp-tools
@@ -205,7 +205,7 @@ Stores available tools with embeddings:
 | Service | Port | Language | Purpose |
 |---------|------|----------|---------|
 | Ollama | 11434 | Go | LLM inference |
-| PostgreSQL | 25432 | SQL | Data persistence |
+| PostgreSQL | 35432 | SQL | Data persistence |
 | Flask API | 15000 | Python | Rating & tool storage |
 | Transformer | 16050 | Python | Embeddings & NLP |
 | CLI | stdin/stdout | Python | Interactive interface |

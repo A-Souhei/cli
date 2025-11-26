@@ -350,6 +350,31 @@ class MCPClient:
             self.debug_print(f"Error calling tool: {e}", "❌")
             return f"Error: {str(e)}"
 
+    async def list_tools(self) -> List[Dict]:
+        """
+        List all tools from all MCP servers.
+
+        Returns:
+            List of all tools with their MCP server names
+        """
+        all_tools = []
+
+        # Discover all MCPs
+        if not self.system_mcps_dir.exists():
+            self.debug_print("No system_mcps directory found", "⚠️")
+            return all_tools
+
+        for item in self.system_mcps_dir.iterdir():
+            if item.is_dir() and (item / "server.py").exists():
+                mcp_name = item.name
+                tools = await self.get_tools(mcp_name)
+                if tools:
+                    for tool in tools:
+                        tool["mcp_name"] = mcp_name
+                        all_tools.append(tool)
+
+        return all_tools
+
     async def cleanup(self):
         """Cleanup all MCP server processes."""
         self.debug_print("Cleaning up MCP servers...", "🧹")

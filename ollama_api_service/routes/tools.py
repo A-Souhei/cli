@@ -32,7 +32,7 @@ async def list_tools(req: Request):
     Returns all tools from the MCP server with their descriptions and parameters.
     """
     try:
-        from app import app_state as state
+        from ollama_api_service.app import app_state as state
 
         tools = await state.mcp_client.list_tools()
 
@@ -63,7 +63,7 @@ async def execute_tool(request: ToolExecuteRequest, req: Request):
     This allows direct execution of any MCP tool (code execution, file operations, etc.)
     """
     try:
-        from app import app_state as state
+        from ollama_api_service.app import app_state as state
 
         start_time = time.time()
 
@@ -108,7 +108,7 @@ async def retrieve_tools(
     This is the same intelligent tool matching used by the CLI.
     """
     try:
-        from app import app_state as state
+        from ollama_api_service.app import app_state as state
 
         # Use the retrieve_all_tools MCP tool
         result = await state.mcp_client.call_tool(
@@ -141,7 +141,7 @@ async def execute_code(request: CodeExecuteRequest, req: Request):
     This uses the MCP run_python_code or run_r_code tools.
     """
     try:
-        from app import app_state as state
+        from ollama_api_service.app import app_state as state
 
         start_time = time.time()
 
@@ -196,7 +196,7 @@ async def orchestrate(request: OrchestrationRequest, req: Request):
     to break down complex tasks into steps and execute them.
     """
     try:
-        from app import app_state as state
+        from ollama_api_service.app import app_state as state
 
         start_time = time.time()
 
@@ -238,7 +238,7 @@ async def tools_health(req: Request):
     Check health of MCP tools system.
     """
     try:
-        from app import app_state as state
+        from ollama_api_service.app import app_state as state
 
         tools = await state.mcp_client.list_tools()
 

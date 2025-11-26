@@ -389,7 +389,7 @@ import asyncio
 async def init():
     client = MCPClient(
         'system_mcps',
-        'postgresql://postgres:postgres@localhost:25432/vuhitra'
+        'postgresql://postgres:postgres@localhost:35432/vuhitra'
     )
     await client.initialize_tools_in_db()
 

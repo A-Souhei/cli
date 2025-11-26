@@ -133,7 +133,7 @@ This document provides a comprehensive index of all exploration documents create
 - **Ollama** (11434): LLM inference (chat)
 - **PostgreSQL Flask API** (15000): Tool storage, retrieval, matching
 - **Transformer Service** (16050): Text embeddings (384-dim vectors)
-- **PostgreSQL** (25432): Data persistence
+- **PostgreSQL** (35432): Data persistence
 
 ---
 

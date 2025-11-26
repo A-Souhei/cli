@@ -166,7 +166,7 @@ SERVICE PORTS:
 - Ollama: 11434
 - PostgreSQL API: 15000
 - Transformer Service: 16050
-- PostgreSQL Database: 25432
+- PostgreSQL Database: 35432
 
 ENVIRONMENT VARIABLE:
 - MCP_DEBUG=true   # Enable verbose logging
