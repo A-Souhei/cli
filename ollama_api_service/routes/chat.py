@@ -9,7 +9,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 import json
-import time
 from datetime import datetime
 import logging
 
@@ -29,7 +28,6 @@ async def chat(request: ChatRequest, req: Request):
     """
     try:
         # Get app state
-        app_state = req.app.state
         from ollama_api_service.app import app_state as state
 
         # Get model (use from request or default from config)

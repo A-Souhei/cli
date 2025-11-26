@@ -16,13 +16,11 @@ from pathlib import Path
 # Add parent directory to path to import from src/
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
-import time
-from typing import Optional, List
 import uvicorn
 
 # Import from existing src/ (mounted in Docker)
@@ -118,7 +116,9 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down Ollama API Service...")
-    # MCPClient doesn't have a cleanup method - servers are managed per-request
+    # If MCPClient ever adds a cleanup method, call it here
+    if hasattr(app_state.mcp_client, 'cleanup'):
+        await app_state.mcp_client.cleanup()
     logger.info("✅ Shutdown complete")
 
 

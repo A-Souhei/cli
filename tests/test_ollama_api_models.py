@@ -17,7 +17,6 @@ from ollama_api_service.models import (
     ChatRequest,
     ChatResponse,
     GenerateRequest,
-    GenerateResponse,
     ModelInfo,
     ModelsResponse,
     OpenAIMessage,

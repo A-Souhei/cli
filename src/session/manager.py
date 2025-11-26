@@ -7,7 +7,6 @@ history-based context injection and Redis-based persistence.
 """
 
 import uuid
-import json
 import os
 from typing import List, Dict, Optional, Any
 from datetime import datetime

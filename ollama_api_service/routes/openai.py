@@ -9,7 +9,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 import json
-import time
 from datetime import datetime
 import uuid
 import logging
@@ -70,7 +69,6 @@ async def chat_completions(request: OpenAIChatRequest, req: Request):
             )
         else:
             # Non-streaming response
-            start_time = time.time()
             response = await state.ollama_client.chat(
                 model=model,
                 messages=ollama_messages,

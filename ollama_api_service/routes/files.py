@@ -10,9 +10,6 @@ from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
 from typing import List, Optional
 from datetime import datetime
 import logging
-import tempfile
-import os
-import hashlib
 
 from models import (
     FileAttachment,
@@ -59,7 +56,6 @@ async def upload_files(
             content_str = content.decode("utf-8", errors="ignore")
 
             # Create @ reference path
-            file_hash = hashlib.md5(upload_file.filename.encode()).hexdigest()[:8]
             at_path = f"@{upload_file.filename}"
 
             # Store in session context if auto_inject enabled
@@ -67,7 +63,7 @@ async def upload_files(
                 try:
                     # Use the add_file_context tool from MCP
                     # This is similar to what the CLI does with @ prefix
-                    result = await state.mcp_client.call_tool(
+                    await state.mcp_client.call_tool(
                         "coder",
                         "add_file_context",
                         {
@@ -114,7 +110,7 @@ async def add_context(request: ContextAddRequest, req: Request):
         from ollama_api_service.app import app_state as state
 
         # Use MCP client to add context
-        result = await state.mcp_client.call_tool(
+        await state.mcp_client.call_tool(
             "coder",
             "add_file_context",
             {

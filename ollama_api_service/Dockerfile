@@ -39,7 +39,7 @@ ENV PYTHONPATH=/app:/app/ollama_api_service
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python -c "import httpx; httpx.get('http://localhost:8080/health', timeout=5.0)" || exit 1
+    CMD curl -f http://localhost:8080/health || exit 1
 
 # Run the FastAPI server
 CMD ["uvicorn", "ollama_api_service.app:app", "--host", "0.0.0.0", "--port", "8080"]

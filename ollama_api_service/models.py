@@ -4,8 +4,7 @@ These models match the Ollama API specification.
 """
 
 from typing import Optional, List, Dict, Any, Union
-from pydantic import BaseModel, Field
-from datetime import datetime
+from pydantic import BaseModel
 
 
 # ============================================================================

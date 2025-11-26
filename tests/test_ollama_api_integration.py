@@ -11,7 +11,6 @@ Prerequisites:
 import pytest
 import httpx
 import json
-import time
 from typing import Generator
 
 
@@ -28,10 +27,10 @@ def api_client() -> Generator[httpx.Client, None, None]:
 
 
 @pytest.fixture
-def async_api_client() -> Generator[httpx.AsyncClient, None, None]:
+async def async_api_client():
     """Fixture for async HTTP client."""
-    client = httpx.AsyncClient(base_url=API_BASE, timeout=30.0)
-    yield client
+    async with httpx.AsyncClient(base_url=API_BASE, timeout=30.0) as client:
+        yield client
 
 
 @pytest.mark.integration

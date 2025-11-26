@@ -1015,7 +1015,7 @@ def main(verbose=False):
 
                         if choice == "Yes":
                             count = session_manager.clear_all_sessions()
-                            console.print()
+                            console.print(f"\n✅ [green]Cleared {count} session{'s' if count != 1 else ''}.[/green]\n")
                         else:
                             console.print("\n[dim]Cancelled[/dim]\n")
                     except Exception as e:
