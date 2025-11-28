@@ -238,9 +238,10 @@ class TestGenerateRepomapPrompt:
         
         prompt = generate_repomap_prompt(files, tree_output=None)
         
-        # Should not have the explicit "Directory Tree" header from tree_output
-        # (Note: "Directory Structure" is still in instructions)
-        assert '```\nproject/' not in prompt
+        # When tree_output is None, the "Directory Tree" section should not appear
+        # The prompt should still have "Directory Structure" in the instructions section
+        # but not the actual tree content section header
+        assert '## Directory Tree' not in prompt
 
 
 class TestMaxFileContentPreview:

@@ -168,7 +168,11 @@ def generate_repomap_prompt(files: list, tree_output: str = None) -> str:
     for f in files:
         file_summaries.append(f"### {f['path']} ({f['size']} bytes)")
         # Truncate content to avoid overwhelming the LLM
-        content_preview = f['content'][:MAX_FILE_CONTENT_PREVIEW] if len(f['content']) > MAX_FILE_CONTENT_PREVIEW else f['content']
+        content = f['content']
+        if len(content) > MAX_FILE_CONTENT_PREVIEW:
+            content_preview = content[:MAX_FILE_CONTENT_PREVIEW]
+        else:
+            content_preview = content
         file_summaries.append(f"```\n{content_preview}\n```\n")
     
     # Build tree section if provided
@@ -182,11 +186,14 @@ def generate_repomap_prompt(files: list, tree_output: str = None) -> str:
 
 """
     
+    # Join file summaries with newlines
+    files_content = "\n".join(file_summaries)
+    
     prompt = f"""You are a software architect analyzing a codebase. Create a comprehensive repository map (repomap) that will help developers understand the structure and purpose of this codebase.
 
 {tree_section}## Files in the Repository
 
-{chr(10).join(file_summaries)}
+{files_content}
 
 ## Instructions
 
