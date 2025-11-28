@@ -100,10 +100,13 @@ SOURCE_CODE_EXTENSIONS = {
 REPOMAP_EXCLUDE_DIRS = {
     '.git', '__pycache__', 'node_modules', '.pytest_cache',
     '.mypy_cache', '.tox', 'venv', '.venv', 'env', '.env',
-    'dist', 'build', '.eggs', '*.egg-info', '.cache',
+    'dist', 'build', '.eggs', '.cache',
     '.idea', '.vscode', 'target', 'bin', 'obj', 'coverage',
     'htmlcov', '.coverage', '.nyc_output', 'migrations',
 }
+
+# Directory patterns to exclude (suffix matching)
+REPOMAP_EXCLUDE_SUFFIXES = {'.egg-info'}
 
 
 def collect_source_files(working_dir: str, max_files: int = 500) -> list:
@@ -121,8 +124,16 @@ def collect_source_files(working_dir: str, max_files: int = 500) -> list:
     working_path = Path(working_dir)
     
     for file_path in working_path.rglob('*'):
+        # Check if we've reached the limit before processing more files
+        if len(files) >= max_files:
+            break
+            
         # Skip directories in exclusion list
         if any(excluded in file_path.parts for excluded in REPOMAP_EXCLUDE_DIRS):
+            continue
+        
+        # Skip directories matching suffix patterns (e.g., *.egg-info)
+        if any(part.endswith(suffix) for part in file_path.parts for suffix in REPOMAP_EXCLUDE_SUFFIXES):
             continue
             
         # Skip non-files
@@ -133,17 +144,15 @@ def collect_source_files(working_dir: str, max_files: int = 500) -> list:
         if file_path.suffix in SOURCE_CODE_EXTENSIONS or file_path.name in SOURCE_CODE_EXTENSIONS:
             try:
                 relative_path = file_path.relative_to(working_path)
-                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                file_size = file_path.stat().st_size
+                with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
                     content = f.read()
                     
                 files.append({
                     'path': str(relative_path),
                     'content': content,
-                    'size': len(content)
+                    'size': file_size
                 })
-                
-                if len(files) >= max_files:
-                    break
                     
             except (OSError, UnicodeDecodeError):
                 # Skip files that can't be read
@@ -249,8 +258,9 @@ async def load_repomap_to_context(mcp_client, repomap_path: str, working_dir: st
     try:
         return json.loads(result) if result else {'status': 'error', 'message': 'MCP tool returned empty result'}
     except json.JSONDecodeError as parse_error:
-        # Provide more specific error information
-        error_preview = (result[:100] + '...') if result and len(result) > 100 else result
+        # Provide more specific error information with type safety
+        result_str = str(result) if result is not None else ''
+        error_preview = (result_str[:100] + '...') if len(result_str) > 100 else result_str
         return {'status': 'error', 'message': f'Failed to parse response: {parse_error}. Response: {error_preview}'}
 
 
@@ -1272,9 +1282,10 @@ def main(verbose=False):
                         console.print("[yellow]🤖 Generating repository map with LLM...[/yellow]")
                         repomap_prompt = generate_repomap_prompt(source_files, tree_output=tree_output)
                         
-                        # Call the LLM to generate the repomap
-                        chat_manager.add_user_message(repomap_prompt)
-                        messages = chat_manager.get_messages()
+                        # Use a separate chat manager for repomap generation to avoid polluting user's history
+                        repomap_chat_manager = ChatManager(console=console, system_prompt=system_prompt)
+                        repomap_chat_manager.add_user_message(repomap_prompt)
+                        messages = repomap_chat_manager.get_messages()
                         
                         spinner = Spinner("dots", text="[dim]Analyzing codebase...[/dim]", style="cyan")
                         
@@ -1295,7 +1306,7 @@ def main(verbose=False):
                                 )
                                 full_response = response.get('message', {}).get('content', '')
                         
-                        chat_manager.add_assistant_message(full_response)
+                        # No need to save to main chat_manager - repomap generation is isolated
                         
                         # Prepend the tree to the repomap output
                         repomap_content = f"""# Repository Map
@@ -1394,9 +1405,10 @@ def main(verbose=False):
 
                     session_id = session_manager.get_session_id()
 
-                    # Load .repomap file into context if it exists
+                    # Load .repomap file into context if it exists and not already loaded in this session
                     repomap_path = os.path.join(os.getcwd(), '.repomap')
-                    if os.path.exists(repomap_path):
+                    repomap_loaded_key = f'repomap_loaded_{repomap_path}'
+                    if os.path.exists(repomap_path) and not session_manager.session_metadata.get(repomap_loaded_key):
                         console.print("[cyan]📦 Loading repository map into context...[/cyan]")
                         try:
                             repomap_result = run_async(load_repomap_to_context(
@@ -1407,6 +1419,8 @@ def main(verbose=False):
                             ))
                             if repomap_result.get('status') == 'success':
                                 console.print("[green]✓ Repository map loaded[/green]")
+                                # Mark repomap as loaded for this session
+                                session_manager.session_metadata[repomap_loaded_key] = True
                             else:
                                 debug_print(f"Repomap load warning: {repomap_result.get('message')}", icon="⚠️")
                         except Exception as e:
