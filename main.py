@@ -204,31 +204,75 @@ def generate_repomap_prompt(files: list, tree_output: str = None) -> str:
 
 {files_content}
 
-## Instructions
+## CRITICAL Instructions - Read Carefully
 
-Create a detailed repository map with the following sections:
+**BEFORE writing the repository map:**
+1. Carefully examine the Directory Tree above
+2. List ALL top-level directories and applications you see (e.g., python_app/, r_app/, frontend/, etc.)
+3. Identify if there are multiple programming languages or separate applications
+4. Note which files and directories ACTUALLY exist (don't invent/hallucinate directories not shown in the tree)
 
-1. **Project Overview**: A brief description of what this project does and its main purpose.
+**REQUIREMENTS:**
+- Document EVERY top-level directory/application shown in the tree
+- If multiple languages exist (Python, R, JavaScript, etc.), document EACH separately
+- ONLY describe files and directories that appear in the actual tree above
+- DO NOT invent or assume the existence of files/directories not shown (like config/, tests/, docker-compose.yml, etc.)
+- Base your analysis on the actual file contents provided, not assumptions
 
-2. **Architecture**: Describe the overall architecture and design patterns used.
+## Repository Map Structure
 
-3. **Directory Structure**: Explain the purpose of each major directory and how files are organized. Include the tree structure in your response.
+Create a detailed repository map with these sections:
 
-4. **Key Components**: List and describe the main modules, classes, and functions with their responsibilities.
+1. **Project Overview**:
+   - List ALL applications/components found in the repository
+   - Brief description of what each application does
+   - Note if this is a multi-language or multi-application repository
 
-5. **Entry Points**: Identify the main entry points of the application (main functions, CLI commands, API endpoints).
+2. **Applications/Components**:
+   - Create a subsection for EACH top-level directory/application
+   - For each application, describe its purpose and structure
+   - If multiple language implementations exist, document each one
 
-6. **Dependencies**: List key external dependencies and what they're used for.
+3. **Architecture**:
+   - Describe the overall architecture
+   - If multiple apps, describe how they might relate
+   - Mention design patterns observed in the actual code
 
-7. **Data Flow**: Describe how data flows through the system.
+4. **Directory Structure**:
+   - Explain the purpose of each major directory THAT EXISTS in the tree
+   - Describe how files are organized in EACH application
+   - Do NOT add directories that don't exist
 
-8. **Configuration**: Explain configuration files and environment variables.
+5. **Key Components**:
+   - List main modules, classes, and functions from ALL applications
+   - Describe their responsibilities based on actual code
+   - Cover components from all programming languages present
 
-9. **Testing**: Describe the testing structure and how to run tests.
+6. **Entry Points**:
+   - Identify entry points for EACH application
+   - Base this on actual file names (app.py, app.R, main.*, index.*, etc.)
 
-10. **Getting Started**: Quick instructions for developers to get started with the codebase.
+7. **Dependencies**:
+   - List dependencies observed in the actual code
+   - Only mention what you can verify from the file contents
 
-Please provide a clear, well-structured repository map in Markdown format that would help a new developer quickly understand and navigate this codebase."""
+8. **Data Flow**:
+   - Describe how data flows in EACH application
+   - If multiple apps, describe potential interactions
+
+9. **Configuration**:
+   - Only describe configuration files that ACTUALLY exist in the tree
+   - Do NOT mention config files that aren't shown
+
+10. **Testing**:
+    - Only describe test files/directories that ACTUALLY exist
+    - If no tests are visible, say so
+
+11. **Getting Started**:
+    - Provide instructions for EACH application/language
+    - Only reference files that actually exist
+
+Please provide a clear, well-structured repository map in Markdown format that accurately reflects the COMPLETE codebase including ALL applications and languages."""
 
     return prompt
 
@@ -1256,12 +1300,12 @@ def main(verbose=False):
                 # Handle /repomap create command
                 if user_input_normalized.lower() == 'repomap create':
                     console.print("\n📦 [bold cyan]Creating repository map...[/bold cyan]")
-                    console.print(f"[dim]Scanning working directory: {os.getcwd()}[/dim]\n")
-                    
+                    console.print(f"[dim]Scanning working directory: {get_user_working_dir()}[/dim]\n")
+
                     try:
                         # Collect all source files
                         console.print("[yellow]📂 Collecting source code files...[/yellow]")
-                        source_files = collect_source_files(os.getcwd())
+                        source_files = collect_source_files(get_user_working_dir())
                         
                         if not source_files:
                             console.print("\n❌ [red]No source code files found in the working directory.[/red]\n")
@@ -1275,7 +1319,7 @@ def main(verbose=False):
                         
                         # Generate directory tree
                         console.print("[yellow]🌳 Generating directory tree...[/yellow]")
-                        tree_output = generate_tree(os.getcwd(), max_depth=5)
+                        tree_output = generate_tree(get_user_working_dir(), max_depth=5)
                         console.print(f"[green]✓ Directory tree generated[/green]\n")
                         
                         # Generate the LLM prompt with tree
@@ -1327,9 +1371,9 @@ def main(verbose=False):
 
 {full_response}
 """
-                        
+
                         # Write the repomap to file
-                        repomap_path = os.path.join(os.getcwd(), '.repomap')
+                        repomap_path = os.path.join(get_user_working_dir(), '.repomap')
                         with open(repomap_path, 'w', encoding='utf-8') as f:
                             f.write(repomap_content)
                         
@@ -1351,7 +1395,7 @@ def main(verbose=False):
 
                 # Handle /repomap load command
                 if user_input_normalized.lower() == 'repomap load':
-                    repomap_path = os.path.join(os.getcwd(), '.repomap')
+                    repomap_path = os.path.join(get_user_working_dir(), '.repomap')
                     
                     if not os.path.exists(repomap_path):
                         console.print(f"\n❌ [red]No .repomap file found at: {repomap_path}[/red]")
@@ -1414,7 +1458,7 @@ def main(verbose=False):
                     session_id = session_manager.get_session_id()
 
                     # Load .repomap file into context if it exists and not already loaded in this session
-                    repomap_path = os.path.join(os.getcwd(), '.repomap')
+                    repomap_path = os.path.join(get_user_working_dir(), '.repomap')
                     repomap_loaded_key = f'repomap_loaded_{repomap_path}'
                     if os.path.exists(repomap_path) and not session_manager.session_metadata.get(repomap_loaded_key):
                         console.print("[cyan]📦 Loading repository map into context...[/cyan]")
