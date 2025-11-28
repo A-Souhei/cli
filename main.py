@@ -1670,7 +1670,37 @@ def main(verbose=False):
                                                 # For write/edit tools or run without file path, generate code with LLM
                                                 console.print(f"  🤖 [yellow]Generating code with LLM...[/yellow]")
 
-                                                chat_manager.add_user_message(step)
+                                                # For edit tools, read the original file to provide context
+                                                original_file_content = None
+                                                if tool_name in ['edit_python_code', 'edit_r_code'] and file_path:
+                                                    try:
+                                                        if os.path.exists(file_path):
+                                                            with open(file_path, 'r') as f:
+                                                                original_file_content = f.read()
+                                                            console.print(f"  📂 [dim]Read original file: {file_path} ({len(original_file_content)} chars)[/dim]")
+                                                    except Exception as e:
+                                                        console.print(f"  ⚠️  [yellow]Could not read original file: {e}[/yellow]")
+
+                                                # Build the prompt with original file context for edits
+                                                if original_file_content:
+                                                    edit_prompt = f"""I need you to edit this file: {file_path}
+
+ORIGINAL FILE CONTENT:
+```
+{original_file_content}
+```
+
+REQUESTED CHANGES:
+{step}
+
+Please provide the COMPLETE updated file content with the requested changes applied. 
+Make surgical edits - only modify what's necessary to fulfill the request.
+Keep all existing code that doesn't need to change.
+Output only the code, no explanations."""
+                                                    chat_manager.add_user_message(edit_prompt)
+                                                else:
+                                                    chat_manager.add_user_message(step)
+                                                
                                                 messages = chat_manager.get_messages()
 
                                                 spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
