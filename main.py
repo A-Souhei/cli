@@ -52,6 +52,183 @@ def get_user_working_dir():
     return _USER_WORKING_DIR
 
 
+# Source code file extensions to include in repomap
+SOURCE_CODE_EXTENSIONS = {
+    # Python
+    '.py', '.pyw', '.pyi',
+    # JavaScript/TypeScript
+    '.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs',
+    # Web
+    '.html', '.htm', '.css', '.scss', '.sass', '.less',
+    # Java
+    '.java', '.kt', '.kts', '.scala',
+    # C/C++
+    '.c', '.h', '.cpp', '.hpp', '.cc', '.hh', '.cxx', '.hxx',
+    # C#
+    '.cs', '.csx',
+    # Go
+    '.go',
+    # Rust
+    '.rs',
+    # Ruby
+    '.rb', '.rake', '.gemspec',
+    # PHP
+    '.php',
+    # Swift
+    '.swift',
+    # R
+    '.r', '.R',
+    # Shell
+    '.sh', '.bash', '.zsh', '.fish',
+    # Config/Data
+    '.json', '.yaml', '.yml', '.toml', '.ini', '.cfg',
+    # Markdown/Documentation
+    '.md', '.rst', '.txt',
+    # SQL
+    '.sql',
+    # Dockerfile
+    'Dockerfile',
+    # Makefile
+    'Makefile',
+}
+
+# Directories to exclude from repomap scanning
+REPOMAP_EXCLUDE_DIRS = {
+    '.git', '__pycache__', 'node_modules', '.pytest_cache',
+    '.mypy_cache', '.tox', 'venv', '.venv', 'env', '.env',
+    'dist', 'build', '.eggs', '*.egg-info', '.cache',
+    '.idea', '.vscode', 'target', 'bin', 'obj', 'coverage',
+    'htmlcov', '.coverage', '.nyc_output', 'migrations',
+}
+
+
+def collect_source_files(working_dir: str, max_files: int = 500) -> list:
+    """
+    Collect all source code files from the working directory.
+    
+    Args:
+        working_dir: Root directory to scan
+        max_files: Maximum number of files to collect
+        
+    Returns:
+        List of dicts with 'path' and 'content' keys
+    """
+    files = []
+    working_path = Path(working_dir)
+    
+    for file_path in working_path.rglob('*'):
+        # Skip directories in exclusion list
+        if any(excluded in file_path.parts for excluded in REPOMAP_EXCLUDE_DIRS):
+            continue
+            
+        # Skip non-files
+        if not file_path.is_file():
+            continue
+            
+        # Check if file matches source code extensions
+        if file_path.suffix in SOURCE_CODE_EXTENSIONS or file_path.name in SOURCE_CODE_EXTENSIONS:
+            try:
+                relative_path = file_path.relative_to(working_path)
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    
+                files.append({
+                    'path': str(relative_path),
+                    'content': content,
+                    'size': len(content)
+                })
+                
+                if len(files) >= max_files:
+                    break
+                    
+            except (OSError, UnicodeDecodeError) as e:
+                # Skip files that can't be read
+                continue
+                
+    return files
+
+
+def generate_repomap_prompt(files: list) -> str:
+    """
+    Generate an LLM prompt to create a comprehensive repository map.
+    
+    Args:
+        files: List of file dicts with 'path' and 'content'
+        
+    Returns:
+        Prompt string for the LLM
+    """
+    # Build file summaries
+    file_summaries = []
+    for f in files:
+        file_summaries.append(f"### {f['path']} ({f['size']} bytes)")
+        # Truncate content to avoid overwhelming the LLM
+        content_preview = f['content'][:2000] if len(f['content']) > 2000 else f['content']
+        file_summaries.append(f"```\n{content_preview}\n```\n")
+    
+    prompt = f"""You are a software architect analyzing a codebase. Create a comprehensive repository map (repomap) that will help developers understand the structure and purpose of this codebase.
+
+## Files in the Repository
+
+{chr(10).join(file_summaries)}
+
+## Instructions
+
+Create a detailed repository map with the following sections:
+
+1. **Project Overview**: A brief description of what this project does and its main purpose.
+
+2. **Architecture**: Describe the overall architecture and design patterns used.
+
+3. **Directory Structure**: Explain the purpose of each major directory and how files are organized.
+
+4. **Key Components**: List and describe the main modules, classes, and functions with their responsibilities.
+
+5. **Entry Points**: Identify the main entry points of the application (main functions, CLI commands, API endpoints).
+
+6. **Dependencies**: List key external dependencies and what they're used for.
+
+7. **Data Flow**: Describe how data flows through the system.
+
+8. **Configuration**: Explain configuration files and environment variables.
+
+9. **Testing**: Describe the testing structure and how to run tests.
+
+10. **Getting Started**: Quick instructions for developers to get started with the codebase.
+
+Please provide a clear, well-structured repository map in Markdown format that would help a new developer quickly understand and navigate this codebase."""
+
+    return prompt
+
+
+async def load_repomap_to_context(mcp_client, repomap_path: str, working_dir: str, session_id: str = None) -> dict:
+    """
+    Load a .repomap file into context using the MCP client.
+    
+    Args:
+        mcp_client: MCPClient instance
+        repomap_path: Path to the .repomap file
+        working_dir: Working directory
+        session_id: Optional session ID for persistence
+        
+    Returns:
+        Result dict with status and message
+    """
+    args = {
+        'file_path': repomap_path,
+        'working_dir': working_dir
+    }
+    if session_id:
+        args['session_id'] = session_id
+        
+    result = await mcp_client.call_tool('coder', 'add_file_context', args)
+    
+    try:
+        return json.loads(result) if result else {'status': 'error', 'message': 'Empty result'}
+    except json.JSONDecodeError:
+        return {'status': 'error', 'message': result or 'Unknown error'}
+
+
 def run_async(coro):
     """
     Run an async coroutine safely, handling nested event loop scenarios.
@@ -806,6 +983,8 @@ def print_banner():
     console.print("  [bold]'/session restore <id>'[/bold] - Restore a saved session")
     console.print("  [bold]'/session list'[/bold] - List all saved sessions")
     console.print("  [bold]'/session clear'[/bold] - Clear all saved sessions")
+    console.print("  [bold]'/repomap create'[/bold] - Create a repository map from working directory")
+    console.print("  [bold]'/repomap load'[/bold] - Load existing .repomap file into context")
     console.print("  [bold]'/code <prompt>'[/bold] - Analyze and execute code tasks (requires session)")
     console.print()
 
@@ -1037,6 +1216,120 @@ def main(verbose=False):
                             console.print("\n[dim]Cancelled[/dim]\n")
                     except Exception as e:
                         console.print(f"❌ [red]Error clearing sessions: {e}[/red]\n")
+                    continue
+
+                # Handle /repomap create command
+                if user_input_normalized.lower() == 'repomap create':
+                    console.print("\n📦 [bold cyan]Creating repository map...[/bold cyan]")
+                    console.print(f"[dim]Scanning working directory: {os.getcwd()}[/dim]\n")
+                    
+                    try:
+                        # Collect all source files
+                        console.print("[yellow]📂 Collecting source code files...[/yellow]")
+                        source_files = collect_source_files(os.getcwd())
+                        
+                        if not source_files:
+                            console.print("\n❌ [red]No source code files found in the working directory.[/red]\n")
+                            continue
+                            
+                        console.print(f"[green]✓ Found {len(source_files)} source files[/green]")
+                        
+                        # Calculate total size
+                        total_size = sum(f['size'] for f in source_files)
+                        console.print(f"[dim]  Total size: {total_size:,} bytes[/dim]\n")
+                        
+                        # Generate the LLM prompt
+                        console.print("[yellow]🤖 Generating repository map with LLM...[/yellow]")
+                        repomap_prompt = generate_repomap_prompt(source_files)
+                        
+                        # Call the LLM to generate the repomap
+                        chat_manager.add_user_message(repomap_prompt)
+                        messages = chat_manager.get_messages()
+                        
+                        spinner = Spinner("dots", text="[dim]Analyzing codebase...[/dim]", style="cyan")
+                        
+                        with Live(spinner, console=console, refresh_per_second=10):
+                            if stream:
+                                full_response = ""
+                                for chunk in ollama_client.chat(
+                                    messages=messages,
+                                    stream=True,
+                                    temperature=temperature
+                                ):
+                                    full_response += chunk
+                            else:
+                                response = ollama_client.chat(
+                                    messages=messages,
+                                    stream=False,
+                                    temperature=temperature
+                                )
+                                full_response = response.get('message', {}).get('content', '')
+                        
+                        chat_manager.add_assistant_message(full_response)
+                        
+                        # Write the repomap to file
+                        repomap_path = os.path.join(os.getcwd(), '.repomap')
+                        with open(repomap_path, 'w', encoding='utf-8') as f:
+                            f.write(full_response)
+                        
+                        console.print(f"\n[bold green]✓ Repository map created successfully![/bold green]")
+                        console.print(f"[cyan]📄 Saved to: {repomap_path}[/cyan]\n")
+                        
+                        # Show preview
+                        preview_lines = full_response.split('\n')[:15]
+                        console.print("[dim]Preview:[/dim]")
+                        console.print(CustomMarkdown('\n'.join(preview_lines) + '\n...', code_theme="monokai"))
+                        console.print()
+                        
+                    except Exception as e:
+                        console.print(f"\n❌ [red]Error creating repository map: {e}[/red]\n")
+                        if verbose:
+                            import traceback
+                            console.print(f"[dim]{traceback.format_exc()}[/dim]")
+                    continue
+
+                # Handle /repomap load command
+                if user_input_normalized.lower() == 'repomap load':
+                    repomap_path = os.path.join(os.getcwd(), '.repomap')
+                    
+                    if not os.path.exists(repomap_path):
+                        console.print(f"\n❌ [red]No .repomap file found at: {repomap_path}[/red]")
+                        console.print("[dim]Use '/repomap create' to generate a repository map first.[/dim]\n")
+                        continue
+                    
+                    console.print(f"\n📂 [cyan]Loading repository map: {repomap_path}[/cyan]")
+                    
+                    try:
+                        # Get session ID if active
+                        session_id = session_manager.get_session_id() if session_manager.is_active() else None
+                        
+                        # Load the repomap into context
+                        result = run_async(load_repomap_to_context(
+                            mcp_client,
+                            '.repomap',
+                            os.getcwd(),
+                            session_id
+                        ))
+                        
+                        if result.get('status') == 'success':
+                            content_size = result.get('content_size', 0)
+                            console.print(f"[bold green]✓ Repository map loaded into context![/bold green]")
+                            console.print(f"[dim]  Size: {content_size:,} bytes[/dim]")
+                            if session_id:
+                                console.print(f"[dim]  Session: {session_id[:16]}...[/dim]")
+                            else:
+                                console.print(f"[dim]  Session: temporary (start a session for persistence)[/dim]")
+                            console.print()
+                        else:
+                            error_msg = result.get('message', 'Unknown error')
+                            console.print(f"[yellow]⚠️  Warning: {error_msg}[/yellow]")
+                            console.print("[dim]The repomap file may still be usable.[/dim]\n")
+                            
+                    except Exception as e:
+                        console.print(f"\n❌ [red]Error loading repository map: {e}[/red]\n")
+                        if verbose:
+                            import traceback
+                            console.print(f"[dim]{traceback.format_exc()}[/dim]")
                     continue
 
                 # Handle /code command - simplified version
