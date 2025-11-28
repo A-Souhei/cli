@@ -14,6 +14,7 @@ from main import (
     generate_repomap_prompt,
     SOURCE_CODE_EXTENSIONS,
     REPOMAP_EXCLUDE_DIRS,
+    MAX_FILE_CONTENT_PREVIEW,
 )
 
 
@@ -131,7 +132,9 @@ class TestCollectSourceFiles:
             assert len(files) == 2
             paths = [f['path'] for f in files]
             assert 'main.py' in paths
-            assert 'src/utils/helper.py' in paths or 'src\\utils\\helper.py' in paths
+            # Use os.path.join for cross-platform compatibility
+            expected_nested_path = os.path.join('src', 'utils', 'helper.py')
+            assert expected_nested_path in paths
 
     def test_includes_file_size(self):
         """Test that file size is included in result."""
@@ -189,11 +192,11 @@ class TestGenerateRepomapPrompt:
         
         prompt = generate_repomap_prompt(files)
         
-        # Content should be truncated to approximately 2000 chars
+        # Content should be truncated to approximately MAX_FILE_CONTENT_PREVIEW chars
         # The prompt should not contain all 5000 chars
         # Allow some overhead for markdown formatting (code block markers etc)
         x_count = prompt.count('x')
-        assert x_count <= 2100  # Allow small overhead for formatting
+        assert x_count <= MAX_FILE_CONTENT_PREVIEW + 100  # Allow small overhead for formatting
 
     def test_handles_empty_files_list(self):
         """Test handling of empty files list."""
@@ -212,6 +215,41 @@ class TestGenerateRepomapPrompt:
         prompt = generate_repomap_prompt(files)
         
         assert '100 bytes' in prompt or '100' in prompt
+
+    def test_includes_tree_when_provided(self):
+        """Test that tree output is included when provided."""
+        files = [{'path': 'test.py', 'content': 'print("hello")', 'size': 15}]
+        tree_output = """project/
+├── src/
+│   └── main.py
+└── README.md"""
+        
+        prompt = generate_repomap_prompt(files, tree_output=tree_output)
+        
+        # Check that tree is included
+        assert 'Directory Tree' in prompt
+        assert 'src/' in prompt
+        assert 'main.py' in prompt
+        assert 'README.md' in prompt
+
+    def test_no_tree_section_when_not_provided(self):
+        """Test that tree section is not included when tree_output is None."""
+        files = [{'path': 'test.py', 'content': 'print("hello")', 'size': 15}]
+        
+        prompt = generate_repomap_prompt(files, tree_output=None)
+        
+        # Should not have the explicit "Directory Tree" header from tree_output
+        # (Note: "Directory Structure" is still in instructions)
+        assert '```\nproject/' not in prompt
+
+
+class TestMaxFileContentPreview:
+    """Tests for MAX_FILE_CONTENT_PREVIEW constant."""
+
+    def test_constant_value(self):
+        """Test that the constant has an appropriate value."""
+        assert MAX_FILE_CONTENT_PREVIEW == 2000
+        assert isinstance(MAX_FILE_CONTENT_PREVIEW, int)
 
 
 class TestSourceCodeExtensions:

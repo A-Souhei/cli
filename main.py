@@ -29,6 +29,7 @@ from prompt_toolkit import prompt
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.formatted_text import FormattedText
 from src.file_completer import CombinedCompleter, extract_at_context, remove_at_prefixed_paths
+from src.utils.tree import generate_tree
 
 # Apply nest_asyncio once globally to allow nested event loops
 import nest_asyncio
@@ -51,6 +52,9 @@ def get_user_working_dir():
         _USER_WORKING_DIR = os.environ.get('AI_CLI_CWD', os.getcwd())
     return _USER_WORKING_DIR
 
+
+# Constants for repomap functionality
+MAX_FILE_CONTENT_PREVIEW = 2000  # Maximum characters to include from each file
 
 # Source code file extensions to include in repomap
 SOURCE_CODE_EXTENSIONS = {
@@ -111,7 +115,7 @@ def collect_source_files(working_dir: str, max_files: int = 500) -> list:
         max_files: Maximum number of files to collect
         
     Returns:
-        List of dicts with 'path' and 'content' keys
+        List of dicts with 'path', 'content', and 'size' keys
     """
     files = []
     working_path = Path(working_dir)
@@ -141,19 +145,20 @@ def collect_source_files(working_dir: str, max_files: int = 500) -> list:
                 if len(files) >= max_files:
                     break
                     
-            except (OSError, UnicodeDecodeError) as e:
+            except (OSError, UnicodeDecodeError):
                 # Skip files that can't be read
                 continue
                 
     return files
 
 
-def generate_repomap_prompt(files: list) -> str:
+def generate_repomap_prompt(files: list, tree_output: str = None) -> str:
     """
     Generate an LLM prompt to create a comprehensive repository map.
     
     Args:
-        files: List of file dicts with 'path' and 'content'
+        files: List of file dicts with 'path', 'content', and 'size' keys
+        tree_output: Optional directory tree string to include
         
     Returns:
         Prompt string for the LLM
@@ -163,12 +168,23 @@ def generate_repomap_prompt(files: list) -> str:
     for f in files:
         file_summaries.append(f"### {f['path']} ({f['size']} bytes)")
         # Truncate content to avoid overwhelming the LLM
-        content_preview = f['content'][:2000] if len(f['content']) > 2000 else f['content']
+        content_preview = f['content'][:MAX_FILE_CONTENT_PREVIEW] if len(f['content']) > MAX_FILE_CONTENT_PREVIEW else f['content']
         file_summaries.append(f"```\n{content_preview}\n```\n")
+    
+    # Build tree section if provided
+    tree_section = ""
+    if tree_output:
+        tree_section = f"""## Directory Tree
+
+```
+{tree_output}
+```
+
+"""
     
     prompt = f"""You are a software architect analyzing a codebase. Create a comprehensive repository map (repomap) that will help developers understand the structure and purpose of this codebase.
 
-## Files in the Repository
+{tree_section}## Files in the Repository
 
 {chr(10).join(file_summaries)}
 
@@ -180,7 +196,7 @@ Create a detailed repository map with the following sections:
 
 2. **Architecture**: Describe the overall architecture and design patterns used.
 
-3. **Directory Structure**: Explain the purpose of each major directory and how files are organized.
+3. **Directory Structure**: Explain the purpose of each major directory and how files are organized. Include the tree structure in your response.
 
 4. **Key Components**: List and describe the main modules, classes, and functions with their responsibilities.
 
@@ -224,9 +240,11 @@ async def load_repomap_to_context(mcp_client, repomap_path: str, working_dir: st
     result = await mcp_client.call_tool('coder', 'add_file_context', args)
     
     try:
-        return json.loads(result) if result else {'status': 'error', 'message': 'Empty result'}
-    except json.JSONDecodeError:
-        return {'status': 'error', 'message': result or 'Unknown error'}
+        return json.loads(result) if result else {'status': 'error', 'message': 'MCP tool returned empty result'}
+    except json.JSONDecodeError as parse_error:
+        # Provide more specific error information
+        error_preview = (result[:100] + '...') if result and len(result) > 100 else result
+        return {'status': 'error', 'message': f'Failed to parse response: {parse_error}. Response: {error_preview}'}
 
 
 def run_async(coro):
@@ -1238,9 +1256,14 @@ def main(verbose=False):
                         total_size = sum(f['size'] for f in source_files)
                         console.print(f"[dim]  Total size: {total_size:,} bytes[/dim]\n")
                         
-                        # Generate the LLM prompt
+                        # Generate directory tree
+                        console.print("[yellow]🌳 Generating directory tree...[/yellow]")
+                        tree_output = generate_tree(os.getcwd(), max_depth=5)
+                        console.print(f"[green]✓ Directory tree generated[/green]\n")
+                        
+                        # Generate the LLM prompt with tree
                         console.print("[yellow]🤖 Generating repository map with LLM...[/yellow]")
-                        repomap_prompt = generate_repomap_prompt(source_files)
+                        repomap_prompt = generate_repomap_prompt(source_files, tree_output=tree_output)
                         
                         # Call the LLM to generate the repomap
                         chat_manager.add_user_message(repomap_prompt)
@@ -1267,16 +1290,28 @@ def main(verbose=False):
                         
                         chat_manager.add_assistant_message(full_response)
                         
+                        # Prepend the tree to the repomap output
+                        repomap_content = f"""# Repository Map
+
+## Directory Tree
+
+```
+{tree_output}
+```
+
+{full_response}
+"""
+                        
                         # Write the repomap to file
                         repomap_path = os.path.join(os.getcwd(), '.repomap')
                         with open(repomap_path, 'w', encoding='utf-8') as f:
-                            f.write(full_response)
+                            f.write(repomap_content)
                         
                         console.print(f"\n[bold green]✓ Repository map created successfully![/bold green]")
                         console.print(f"[cyan]📄 Saved to: {repomap_path}[/cyan]\n")
                         
                         # Show preview
-                        preview_lines = full_response.split('\n')[:15]
+                        preview_lines = repomap_content.split('\n')[:20]
                         console.print("[dim]Preview:[/dim]")
                         console.print(CustomMarkdown('\n'.join(preview_lines) + '\n...', code_theme="monokai"))
                         console.print()
@@ -1351,6 +1386,24 @@ def main(verbose=False):
                         session_manager.start_session()
 
                     session_id = session_manager.get_session_id()
+
+                    # Load .repomap file into context if it exists
+                    repomap_path = os.path.join(os.getcwd(), '.repomap')
+                    if os.path.exists(repomap_path):
+                        console.print("[cyan]📦 Loading repository map into context...[/cyan]")
+                        try:
+                            repomap_result = run_async(load_repomap_to_context(
+                                mcp_client,
+                                '.repomap',
+                                os.getcwd(),
+                                session_id
+                            ))
+                            if repomap_result.get('status') == 'success':
+                                console.print("[green]✓ Repository map loaded[/green]")
+                            else:
+                                debug_print(f"Repomap load warning: {repomap_result.get('message')}", icon="⚠️")
+                        except Exception as e:
+                            debug_print(f"Failed to load repomap: {e}", icon="⚠️")
 
                     # Store @ references in session metadata for access by all tools
                     if at_references:

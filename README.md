@@ -257,6 +257,8 @@ The repomap feature helps you create and maintain a comprehensive map of your re
 📦 Creating repository map...
 📂 Collecting source code files...
 ✓ Found 50 source files
+🌳 Generating directory tree...
+✓ Directory tree generated
 🤖 Generating repository map with LLM...
 ✓ Repository map created successfully!
 📄 Saved to: /path/to/.repomap
@@ -271,7 +273,11 @@ The repomap feature helps you create and maintain a comprehensive map of your re
   Session: temporary (start a session for persistence)
 ```
 
+**Automatic Loading with /code Command:**
+When using the `/code` command, the `.repomap` file (if it exists) is automatically loaded into context to provide better understanding of the codebase structure.
+
 The `.repomap` file contains:
+- **Directory Tree**: ASCII visualization of the project structure
 - Project overview and purpose
 - Architecture and design patterns
 - Directory structure explanation
