@@ -20,6 +20,7 @@ from main import (
 )
 
 
+@pytest.mark.unit
 class TestCollectSourceFiles:
     """Tests for collect_source_files function."""
 
@@ -87,20 +88,36 @@ class TestCollectSourceFiles:
             assert files[0]['path'] == 'app.js'
 
     def test_excludes_git_directory(self):
-        """Test that .git directory is excluded."""
+        """Test that .git directory is excluded even for source files."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Create files in .git
+            # Create a Python file in .git that would otherwise match extensions
             git_dir = Path(tmpdir) / ".git" / "objects"
             git_dir.mkdir(parents=True)
-            (git_dir / "test").write_text("git object")
-            
+            (git_dir / "test.py").write_text("# Should be excluded")
+
             # Create a regular file
             (Path(tmpdir) / "main.py").write_text("# Main file")
-            
+
             files = collect_source_files(tmpdir)
-            
+
             assert len(files) == 1
             assert files[0]['path'] == 'main.py'
+
+    def test_does_not_exclude_files_with_excluded_names_in_filename(self):
+        """Test that files with excluded directory names in their filename are included."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create files whose names contain excluded directory names
+            (Path(tmpdir) / "my_venv_helper.py").write_text("# Should be included")
+            (Path(tmpdir) / "node_modules_parser.py").write_text("# Should be included")
+            (Path(tmpdir) / "git_utils.py").write_text("# Should be included")
+
+            files = collect_source_files(tmpdir)
+
+            assert len(files) == 3
+            paths = [f['path'] for f in files]
+            assert 'my_venv_helper.py' in paths
+            assert 'node_modules_parser.py' in paths
+            assert 'git_utils.py' in paths
 
     def test_respects_max_files_limit(self):
         """Test that max_files limit is respected."""
@@ -155,6 +172,7 @@ class TestCollectSourceFiles:
             assert files[0]['size'] == test_file.stat().st_size
 
 
+@pytest.mark.unit
 class TestGenerateRepomapPrompt:
     """Tests for generate_repomap_prompt function."""
 
@@ -252,6 +270,7 @@ class TestGenerateRepomapPrompt:
         assert '## Directory Tree' not in prompt
 
 
+@pytest.mark.unit
 class TestMaxFileContentPreview:
     """Tests for MAX_FILE_CONTENT_PREVIEW constant."""
 
@@ -261,6 +280,7 @@ class TestMaxFileContentPreview:
         assert isinstance(MAX_FILE_CONTENT_PREVIEW, int)
 
 
+@pytest.mark.unit
 class TestSourceCodeExtensions:
     """Tests for SOURCE_CODE_EXTENSIONS constant."""
 
@@ -279,6 +299,7 @@ class TestSourceCodeExtensions:
             assert ext in SOURCE_CODE_EXTENSIONS, f"Missing extension: {ext}"
 
 
+@pytest.mark.unit
 class TestRepomapExcludeDirs:
     """Tests for REPOMAP_EXCLUDE_DIRS constant."""
 
@@ -293,6 +314,7 @@ class TestRepomapExcludeDirs:
             assert dirname in REPOMAP_EXCLUDE_DIRS, f"Missing exclude dir: {dirname}"
 
 
+@pytest.mark.unit
 class TestRepomapExcludeSuffixes:
     """Tests for REPOMAP_EXCLUDE_SUFFIXES constant and suffix-based exclusion."""
 
@@ -319,6 +341,7 @@ class TestRepomapExcludeSuffixes:
             assert files[0]['path'] == 'setup.py'
 
 
+@pytest.mark.unit
 class TestLoadRepomapToContext:
     """Tests for load_repomap_to_context async function."""
 

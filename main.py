@@ -128,12 +128,12 @@ def collect_source_files(working_dir: str, max_files: int = 500) -> list:
         if len(files) >= max_files:
             break
             
-        # Skip directories in exclusion list
-        if any(excluded in file_path.parts for excluded in REPOMAP_EXCLUDE_DIRS):
+        # Skip directories in exclusion list (only check directory parts, not filename)
+        if any(excluded in file_path.parts[:-1] for excluded in REPOMAP_EXCLUDE_DIRS):
             continue
         
         # Skip directories matching suffix patterns (e.g., *.egg-info)
-        if any(part.endswith(suffix) for part in file_path.parts for suffix in REPOMAP_EXCLUDE_SUFFIXES):
+        if any(part.endswith(suffix) for part in file_path.parts[:-1] for suffix in REPOMAP_EXCLUDE_SUFFIXES):
             continue
             
         # Skip non-files
@@ -164,11 +164,11 @@ def collect_source_files(working_dir: str, max_files: int = 500) -> list:
 def generate_repomap_prompt(files: list, tree_output: str = None) -> str:
     """
     Generate an LLM prompt to create a comprehensive repository map.
-    
+
     Args:
         files: List of file dicts with 'path', 'content', and 'size' keys
-        tree_output: Optional directory tree string to include
-        
+        tree_output: Optional directory tree string to include (default: None - no tree section added)
+
     Returns:
         Prompt string for the LLM
     """
@@ -1281,7 +1281,15 @@ def main(verbose=False):
                         # Generate the LLM prompt with tree
                         console.print("[yellow]🤖 Generating repository map with LLM...[/yellow]")
                         repomap_prompt = generate_repomap_prompt(source_files, tree_output=tree_output)
-                        
+
+                        # Check prompt size and warn if it's very large
+                        prompt_size = len(repomap_prompt)
+                        # Rough estimate: 4 chars per token for most LLMs
+                        estimated_tokens = prompt_size // 4
+                        if prompt_size > 500_000:  # ~500KB
+                            console.print(f"[yellow]⚠️  Warning: Large prompt size ({prompt_size:,} chars, ~{estimated_tokens:,} tokens)[/yellow]")
+                            console.print(f"[yellow]   This may exceed token limits for some LLMs or cause slower processing.[/yellow]\n")
+
                         # Use a separate chat manager for repomap generation to avoid polluting user's history
                         repomap_chat_manager = ChatManager(console=console, system_prompt=system_prompt)
                         repomap_chat_manager.add_user_message(repomap_prompt)
