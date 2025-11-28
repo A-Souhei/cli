@@ -25,7 +25,9 @@ class OllamaClient:
         self,
         messages: List[Dict[str, str]],
         stream: bool = True,
-        temperature: float = 0.7
+        temperature: float = 0.7,
+        num_predict: int = None,
+        model: str = None
     ) -> Generator[str, None, None] | Dict[str, Any]:
         """
         Send a chat request to Ollama.
@@ -34,16 +36,25 @@ class OllamaClient:
             messages: List of message dictionaries with 'role' and 'content'
             stream: Whether to stream the response
             temperature: Temperature for response generation
+            num_predict: Maximum number of tokens to predict (None = use model default)
+            model: Override the default model for this request (None = use default)
 
         Returns:
             Generator of response chunks if streaming, otherwise complete response
         """
         try:
+            options = {'temperature': temperature}
+            if num_predict is not None:
+                options['num_predict'] = num_predict
+            
+            # Use provided model or fall back to default
+            use_model = model if model else self.model
+            
             response = self.client.chat(
-                model=self.model,
+                model=use_model,
                 messages=messages,
                 stream=stream,
-                options={'temperature': temperature}
+                options=options
             )
 
             if stream:

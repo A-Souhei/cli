@@ -1683,20 +1683,29 @@ def main(verbose=False):
 
                                                 # Build the prompt with original file context for edits
                                                 if original_file_content:
-                                                    edit_prompt = f"""I need you to edit this file: {file_path}
+                                                    line_count = len(original_file_content.splitlines())
+                                                    edit_prompt = f"""TASK: Edit the Python file below. Make ONLY the specific changes requested.
 
-ORIGINAL FILE CONTENT:
-```
+FILE TO EDIT: {file_path} ({line_count} lines)
+
+=== ORIGINAL FILE START ===
 {original_file_content}
-```
+=== ORIGINAL FILE END ===
 
-REQUESTED CHANGES:
-{step}
+REQUESTED CHANGES: {step}
 
-Please provide the COMPLETE updated file content with the requested changes applied. 
-Make surgical edits - only modify what's necessary to fulfill the request.
-Keep all existing code that doesn't need to change.
-Output only the code, no explanations."""
+CRITICAL RULES:
+1. Output the COMPLETE file with ALL {line_count} lines (or close to it)
+2. DO NOT remove, truncate, or summarize any existing functions, classes, or code
+3. DO NOT add comments like "# Rest of your methods..." or "# ... existing code ..."
+4. DO NOT change imports, class structure, or method signatures unless specifically requested
+5. Make ONLY the minimal changes needed to fulfill the request
+6. Preserve all docstrings, comments, and formatting
+
+Wrap your output in a markdown code block like this:
+```python
+<the complete updated file content here>
+```"""
                                                     chat_manager.add_user_message(edit_prompt)
                                                 else:
                                                     chat_manager.add_user_message(step)
@@ -1705,24 +1714,38 @@ Output only the code, no explanations."""
 
                                                 spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
 
+                                                # For edit operations with original file, use coder model and allow more tokens
+                                                edit_num_predict = 8192 if original_file_content else None
+                                                edit_model = config.get_coder_model() if original_file_content else None
+
                                                 with Live(spinner, console=console, refresh_per_second=10):
                                                     if stream:
                                                         full_response = ""
                                                         for chunk in ollama_client.chat(
                                                             messages=messages,
                                                             stream=True,
-                                                            temperature=temperature
+                                                            temperature=temperature,
+                                                            num_predict=edit_num_predict,
+                                                            model=edit_model
                                                         ):
                                                             full_response += chunk
                                                     else:
                                                         response = ollama_client.chat(
                                                             messages=messages,
                                                             stream=False,
-                                                            temperature=temperature
+                                                            temperature=temperature,
+                                                            num_predict=edit_num_predict,
+                                                            model=edit_model
                                                         )
                                                         full_response = response.get('message', {}).get('content', '')
 
                                                 chat_manager.add_assistant_message(full_response)
+
+                                                # Debug: show response length (temporary)
+                                                if original_file_content:
+                                                    console.print(f"  [dim]LLM response: {len(full_response)} chars[/dim]")
+                                                    if len(full_response) < 500:
+                                                        console.print(f"  [dim]Response preview: {full_response[:300]}...[/dim]")
 
                                                 detected = mcp_client.detect_code(full_response)
 
