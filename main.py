@@ -1466,7 +1466,7 @@ def main(verbose=False):
                             repomap_result = run_async(load_repomap_to_context(
                                 mcp_client,
                                 '.repomap',
-                                os.getcwd(),
+                                get_user_working_dir(),
                                 session_id
                             ))
                             if repomap_result.get('status') == 'success':
