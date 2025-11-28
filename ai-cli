@@ -1,0 +1,42 @@
+#!/bin/bash
+# AI CLI - Global wrapper script
+# This script allows running the AI CLI from any directory
+
+# The installation directory of the CLI (will be replaced by install-global.sh)
+CLI_DIR="/path/to/cli"
+
+# Check if CLI_DIR exists
+if [ ! -d "$CLI_DIR" ]; then
+    echo "Error: AI CLI installation not found at $CLI_DIR"
+    echo "Please reinstall the AI CLI or update the CLI_DIR in this script."
+    exit 1
+fi
+
+# Store the current working directory to pass to the CLI
+export AI_CLI_CWD="$(pwd)"
+
+# Change to CLI directory to run the application
+cd "$CLI_DIR"
+
+# Virtual environment directory
+VENV_DIR="venv"
+
+# Check if virtual environment exists
+if [ ! -d "$VENV_DIR" ]; then
+    echo "Virtual environment not found. Please run setup.sh first."
+    exit 1
+fi
+
+# Activate virtual environment and run the CLI
+source "$VENV_DIR/bin/activate"
+
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to activate virtual environment"
+    exit 1
+fi
+
+# Run the main application with all passed arguments
+python main.py "$@"
+
+# Deactivate virtual environment on exit
+deactivate

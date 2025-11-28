@@ -35,6 +35,23 @@ import nest_asyncio
 nest_asyncio.apply()
 
 
+# Cache for user working directory (set once at startup)
+_USER_WORKING_DIR = None
+
+
+def get_user_working_dir():
+    """
+    Get the user's original working directory.
+    When running globally via ai-cli, uses AI_CLI_CWD env var.
+    Otherwise falls back to current directory.
+    Result is cached for performance.
+    """
+    global _USER_WORKING_DIR
+    if _USER_WORKING_DIR is None:
+        _USER_WORKING_DIR = os.environ.get('AI_CLI_CWD', os.getcwd())
+    return _USER_WORKING_DIR
+
+
 def run_async(coro):
     """
     Run an async coroutine safely, handling nested event loop scenarios.
@@ -352,7 +369,7 @@ async def handle_code_file_writing(mcp_client: MCPClient, response_text: str, ta
         arguments={
             "file_path": target_file,
             "code": code,
-            "working_dir": os.getcwd()
+            "working_dir": get_user_working_dir()
         }
     )
 
@@ -435,7 +452,7 @@ async def handle_file_modifications(mcp_client: MCPClient, response_text: str, f
                 code = '\n'.join(code_lines[1:]).strip()
 
             # Determine full path
-            full_path = os.path.join(os.getcwd(), file_path)
+            full_path = os.path.join(get_user_working_dir(), file_path)
             file_exists = os.path.exists(full_path)
 
             # Determine language and tool
@@ -461,7 +478,7 @@ async def handle_file_modifications(mcp_client: MCPClient, response_text: str, f
                 arguments={
                     "file_path": file_path,
                     "code": code,
-                    "working_dir": os.getcwd()
+                    "working_dir": get_user_working_dir()
                 }
             )
 
@@ -852,7 +869,7 @@ def main(verbose=False):
         history = FileHistory(str(HISTORY_FILE))
 
         # Initialize combined completer for / commands and @ file paths
-        combined_completer = CombinedCompleter(working_dir=os.getcwd())
+        combined_completer = CombinedCompleter(working_dir=get_user_working_dir())
 
         # Main chat loop
         while True:
@@ -1045,7 +1062,7 @@ def main(verbose=False):
                     # Store @ references in session metadata for access by all tools
                     if at_references:
                         session_manager.session_metadata['at_references'] = at_references
-                        session_manager.session_metadata['working_dir'] = os.getcwd()
+                        session_manager.session_metadata['working_dir'] = get_user_working_dir()
                         debug_print(f"Stored @ references in session context: {at_references}", icon="📎")
 
                     console.print(f"\n🎯 [bold cyan]Processing code command...[/bold cyan]")
@@ -1261,7 +1278,7 @@ def main(verbose=False):
 
                                         # Add working_dir if not present
                                         if 'working_dir' not in extracted_params:
-                                            extracted_params['working_dir'] = os.getcwd()
+                                            extracted_params['working_dir'] = get_user_working_dir()
 
                                         # Add session_id for tools that need it
                                         if 'session_id' not in extracted_params and session_manager.is_active():
@@ -1397,7 +1414,7 @@ def main(verbose=False):
                     continue
 
                 # Process @ prefixed file/directory paths
-                at_context = extract_at_context(user_input, os.getcwd())
+                at_context = extract_at_context(user_input, get_user_working_dir())
                 context_added = False
 
                 # Collect file and directory contents to inject into conversation
@@ -1411,7 +1428,7 @@ def main(verbose=False):
                         # Add file context using MCP tool
                         args = {
                             'file_path': file_path,
-                            'working_dir': os.getcwd()
+                            'working_dir': get_user_working_dir()
                         }
                         if session_id:
                             args['session_id'] = session_id
@@ -1444,7 +1461,7 @@ def main(verbose=False):
                         # Add directory context using MCP tool
                         args = {
                             'dir_path': dir_path,
-                            'working_dir': os.getcwd()
+                            'working_dir': get_user_working_dir()
                         }
                         if session_id:
                             args['session_id'] = session_id
@@ -1751,7 +1768,7 @@ Ensure all imports are correct, syntax is valid, and the code runs without error
                                             'verify_file_modifications',
                                             {
                                                 'file_path': target_verify_file,
-                                                'working_dir': os.getcwd()
+                                                'working_dir': get_user_working_dir()
                                             }
                                         ))
 
