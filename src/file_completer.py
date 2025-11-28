@@ -26,6 +26,8 @@ class SlashCommandCompleter(Completer):
         ('/session start', 'Start a context session'),
         ('/session end', 'End the current session'),
         ('/session info', 'View current session info'),
+        ('/repomap create', 'Create a repository map from working directory'),
+        ('/repomap load', 'Load existing .repomap file into context'),
         ('/code <prompt>', 'Analyze and execute code tasks (requires session)'),
     ]
 

@@ -242,7 +242,49 @@ Once the CLI starts, you can:
   - `/session list` - List all saved sessions (NEW)
   - `/session restore <id>` - Restore a previous session (NEW)
   - `/session clear` - Clear all saved sessions (NEW)
+- **Repomap commands:**
+  - `/repomap create` - Create a repository map from working directory
+  - `/repomap load` - Load existing .repomap file into context
 - **Exit:** Type `exit` or `quit` to close the CLI
+
+### Repomap Feature
+
+The repomap feature helps you create and maintain a comprehensive map of your repository structure. This is useful for providing AI assistants with context about your codebase.
+
+**Creating a Repository Map:**
+```
+▶ /repomap create
+📦 Creating repository map...
+📂 Collecting source code files...
+✓ Found 50 source files
+🌳 Generating directory tree...
+✓ Directory tree generated
+🤖 Generating repository map with LLM...
+✓ Repository map created successfully!
+📄 Saved to: /path/to/.repomap
+```
+
+**Loading a Repository Map into Context:**
+```
+▶ /repomap load
+📂 Loading repository map: .repomap
+✓ Repository map loaded into context!
+  Size: 15,230 bytes
+  Session: temporary (start a session for persistence)
+```
+
+**Automatic Loading with /code Command:**
+When using the `/code` command, the `.repomap` file (if it exists) is automatically loaded into context to provide better understanding of the codebase structure.
+
+The `.repomap` file contains:
+- **Directory Tree**: ASCII visualization of the project structure
+- Project overview and purpose
+- Architecture and design patterns
+- Directory structure explanation
+- Key components and their responsibilities
+- Entry points and dependencies
+- Data flow and configuration details
+- Testing structure and getting started guide
 
 ### Session Feature
 
