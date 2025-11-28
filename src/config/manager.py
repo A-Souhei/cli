@@ -40,6 +40,10 @@ class ConfigManager:
         """Get the Ollama model name."""
         return self.config.get('ollama', {}).get('model', 'llama2')
 
+    def get_coder_model(self) -> str:
+        """Get the Ollama coder model name for code editing tasks."""
+        return self.config.get('ollama', {}).get('coder_model', self.get_ollama_model())
+
     def get_ollama_timeout(self) -> int:
         """Get the Ollama request timeout."""
         return self.config.get('ollama', {}).get('timeout', 120)

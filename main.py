@@ -1558,6 +1558,27 @@ def main(verbose=False):
                                         mcp_name = best_match.get('mcp_name', 'coder')
                                         similarity = best_match.get('similarity', 0)
 
+                                        # Valid coding tools for /code command execution
+                                        valid_coding_tools = [
+                                            'run_python_code', 'run_r_code', 'detect_code',
+                                            'write_python_code', 'write_r_code',
+                                            'edit_python_code', 'edit_r_code',
+                                            'add_file_context', 'add_directory_context',
+                                            'verify_file_modifications'
+                                        ]
+                                        
+                                        # Meta-tools should not be executed directly in /code steps
+                                        meta_tools = ['retrieve_all_tools', 'roll_the_dice', 'spin_the_roulette']
+                                        
+                                        if tool_name in meta_tools:
+                                            console.print(f"  ⚠️  [yellow]Skipping meta-tool '{tool_name}' (not suitable for direct execution)[/yellow]\n")
+                                            continue
+                                        
+                                        if tool_name not in valid_coding_tools:
+                                            console.print(f"  ⚠️  [yellow]Matched invalid tool '{tool_name}', skipping step[/yellow]\n")
+                                            debug_print(f"Invalid tool matched: {tool_name} (similarity: {similarity})", icon="⚠️")
+                                            continue
+
                                         console.print(f"  🔧 [cyan]Matched tool:[/cyan] {tool_name} [dim](similarity: {similarity:.2f})[/dim]")
 
                                         # Step 2: For code generation tools, use LLM to generate code first
@@ -1649,10 +1670,59 @@ def main(verbose=False):
                                                 # For write/edit tools or run without file path, generate code with LLM
                                                 console.print(f"  🤖 [yellow]Generating code with LLM...[/yellow]")
 
-                                                chat_manager.add_user_message(step)
+                                                # For edit tools, read the original file to provide context
+                                                original_file_content = None
+                                                if tool_name in ['edit_python_code', 'edit_r_code'] and file_path:
+                                                    try:
+                                                        if os.path.exists(file_path):
+                                                            with open(file_path, 'r') as f:
+                                                                original_file_content = f.read()
+                                                            console.print(f"  📂 [dim]Read original file: {file_path} ({len(original_file_content)} chars)[/dim]")
+                                                    except Exception as e:
+                                                        console.print(f"  ⚠️  [yellow]Could not read original file: {e}[/yellow]")
+
+                                                # Build the prompt with original file context for edits
+                                                if original_file_content:
+                                                    line_count = len(original_file_content.splitlines())
+                                                    # Determine language based on tool name
+                                                    is_r_code = tool_name == 'edit_r_code'
+                                                    lang_name = "R" if is_r_code else "Python"
+                                                    code_block_marker = "r" if is_r_code else "python"
+                                                    comment_prefix = "#" if is_r_code else "#"  # Both use # for comments
+                                                    
+                                                    edit_prompt = f"""TASK: Edit the {lang_name} file below. Make ONLY the specific changes requested.
+
+FILE TO EDIT: {file_path} ({line_count} lines)
+
+=== ORIGINAL FILE START ===
+{original_file_content}
+=== ORIGINAL FILE END ===
+
+REQUESTED CHANGES: {step}
+
+CRITICAL RULES:
+1. Output the COMPLETE file with ALL {line_count} lines (or close to it)
+2. DO NOT remove, truncate, or summarize any existing functions, classes, or code
+3. DO NOT add comments like "{comment_prefix} Rest of your methods..." or "{comment_prefix} ... existing code ..."
+4. DO NOT change imports, class structure, or method signatures unless specifically requested
+5. Make ONLY the minimal changes needed to fulfill the request
+6. Preserve all docstrings, comments, and formatting
+
+Wrap your output in a markdown code block like this:
+```{code_block_marker}
+<the complete updated file content here>
+```"""
+                                                    chat_manager.add_user_message(edit_prompt)
+                                                else:
+                                                    chat_manager.add_user_message(step)
+                                                
                                                 messages = chat_manager.get_messages()
 
                                                 spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
+
+                                                # For edit operations with original file, use coder model and allow more tokens
+                                                edit_num_predict = 8192 if original_file_content else None
+                                                edit_model = config.get_coder_model() if original_file_content else None
 
                                                 with Live(spinner, console=console, refresh_per_second=10):
                                                     if stream:
@@ -1660,14 +1730,18 @@ def main(verbose=False):
                                                         for chunk in ollama_client.chat(
                                                             messages=messages,
                                                             stream=True,
-                                                            temperature=temperature
+                                                            temperature=temperature,
+                                                            num_predict=edit_num_predict,
+                                                            model=edit_model
                                                         ):
                                                             full_response += chunk
                                                     else:
                                                         response = ollama_client.chat(
                                                             messages=messages,
                                                             stream=False,
-                                                            temperature=temperature
+                                                            temperature=temperature,
+                                                            num_predict=edit_num_predict,
+                                                            model=edit_model
                                                         )
                                                         full_response = response.get('message', {}).get('content', '')
 
@@ -1694,6 +1768,16 @@ def main(verbose=False):
                                         else:
                                             # Non-code-generation tools: use extracted params
                                             extracted_params = best_match.get('extracted_params', {})
+                                            
+                                            # Strip @ prefix from file_path if present (LLM may include it)
+                                            if 'file_path' in extracted_params and extracted_params['file_path']:
+                                                fp = extracted_params['file_path']
+                                                if fp.startswith('@'):
+                                                    extracted_params['file_path'] = fp[1:]
+                                            if 'directory_path' in extracted_params and extracted_params['directory_path']:
+                                                dp = extracted_params['directory_path']
+                                                if dp.startswith('@'):
+                                                    extracted_params['directory_path'] = dp[1:]
 
                                         # Add working_dir if not present
                                         if 'working_dir' not in extracted_params:

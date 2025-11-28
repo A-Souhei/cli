@@ -439,24 +439,33 @@ def extract_parameters_from_text(text, tool_name):
 
     # 3. Context operations (add_file_context, add_directory_context)
     elif 'context' in tool_name or 'add' in tool_name:
-        # Look for file or directory paths
-        path_patterns = [
-            r'([^\s,;]+(?:/[^\s,;]+)+)',  # Unix-style paths (check first for full paths)
-            r'([A-Za-z]:\\[^\s,;]+)',  # Windows-style paths
-            r'(?:file|directory|folder|path)\s+([^\s,;]+)',  # Keyword-prefixed paths
-        ]
+        # Look for file or directory paths - first try @ prefixed paths
+        at_path_match = re.search(r'@([\w\-./]+(?:\.py|\.r|\.R)?)', text)
+        if at_path_match:
+            path = at_path_match.group(1)  # group(1) excludes the @
+            if 'directory' in tool_name or 'folder' in text_lower:
+                params['directory_path'] = path
+            else:
+                params['file_path'] = path
+        else:
+            # Fallback to other path patterns
+            path_patterns = [
+                r'([^\s,;@]+(?:/[^\s,;@]+)+)',  # Unix-style paths (exclude @)
+                r'([A-Za-z]:\\[^\s,;]+)',  # Windows-style paths
+                r'(?:file|directory|folder|path)\s+([^\s,;@]+)',  # Keyword-prefixed paths
+            ]
 
-        for pattern in path_patterns:
-            match = re.search(pattern, text)
-            if match:
-                path = match.group(1)
-                # Skip if path is just "context" or other keywords
-                if path.lower() not in ['context', 'file', 'directory', 'folder', 'path', 'for', 'to', 'at']:
-                    if 'directory' in tool_name or 'folder' in text_lower:
-                        params['directory_path'] = path
-                    else:
-                        params['file_path'] = path
-                    break
+            for pattern in path_patterns:
+                match = re.search(pattern, text)
+                if match:
+                    path = match.group(1)
+                    # Skip if path is just "context" or other keywords
+                    if path.lower() not in ['context', 'file', 'directory', 'folder', 'path', 'for', 'to', 'at']:
+                        if 'directory' in tool_name or 'folder' in text_lower:
+                            params['directory_path'] = path
+                        else:
+                            params['file_path'] = path
+                        break
 
     # 4. Generic text content extraction
     if not params:
@@ -1141,28 +1150,59 @@ def code_command_simple():
                 'message': 'No MCP tools found in database. Please initialize tools first.'
             }), 404
 
-        # Step 2: Format tools as RAG context for LLM
-        tools_context = "Available MCP Tools:\n\n"
-        for tool in tools:
-            tools_context += f"- {tool.tool_name} (MCP: {tool.mcp_name})\n"
-            tools_context += f"  Description: {tool.description}\n\n"
+        # Step 2: Create prompt for LLM to split the user's request
+        # Extract any file paths mentioned with @ prefix for context
+        mentioned_files = re.findall(r'@([\w\-./]+(?:\.py|\.r|\.R)?)', text)
+        file_context = ""
+        if mentioned_files:
+            file_context = f"\nFiles mentioned by user: {', '.join(mentioned_files)}"
+        
+        llm_prompt = f"""You are a coding task planner. Break the user's request into executable steps.
 
-        # Step 3: Create prompt for LLM to split the user's request
-        llm_prompt = f"""{tools_context}
+USER REQUEST: {text}
+{file_context}
 
-User Request:
-{text}
+AVAILABLE TOOLS (use ONLY these):
+1. add_file_context - Load a file into context to read its contents (use FIRST to understand existing code)
+2. edit_python_code - Modify an EXISTING Python file (requires the file to exist)
+3. write_python_code - Create a NEW Python file (only for new files)
+4. run_python_code - Execute Python code directly (for testing/validation)
+5. run_r_code - Execute R code directly (for testing/validation)
+6. write_r_code - Create a NEW R file (only for new files)
+7. edit_r_code - Modify an EXISTING R file (requires the file to exist)
+8. add_directory_context - Load the contents of a directory into context (to understand project structure)
+9. verify_file_modifications - Check that a file was modified as expected (for validation)
 
-Your task: Break down the user's request into clear, sequential steps where EACH step is designed to use ONE tool from the list above.
+CRITICAL RULES:
+1. Each step must be a plain English sentence describing ONE action
+2. ALWAYS start by loading relevant files with add_file_context before editing them
+3. Use EXACT file paths from the user's request (paths starting with @)
+4. If the user mentions a class/function name, infer the likely file path:
+   - UserService → services/user_service.py
+   - ProductService → services/product_service.py  
+   - helpers → utils/helpers.py
+   - Models → models/*.py
+5. NEVER use function-call syntax like "tool_name(args)"
+6. NEVER reference tools that don't exist (no read_python_code, no read_file)
 
-IMPORTANT: Preserve ALL file paths that use @ prefix (e.g., @file.py, @path/to/file.py) EXACTLY as they appear in the user's request. Do not rephrase or remove these references.
+STEP PATTERN FOR EDITING EXISTING CODE:
+1. "Load @path/to/file.py into context using add_file_context" (to read current code)
+2. "Load any dependency files into context using add_file_context" (if importing from other files)
+3. "Edit @path/to/file.py to [describe changes] using edit_python_code"
 
-Each step should be a complete, actionable prompt that clearly describes what needs to be done.
+EXAMPLES:
+User: "Add validation to UserService.create_user using validate_email from utils/helpers.py"
+Steps:
+["Load services/user_service.py into context using add_file_context",
+ "Load utils/helpers.py into context using add_file_context", 
+ "Edit services/user_service.py to import validate_email and add email validation to create_user method using edit_python_code"]
 
-Respond with ONLY a JSON array of step strings. Format exactly like this:
-["step 1 prompt here", "step 2 prompt here", "step 3 prompt here"]
+User: "Create a new calculator module"
+Steps:
+["Write a new Python file calculator.py with basic calculator functions using write_python_code"]
 
-Do not include any explanation or additional text. Just the JSON array."""
+Return ONLY a JSON array of step strings. No explanation, just the array:
+["step 1", "step 2", "step 3"]"""
 
         # Step 4: Call LLM
         print(f"[code-command-simple] Calling LLM to split prompt (length: {len(text)})")
@@ -1203,16 +1243,62 @@ Do not include any explanation or additional text. Just the JSON array."""
         if not cleaned_steps:
             cleaned_steps = [text]  # Fallback to original text
 
-        print(f"[code-command-simple] Successfully generated {len(cleaned_steps)} steps")
+        # Step 6: Validate steps - filter out invalid patterns
+        validated_steps = []
+        # Non-existent tools that LLM might invent
+        non_existent_tools = ['read_python_code', 'read_r_code', 'read_file', 'get_file_contents', 'load_file']
+        # Meta-tools that shouldn't be used in step generation
+        meta_tools = ['spin_the_roulette', 'retrieve_all_tools', 'roll_the_dice']
+        
+        for step in cleaned_steps:
+            step_lower = step.lower()
+            should_skip = False
+            
+            # Check for non-existent tools using word boundary matching to avoid false positives
+            for invalid_tool in non_existent_tools:
+                if re.search(rf'\b{re.escape(invalid_tool)}\b', step_lower):
+                    print(f"[code-command-simple] Filtering step with non-existent tool '{invalid_tool}': {step[:50]}...")
+                    should_skip = True
+                    break
+            
+            # Check for meta-tools (these shouldn't be used in code tasks)
+            if not should_skip:
+                for meta_tool in meta_tools:
+                    if re.search(rf'\b{re.escape(meta_tool)}\b', step_lower):
+                        print(f"[code-command-simple] Filtering step with meta-tool '{meta_tool}': {step[:50]}...")
+                        should_skip = True
+                        break
+            
+            # Check for function-call style format (e.g., "tool_name(args)")
+            if not should_skip:
+                if re.match(r'^[a-z_]+\s*\(', step_lower):
+                    print(f"[code-command-simple] Filtering function-call style step: {step[:50]}...")
+                    should_skip = True
+            
+            if not should_skip:
+                validated_steps.append(step)
+
+        # If all steps were filtered, fall back to a sensible default
+        if not validated_steps:
+            # Check if the original prompt has file references
+            file_refs = re.findall(r'@([\w\-./]+(?:\.py|\.r|\.R)?)', text)
+            if file_refs:
+                validated_steps = [f"Load the file {file_refs[0]} into context using add_file_context"]
+                if 'edit' in text.lower() or 'add' in text.lower() or 'modify' in text.lower():
+                    validated_steps.append(f"Edit the file {file_refs[0]} based on the user's request using edit_python_code")
+            else:
+                validated_steps = ["Note: No file paths were provided. Please specify the file path with @ prefix (e.g., @path/to/file.py)"]
+
+        print(f"[code-command-simple] Successfully generated {len(validated_steps)} steps (filtered from {len(cleaned_steps)})")
 
         return jsonify({
             'status': 'success',
-            'steps': cleaned_steps,
+            'steps': validated_steps,
             'session_id': session_id,
             'metadata': {
-                'total_steps': len(cleaned_steps),
+                'total_steps': len(validated_steps),
                 'model_used': model,
-                'tools_available': len(tools)
+                'tools_available': len([t for t in tools if t.tool_name not in meta_tools])
             }
         }), 200
 

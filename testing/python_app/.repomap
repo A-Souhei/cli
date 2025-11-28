@@ -1,0 +1,103 @@
+# Repository Map
+
+## Directory Tree
+
+```
+python_app/
+├── models/
+│   ├── __init__.py (106.0 B)
+│   ├── product.py (1.2 KB)
+│   └── user.py (1.1 KB)
+├── services/
+│   ├── __init__.py (152.0 B)
+│   ├── product_service.py (2.8 KB)
+│   └── user_service.py (2.4 KB)
+├── utils/
+│   ├── __init__.py (174.0 B)
+│   └── helpers.py (837.0 B)
+├── app.py (3.1 KB)
+└── TEST_PROMPTS.md (3.4 KB)
+
+```
+
+# Repository Map
+
+## Project Overview
+This repository is a Python-based web application designed to manage users and products. It includes models for data representation, services for business logic, utilities for helper functions, and an entry point file (`app.py`) that demonstrates the application's functionality.
+
+## Applications/Components
+### python_app/
+- **Description**: The primary component of the application.
+  - **Purpose**: Manages user and product data.
+  - **Structure**:
+    - `models/`: Contains data models for User and Product.
+    - `services/`: Contains business logic services for managing users and products.
+    - `utils/`: Contains utility functions for formatting currency, validating emails, and calculating percentages.
+    - `app.py`: The entry point file that demonstrates the application's functionality.
+
+## Architecture
+- **Layered Design**: The application follows a layered architecture with models, services, and utilities.
+  - **Model Layer**: Handles data representation.
+  - **Service Layer**: Manages business logic.
+  - **Utility Layer**: Provides reusable functions.
+- **Monolithic Application**: All components are within the same Python application.
+
+## Directory Structure
+- `python_app/`: The root directory for the main application.
+  - `models/`: Contains data models.
+    - `__init__.py`
+    - `product.py`
+    - `user.py`
+  - `services/`: Contains business logic services.
+    - `__init__.py`
+    - `product_service.py`
+    - `user_service.py`
+  - `utils/`: Contains utility functions.
+    - `__init__.py`
+    - `helpers.py`
+  - `app.py`: The entry point file.
+  - `TEST_PROMPTS.md`: Test prompts for demonstrating the @ prefixer feature.
+
+## Key Components
+### Models
+- **User**: Represents a user with attributes like ID, name, email, and creation timestamp.
+- **Product**: Represents a product with attributes like ID, name, price, stock, and discount.
+
+### Services
+- **UserService**: Manages user-related operations like creating, retrieving, updating, and deleting users.
+- **ProductService**: Manages product-related operations like creating, retrieving, updating, deleting products, and managing stock.
+
+### Utilities
+- **format_currency(amount: float) -> str**: Formats a number as currency.
+- **validate_email(email: str) -> bool**: Validates an email address using a simple regex pattern.
+- **calculate_percentage(part: float, whole: float) -> float**: Calculates the percentage of a part relative to a whole.
+
+## Entry Points
+- `app.py`: The entry point for the application. It demonstrates how to use the models and services by creating users and products, managing their data, and displaying formatted currency.
+
+## Dependencies
+- **Python Standard Library**: Used for regular expressions (`re` module) in email validation.
+- **Data Classes**: Used in models (`dataclasses` module) for data representation.
+
+## Data Flow
+- **User Creation**: A new user is created using the `UserService.create_user()` method, which interacts with the `User` model to store the user's data.
+- **Product Management**: Products are managed through the `ProductService` class, including operations like creating, updating stock, and applying discounts.
+
+## Configuration
+- No configuration files exist in this repository. All necessary settings are hardcoded within the application code.
+
+## Testing
+- No test files or directories exist in this repository.
+
+## Getting Started
+1. **Environment Setup**: Ensure Python is installed on your system.
+2. **Installation**:
+   ```bash
+   pip install -r requirements.txt  # If any dependencies are listed, install them.
+   ```
+3. **Running the Application**:
+   ```bash
+   python app.py
+   ```
+
+This repository map provides a comprehensive overview of the Python-based web application, including its structure, architecture, and key components.
