@@ -1150,13 +1150,7 @@ def code_command_simple():
                 'message': 'No MCP tools found in database. Please initialize tools first.'
             }), 404
 
-        # Step 2: Format tools as RAG context for LLM
-        # Build list of coding-focused tools only (exclude meta-tools)
-        coding_tools = ['run_python_code', 'run_r_code', 'write_python_code', 
-                        'write_r_code', 'edit_python_code', 'edit_r_code', 'add_file_context', 
-                        'add_directory_context', 'verify_file_modifications']
-
-        # Step 3: Create prompt for LLM to split the user's request
+        # Step 2: Create prompt for LLM to split the user's request
         # Extract any file paths mentioned with @ prefix for context
         mentioned_files = re.findall(r'@([\w\-./]+(?:\.py|\.r|\.R)?)', text)
         file_context = ""
@@ -1173,6 +1167,11 @@ AVAILABLE TOOLS (use ONLY these):
 2. edit_python_code - Modify an EXISTING Python file (requires the file to exist)
 3. write_python_code - Create a NEW Python file (only for new files)
 4. run_python_code - Execute Python code directly (for testing/validation)
+5. run_r_code - Execute R code directly (for testing/validation)
+6. write_r_code - Create a NEW R file (only for new files)
+7. edit_r_code - Modify an EXISTING R file (requires the file to exist)
+8. add_directory_context - Load the contents of a directory into context (to understand project structure)
+9. verify_file_modifications - Check that a file was modified as expected (for validation)
 
 CRITICAL RULES:
 1. Each step must be a plain English sentence describing ONE action
@@ -1255,9 +1254,9 @@ Return ONLY a JSON array of step strings. No explanation, just the array:
             step_lower = step.lower()
             should_skip = False
             
-            # Check for non-existent tools
+            # Check for non-existent tools using word boundary matching to avoid false positives
             for invalid_tool in non_existent_tools:
-                if invalid_tool in step_lower:
+                if re.search(rf'\b{re.escape(invalid_tool)}\b', step_lower):
                     print(f"[code-command-simple] Filtering step with non-existent tool '{invalid_tool}': {step[:50]}...")
                     should_skip = True
                     break
@@ -1265,7 +1264,7 @@ Return ONLY a JSON array of step strings. No explanation, just the array:
             # Check for meta-tools (these shouldn't be used in code tasks)
             if not should_skip:
                 for meta_tool in meta_tools:
-                    if meta_tool in step_lower:
+                    if re.search(rf'\b{re.escape(meta_tool)}\b', step_lower):
                         print(f"[code-command-simple] Filtering step with meta-tool '{meta_tool}': {step[:50]}...")
                         should_skip = True
                         break
@@ -1282,7 +1281,7 @@ Return ONLY a JSON array of step strings. No explanation, just the array:
         # If all steps were filtered, fall back to a sensible default
         if not validated_steps:
             # Check if the original prompt has file references
-            file_refs = re.findall(r'@([\w\-./]+\.py)', text)
+            file_refs = re.findall(r'@([\w\-./]+(?:\.py|\.r|\.R)?)', text)
             if file_refs:
                 validated_steps = [f"Load the file {file_refs[0]} into context using add_file_context"]
                 if 'edit' in text.lower() or 'add' in text.lower() or 'modify' in text.lower():

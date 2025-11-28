@@ -1684,7 +1684,13 @@ def main(verbose=False):
                                                 # Build the prompt with original file context for edits
                                                 if original_file_content:
                                                     line_count = len(original_file_content.splitlines())
-                                                    edit_prompt = f"""TASK: Edit the Python file below. Make ONLY the specific changes requested.
+                                                    # Determine language based on tool name
+                                                    is_r_code = tool_name == 'edit_r_code'
+                                                    lang_name = "R" if is_r_code else "Python"
+                                                    code_block_marker = "r" if is_r_code else "python"
+                                                    comment_prefix = "#" if is_r_code else "#"  # Both use # for comments
+                                                    
+                                                    edit_prompt = f"""TASK: Edit the {lang_name} file below. Make ONLY the specific changes requested.
 
 FILE TO EDIT: {file_path} ({line_count} lines)
 
@@ -1697,13 +1703,13 @@ REQUESTED CHANGES: {step}
 CRITICAL RULES:
 1. Output the COMPLETE file with ALL {line_count} lines (or close to it)
 2. DO NOT remove, truncate, or summarize any existing functions, classes, or code
-3. DO NOT add comments like "# Rest of your methods..." or "# ... existing code ..."
+3. DO NOT add comments like "{comment_prefix} Rest of your methods..." or "{comment_prefix} ... existing code ..."
 4. DO NOT change imports, class structure, or method signatures unless specifically requested
 5. Make ONLY the minimal changes needed to fulfill the request
 6. Preserve all docstrings, comments, and formatting
 
 Wrap your output in a markdown code block like this:
-```python
+```{code_block_marker}
 <the complete updated file content here>
 ```"""
                                                     chat_manager.add_user_message(edit_prompt)
@@ -1740,12 +1746,6 @@ Wrap your output in a markdown code block like this:
                                                         full_response = response.get('message', {}).get('content', '')
 
                                                 chat_manager.add_assistant_message(full_response)
-
-                                                # Debug: show response length (temporary)
-                                                if original_file_content:
-                                                    console.print(f"  [dim]LLM response: {len(full_response)} chars[/dim]")
-                                                    if len(full_response) < 500:
-                                                        console.print(f"  [dim]Response preview: {full_response[:300]}...[/dim]")
 
                                                 detected = mcp_client.detect_code(full_response)
 
