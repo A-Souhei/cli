@@ -35,13 +35,21 @@ import nest_asyncio
 nest_asyncio.apply()
 
 
+# Cache for user working directory (set once at startup)
+_USER_WORKING_DIR = None
+
+
 def get_user_working_dir():
     """
     Get the user's original working directory.
     When running globally via ai-cli, uses AI_CLI_CWD env var.
     Otherwise falls back to current directory.
+    Result is cached for performance.
     """
-    return os.environ.get('AI_CLI_CWD', os.getcwd())
+    global _USER_WORKING_DIR
+    if _USER_WORKING_DIR is None:
+        _USER_WORKING_DIR = os.environ.get('AI_CLI_CWD', os.getcwd())
+    return _USER_WORKING_DIR
 
 
 def run_async(coro):

@@ -2,8 +2,8 @@
 # AI CLI - Global wrapper script
 # This script allows running the AI CLI from any directory
 
-# The installation directory of the CLI (will be set during install)
-CLI_DIR="/home/toavina/PycharmProjects/cli"
+# The installation directory of the CLI (will be replaced by install-global.sh)
+CLI_DIR="/path/to/cli"
 
 # Check if CLI_DIR exists
 if [ ! -d "$CLI_DIR" ]; then
