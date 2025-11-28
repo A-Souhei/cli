@@ -1558,6 +1558,27 @@ def main(verbose=False):
                                         mcp_name = best_match.get('mcp_name', 'coder')
                                         similarity = best_match.get('similarity', 0)
 
+                                        # Valid coding tools for /code command execution
+                                        valid_coding_tools = [
+                                            'run_python_code', 'run_r_code', 'detect_code',
+                                            'write_python_code', 'write_r_code',
+                                            'edit_python_code', 'edit_r_code',
+                                            'add_file_context', 'add_directory_context',
+                                            'verify_file_modifications'
+                                        ]
+                                        
+                                        # Meta-tools should not be executed directly in /code steps
+                                        meta_tools = ['retrieve_all_tools', 'roll_the_dice', 'spin_the_roulette']
+                                        
+                                        if tool_name in meta_tools:
+                                            console.print(f"  ⚠️  [yellow]Skipping meta-tool '{tool_name}' (not suitable for direct execution)[/yellow]\n")
+                                            continue
+                                        
+                                        if tool_name not in valid_coding_tools:
+                                            console.print(f"  ⚠️  [yellow]Matched invalid tool '{tool_name}', skipping step[/yellow]\n")
+                                            debug_print(f"Invalid tool matched: {tool_name} (similarity: {similarity})", icon="⚠️")
+                                            continue
+
                                         console.print(f"  🔧 [cyan]Matched tool:[/cyan] {tool_name} [dim](similarity: {similarity:.2f})[/dim]")
 
                                         # Step 2: For code generation tools, use LLM to generate code first
@@ -1694,6 +1715,16 @@ def main(verbose=False):
                                         else:
                                             # Non-code-generation tools: use extracted params
                                             extracted_params = best_match.get('extracted_params', {})
+                                            
+                                            # Strip @ prefix from file_path if present (LLM may include it)
+                                            if 'file_path' in extracted_params and extracted_params['file_path']:
+                                                fp = extracted_params['file_path']
+                                                if fp.startswith('@'):
+                                                    extracted_params['file_path'] = fp[1:]
+                                            if 'directory_path' in extracted_params and extracted_params['directory_path']:
+                                                dp = extracted_params['directory_path']
+                                                if dp.startswith('@'):
+                                                    extracted_params['directory_path'] = dp[1:]
 
                                         # Add working_dir if not present
                                         if 'working_dir' not in extracted_params:
