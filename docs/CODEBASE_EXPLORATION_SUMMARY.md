@@ -21,7 +21,7 @@ The AI CLI is a multi-service architecture with the following components:
         ┌───────▼────────┐
         │  PostgreSQL    │
         │  Database      │
-        │  (25432)       │
+        │  (35432)       │
         └────────────────┘
 ```
 
@@ -29,7 +29,7 @@ The AI CLI is a multi-service architecture with the following components:
 - **Ollama**: http://localhost:11434 - LLM chat interface
 - **PostgreSQL API**: http://localhost:15000 - Tool & rating storage
 - **Transformer Service**: http://localhost:16050 - Text embeddings
-- **PostgreSQL DB**: localhost:25432 - Data persistence
+- **PostgreSQL DB**: localhost:35432 - Data persistence
 
 ---
 

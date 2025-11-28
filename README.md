@@ -2,8 +2,11 @@
 
 A minimal, modular AI command-line interface that connects to Ollama services (local or remote) for interactive AI conversations.
 
+> **🤖 AI-Assisted Development**: This project leverages AI coding assistants (GitHub Copilot, Claude) to accelerate development iterations while maintaining human oversight for architecture decisions, code review, and quality control. AI assists with implementation details; humans drive the vision.
+
 ## Features
 
+### Core CLI Features
 - 🤖 Connect to local or remote Ollama services
 - 💬 Interactive chat with AI models
 - 📁 **@ Prefix Autocomplete** - TAB completion for files/directories with automatic context injection
@@ -15,10 +18,29 @@ A minimal, modular AI command-line interface that connects to Ollama services (l
 - ⚡ **Code Execution** - Run Python/R code with automatic output capture
 - ⚙️ Configurable via YAML file
 - 🔄 Streaming and non-streaming response modes
+
+### Ollama++ API Service (NEW)
+- 🌐 **OpenWebUI Compatible** - Drop-in Ollama replacement API
+- 🔌 **OpenAI API Compatibility** - Works with standard OpenAI clients
+- 🛠️ **11 Built-in MCP Tools** - Code execution, file operations, RAG tools
+- 🎯 **Intelligent Tool Matching** - Semantic search finds the right tool automatically
+- 📎 **File Upload Support** - Upload and reference files in conversations
+- 🧠 **Multi-step Orchestration** - Break down complex tasks automatically
+
+### Session Persistence (NEW)
+- 💾 **Auto-save Sessions** - Conversations saved to Redis automatically
+- 🔄 **Restore Sessions** - Resume any previous conversation by ID
+- 📋 **List Sessions** - View all saved sessions with metadata
+- 🗑️ **Session Management** - Clear specific or all sessions
+
+### Infrastructure
 - 🐳 Docker Compose with Redis, PostgreSQL, Transformer services
 - 🚀 Easy setup with automated scripts and Makefile
+- 📊 Sentry integration for error tracking
 
 ## Quick Start
+
+### CLI Mode
 
 ```bash
 # Automated setup (recommended)
@@ -33,6 +55,26 @@ make run
 # Or: ./start.sh
 ```
 
+### Ollama++ API Mode (OpenWebUI Compatible)
+
+```bash
+# Start all services including the Ollama API
+docker compose --profile app --profile api up -d
+
+# API available at http://localhost:8080
+# Works with OpenWebUI, standard Ollama clients, and OpenAI API clients
+```
+
+**Using with OpenWebUI:**
+1. Set Ollama API URL in OpenWebUI settings to: `http://host.docker.internal:8080`
+2. All MCP tools and RAG features are automatically available
+
+**Using Remote Ollama:**
+Set `OLLAMA_API_URL` in `.env` to point to your remote Ollama server:
+```bash
+OLLAMA_API_URL=http://your-ollama-server:11434
+```
+
 See [DOCUMENTATION.md](DOCUMENTATION.md) for detailed guides and [docs/](docs/) for specific features.
 
 ## Project Structure
@@ -41,28 +83,47 @@ See [DOCUMENTATION.md](DOCUMENTATION.md) for detailed guides and [docs/](docs/) 
 cli/
 ├── config.yaml              # Configuration for Ollama and chat
 ├── docker-compose.yml       # Multi-service Docker setup
-├── Makefile                # Build automation and commands
-├── main.py                 # Main entry point
+├── Makefile                 # Build automation and commands
+├── main.py                  # Main CLI entry point
 ├── requirements.txt         # Python dependencies
-├── .env.example            # Environment variables template
-├── docs/                   # Feature documentation
+├── .env.example             # Environment variables template
+├── docs/                    # Feature documentation
 │   ├── AT_PREFIXER_FEATURE.md
 │   ├── SESSION_FEATURE.md
+│   ├── SESSION_PERSISTENCE.md
+│   ├── TOOL_RETRIEVAL_FEATURE.md
 │   └── MAKEFILE_COMMANDS.md
-├── src/                    # Core modules
-│   ├── config/             # Configuration management
-│   ├── ollama_client/      # Ollama client
-│   ├── chat/               # Chat management
-│   ├── mcp/                # MCP client system
-│   ├── redis/              # Redis API service
-│   │   └── flask-app/      # Flask API for embeddings
-│   ├── utils/              # Utilities (tree, etc.)
-│   └── file_completer.py   # @ prefix autocomplete
-├── system_mcps/            # MCP tool servers
-│   └── coder/              # Code execution & file tools
-└── testing/                # Test applications
-    ├── python_app/         # Python test structure
-    └── r_app/              # R test structure
+├── src/                     # Core modules
+│   ├── config/              # Configuration management
+│   ├── ollama_client/       # Ollama client
+│   ├── chat/                # Chat management
+│   ├── mcp/                 # MCP client system
+│   ├── session/             # Session persistence
+│   ├── transformer/         # Embedding service (Docker)
+│   ├── redis/               # Redis API service
+│   │   └── flask-app/       # Flask API for embeddings
+│   ├── postgresql/          # PostgreSQL API service
+│   │   └── flask-app/       # Flask API for MCP tools
+│   ├── utils/               # Utilities (tree, etc.)
+│   └── file_completer.py    # @ prefix autocomplete
+├── ollama_api_service/      # Ollama++ API (NEW)
+│   ├── app.py               # FastAPI application
+│   ├── models.py            # Pydantic models
+│   ├── routes/              # API route handlers
+│   │   ├── chat.py          # /api/chat endpoints
+│   │   ├── generate.py      # /api/generate endpoints
+│   │   ├── openai.py        # OpenAI compatibility layer
+│   │   ├── tools.py         # MCP tool endpoints
+│   │   └── files.py         # File upload endpoints
+│   └── utils/               # Ollama adapter utilities
+├── system_mcps/             # MCP tool servers
+│   └── coder/               # Code execution & file tools
+├── tests/                   # Test suite
+│   ├── test_ollama_api_*.py # API integration tests
+│   └── test_tool_retrieval.py
+└── testing/                 # Test applications
+    ├── python_app/          # Python test structure
+    └── r_app/               # R test structure
 ```
 
 ## Prerequisites
@@ -175,9 +236,12 @@ Once the CLI starts, you can:
 - **Switch model:** Type `switch` to change the current model
 - **MCP tools:** Type `mcps` to list available tools, `mcp-tools <name>` for tool details
 - **Session commands:**
-  - `session start` - Start a context-persistent session
-  - `session end` - End the current session
-  - `session info` - Display current session information
+  - `/session start` - Start a context-persistent session
+  - `/session end` - End the current session
+  - `/session info` - Display current session information
+  - `/session list` - List all saved sessions (NEW)
+  - `/session restore <id>` - Restore a previous session (NEW)
+  - `/session clear` - Clear all saved sessions (NEW)
 - **Exit:** Type `exit` or `quit` to close the CLI
 
 ### Session Feature
@@ -186,7 +250,7 @@ The session feature allows you to maintain conversation context across multiple 
 
 **Example:**
 ```
-▶ session start
+▶ /session start
 📝 Session started at 14:30:45
 
 ▶ What is the capital of France?
@@ -196,11 +260,23 @@ The session feature allows you to maintain conversation context across multiple 
 ▶ Paris has approximately 2.2 million people...
 # AI understands "that city" refers to Paris
 
-▶ session end
+▶ /session end
 ✅ Session ended (started at 14:30:45, 2 interactions)
 ```
 
-See [docs/SESSION_FEATURE.md](docs/SESSION_FEATURE.md) for detailed documentation.
+**Session Persistence (NEW):**
+Sessions are automatically saved to Redis and can be restored later:
+```
+▶ /session list
+📋 Saved Sessions:
+  1. abc123... | 2025-11-25 14:30 | 5 interactions | "Python help"
+  2. def456... | 2025-11-24 10:15 | 12 interactions | "Docker setup"
+
+▶ /session restore abc123
+✅ Session restored with 5 interactions
+```
+
+See [docs/SESSION_FEATURE.md](docs/SESSION_FEATURE.md) and [docs/SESSION_PERSISTENCE.md](docs/SESSION_PERSISTENCE.md) for detailed documentation.
 
 ### Example Session
 
@@ -386,9 +462,31 @@ python main.py
 
 The project uses a modular architecture:
 
+### Core CLI Modules
 - **Config Module** (`src/config/`): Handles configuration loading and management
 - **Ollama Client Module** (`src/ollama_client/`): Manages communication with Ollama
 - **Chat Module** (`src/chat/`): Handles conversation context and message management
+- **MCP Module** (`src/mcp/`): Model Context Protocol client for tool execution
+- **Session Module** (`src/session/`): Session persistence and management
+
+### Microservices
+- **Transformer Service** (`src/transformer/`): Sentence embeddings for semantic search
+- **PostgreSQL API** (`src/postgresql/flask-app/`): MCP tool storage and retrieval
+- **Redis API** (`src/redis/flask-app/`): RAG vector storage and session persistence
+- **Ollama++ API** (`ollama_api_service/`): OpenWebUI-compatible API with enhanced features
+
+### Running Tests
+
+```bash
+# Run all tests
+make test
+
+# Run specific test file
+pytest tests/test_ollama_api_integration.py -v
+
+# Run with coverage
+pytest --cov=src tests/
+```
 
 ## License
 

@@ -22,20 +22,19 @@ COPY src/transformer/requirements.txt .
 # Install base dependencies first (numpy with version constraint)
 # This layer is separate to avoid invalidating torch cache when numpy constraints change
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
-    pip install --no-cache-dir -r requirements-base.txt
+    pip install -r requirements-base.txt
 
 # Install heavy dependencies in a single layer with cache mount
 # The pip cache mount ensures torch (~800MB) and transformers (~400MB) are cached between builds
-# Using --no-cache-dir with mount cache is more efficient than pip's internal cache
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
-    pip install --no-cache-dir \
+    pip install \
     torch==2.1.2 \
     transformers==4.36.2 \
     sentence-transformers==2.7.0
 
 # Install remaining dependencies (lighter packages)
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
-    pip install --no-cache-dir \
+    pip install \
     flask==2.3.3 \
     flask-cors==4.0.0 \
     keybert==0.8.5 \

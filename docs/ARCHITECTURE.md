@@ -171,7 +171,7 @@ Ollama   Flask API  Transformer
              │
          ┌───▼────┐
          │Postgres│
-         │ (25432)│
+         │ (35432)│
          └────────┘
 ```
 
@@ -377,7 +377,7 @@ Update/Create → Update if rating higher, else create new
            └─ /pull          └─ /keywords        └─ /health
                                                    │
                                             PostgreSQL DB
-                                            (25432)
+                                            (35432)
                                             ├─ conversation_ratings
                                             └─ mcp_tools
 ```

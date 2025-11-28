@@ -190,7 +190,7 @@ docker exec -it <postgres_container> psql -U postgres -d vuhitra
 
 Or using psql directly:
 ```bash
-psql -h localhost -p 25432 -U postgres -d vuhitra -f migrations/add_session_id.sql
+psql -h localhost -p 35432 -U postgres -d vuhitra -f migrations/add_session_id.sql
 ```
 
 The migration adds:

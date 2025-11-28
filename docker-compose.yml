@@ -65,7 +65,7 @@ services:
     image: postgres:14
     container_name: vuhitra-postgres
     ports:
-      - "${POSTGRES_HOST_PORT:-25432}:5432"
+      - "${POSTGRES_HOST_PORT:-35432}:5432"
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
@@ -106,7 +106,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=5)"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -183,7 +183,7 @@ services:
       transformer:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=5)"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -210,6 +210,56 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
+
+  # Ollama API Service - Ollama-compatible API with enhanced features
+  # OpenWebUI compatible + MCP tools + RAG + Code execution
+  ollama-api:
+    build:
+      context: .
+      dockerfile: ollama_api_service/Dockerfile
+    container_name: vuhitra-ollama-api
+    profiles:
+      - ollama
+    ports:
+      - "${OLLAMA_API_PORT:-8080}:8080"
+    volumes:
+      # Mount src/ directory (read-only) - GOLDEN RULE: no modifications to CLI code
+      - ./src:/app/src:ro
+      # Mount config.yaml (read-only)
+      - ./config.yaml:/app/config.yaml:ro
+      # Mount system_mcps for MCP server access
+      - ./system_mcps:/app/system_mcps:ro
+      # Mount ollama_api_service for development (allows hot reload)
+      - ./ollama_api_service:/app/ollama_api_service:ro
+    environment:
+      # Service URLs
+      - OLLAMA_API_URL=${OLLAMA_API_URL:-http://ollama:11434}
+      - POSTGRES_API_URL=http://postgres-api:5000
+      - TRANSFORMER_API_URL=http://transformer:${TRANSFORMER_CONTAINER_PORT:-5050}
+      - REDIS_API_URL=http://redis-api:5000
+      # Sentry
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - ENVIRONMENT=${ENVIRONMENT:-DEV}
+      # MCP debug
+      - MCP_DEBUG=${MCP_DEBUG:-false}
+    depends_on:
+      ollama:
+        condition: service_healthy
+      postgres-api:
+        condition: service_healthy
+      redis-api:
+        condition: service_healthy
+      transformer:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - vuhitra-network
 
 networks:
   vuhitra-network:

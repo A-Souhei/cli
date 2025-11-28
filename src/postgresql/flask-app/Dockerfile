@@ -3,9 +3,9 @@ FROM python:3.10-slim
 # Create app directory
 WORKDIR /app
 
-# Install Python dependencies
+# Install Python dependencies with cache mount
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
-    pip install --no-cache-dir \
+    pip install \
     Flask==2.3.2 \
     Flask-SQLAlchemy==3.0.5 \
     psycopg2-binary==2.9.6 \
