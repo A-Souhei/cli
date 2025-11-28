@@ -3,6 +3,9 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# AI CLI wrapper (contains local paths)
+ai-cli
+
 # C extensions
 *.so
 
