@@ -1291,7 +1291,7 @@ def main(verbose=False):
                             console.print(f"[yellow]   This may exceed token limits for some LLMs or cause slower processing.[/yellow]\n")
 
                         # Use a separate chat manager for repomap generation to avoid polluting user's history
-                        repomap_chat_manager = ChatManager(console=console, system_prompt=system_prompt)
+                        repomap_chat_manager = ChatManager(console=console, system_prompt=config.get_system_prompt())
                         repomap_chat_manager.add_user_message(repomap_prompt)
                         messages = repomap_chat_manager.get_messages()
                         
