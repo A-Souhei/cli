@@ -18,6 +18,7 @@ from main import (
     DATA_FILE_EXTENSIONS,
     DATAMAP_EXCLUDE_DIRS,
     MAX_DATA_SAMPLE_ROWS,
+    TYPE_INFERENCE_EXTRA_ROWS,
 )
 
 
@@ -69,6 +70,16 @@ class TestMaxDataSampleRows:
     def test_constant_value(self):
         """Test that the constant has an appropriate value."""
         assert MAX_DATA_SAMPLE_ROWS == 5
+        assert isinstance(MAX_DATA_SAMPLE_ROWS, int)
+
+
+@pytest.mark.unit
+class TestTypeInferenceExtraRows:
+    """Tests for TYPE_INFERENCE_EXTRA_ROWS constant."""
+
+    def test_constant_value(self):
+        """Test that the constant has an appropriate value."""
+        assert TYPE_INFERENCE_EXTRA_ROWS == 100
         assert isinstance(MAX_DATA_SAMPLE_ROWS, int)
 
 
@@ -268,8 +279,8 @@ class TestCollectDataFiles:
             assert len(files) == 2
             paths = [f['path'] for f in files]
             assert 'output.csv' in paths
-            # Use os.path.join for cross-platform compatibility
-            expected_nested_path = os.path.join('data', 'raw', 'input.csv')
+            # Use pathlib for cross-platform path handling
+            expected_nested_path = str(Path('data') / 'raw' / 'input.csv')
             assert expected_nested_path in paths
 
 

@@ -112,6 +112,7 @@ REPOMAP_EXCLUDE_SUFFIXES = {'.egg-info'}
 # ==================== Datamap Constants and Functions ====================
 # Constants for datamap functionality
 MAX_DATA_SAMPLE_ROWS = 5  # Maximum number of sample rows to include in signature
+TYPE_INFERENCE_EXTRA_ROWS = 100  # Extra rows to read for accurate type inference
 
 # Data file extensions to include in datamap
 DATA_FILE_EXTENSIONS = {
@@ -164,23 +165,23 @@ def get_data_source_signature(file_path: str, working_dir: str) -> dict:
         ext = path_obj.suffix.lower()
         
         if ext == '.csv':
-            df = pd.read_csv(full_path, nrows=MAX_DATA_SAMPLE_ROWS + 100)  # Read extra to get accurate types
+            df = pd.read_csv(full_path, nrows=MAX_DATA_SAMPLE_ROWS + TYPE_INFERENCE_EXTRA_ROWS)
         elif ext == '.json':
             # Try to read as regular JSON first, then as JSON lines
             try:
                 df = pd.read_json(full_path)
             except ValueError:
-                df = pd.read_json(full_path, lines=True, nrows=MAX_DATA_SAMPLE_ROWS + 100)
+                df = pd.read_json(full_path, lines=True, nrows=MAX_DATA_SAMPLE_ROWS + TYPE_INFERENCE_EXTRA_ROWS)
         elif ext == '.jsonl':
-            df = pd.read_json(full_path, lines=True, nrows=MAX_DATA_SAMPLE_ROWS + 100)
+            df = pd.read_json(full_path, lines=True, nrows=MAX_DATA_SAMPLE_ROWS + TYPE_INFERENCE_EXTRA_ROWS)
         elif ext in ['.xlsx', '.xls']:
-            df = pd.read_excel(full_path, nrows=MAX_DATA_SAMPLE_ROWS + 100)
+            df = pd.read_excel(full_path, nrows=MAX_DATA_SAMPLE_ROWS + TYPE_INFERENCE_EXTRA_ROWS)
         elif ext == '.parquet':
             df = pd.read_parquet(full_path)
-            df = df.head(MAX_DATA_SAMPLE_ROWS + 100)  # Limit for processing
+            df = df.head(MAX_DATA_SAMPLE_ROWS + TYPE_INFERENCE_EXTRA_ROWS)
         elif ext == '.feather':
             df = pd.read_feather(full_path)
-            df = df.head(MAX_DATA_SAMPLE_ROWS + 100)
+            df = df.head(MAX_DATA_SAMPLE_ROWS + TYPE_INFERENCE_EXTRA_ROWS)
         else:
             return {'error': f'Unsupported file type: {ext}', 'path': file_path}
         
@@ -416,16 +417,23 @@ def _get_db_tables_signature(cursor, database_name: str) -> dict:
         
         table_info['num_columns'] = len(columns)
         
-        # Get row count
+        # Get row count - use psycopg2.sql for safe identifier quoting
         try:
-            cursor.execute(f'SELECT COUNT(*) FROM "{table_name}"')
+            from psycopg2 import sql
+            cursor.execute(
+                sql.SQL('SELECT COUNT(*) FROM {}').format(sql.Identifier(table_name))
+            )
             table_info['num_rows'] = cursor.fetchone()[0]
         except Exception:
             table_info['num_rows'] = 'unknown'
         
-        # Get sample data (first few rows)
+        # Get sample data (first few rows) - use psycopg2.sql for safe identifier quoting
         try:
-            cursor.execute(f'SELECT * FROM "{table_name}" LIMIT {MAX_DATA_SAMPLE_ROWS}')
+            from psycopg2 import sql
+            cursor.execute(
+                sql.SQL('SELECT * FROM {} LIMIT %s').format(sql.Identifier(table_name)),
+                (MAX_DATA_SAMPLE_ROWS,)
+            )
             rows = cursor.fetchall()
             sample_data = []
             for row in rows:
@@ -523,7 +531,12 @@ def generate_datamap_prompt(data_sources: list, pg_signature: dict = None, code_
         if 'numeric_stats' in source:
             summary_parts.append("\n**Numeric Statistics:**")
             for col_name, stats in source['numeric_stats'].items():
-                summary_parts.append(f"  - `{col_name}`: min={stats['min']}, max={stats['max']}, mean={stats['mean']:.2f}" if stats['mean'] else f"  - `{col_name}`: min={stats['min']}, max={stats['max']}")
+                mean_val = stats.get('mean')
+                if mean_val is not None:
+                    stat_line = f"  - `{col_name}`: min={stats['min']}, max={stats['max']}, mean={mean_val:.2f}"
+                else:
+                    stat_line = f"  - `{col_name}`: min={stats['min']}, max={stats['max']}"
+                summary_parts.append(stat_line)
         
         # Sample data
         if 'sample_data' in source and source['sample_data']:
