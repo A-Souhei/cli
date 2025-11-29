@@ -10,7 +10,7 @@ import sys
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from main import (
+from src.utils.datamap import (
     collect_data_files,
     get_data_source_signature,
     generate_datamap_prompt,
