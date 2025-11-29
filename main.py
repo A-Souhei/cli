@@ -109,6 +109,583 @@ REPOMAP_EXCLUDE_DIRS = {
 REPOMAP_EXCLUDE_SUFFIXES = {'.egg-info'}
 
 
+# ==================== Datamap Constants and Functions ====================
+# Constants for datamap functionality
+MAX_DATA_SAMPLE_ROWS = 5  # Maximum number of sample rows to include in signature
+
+# Data file extensions to include in datamap
+DATA_FILE_EXTENSIONS = {
+    '.csv', '.json', '.xlsx', '.xls', '.parquet', '.feather', '.jsonl'
+}
+
+# Directories to exclude from datamap scanning (same as repomap)
+DATAMAP_EXCLUDE_DIRS = REPOMAP_EXCLUDE_DIRS
+
+
+def get_data_source_signature(file_path: str, working_dir: str) -> dict:
+    """
+    Extract the signature of a data file (CSV, JSON, Excel).
+    
+    The signature contains:
+    - column_names: List of column names
+    - column_types: Dict mapping column names to their inferred types
+    - num_rows: Number of rows
+    - num_columns: Number of columns
+    - sample_data: First few rows as sample
+    - file_size: Size of the file in bytes
+    
+    Args:
+        file_path: Path to the data file (relative or absolute)
+        working_dir: Working directory for relative paths
+        
+    Returns:
+        Dict with signature information
+    """
+    import pandas as pd
+    
+    # Resolve full path
+    if not os.path.isabs(file_path):
+        full_path = os.path.join(working_dir, file_path)
+    else:
+        full_path = file_path
+    
+    path_obj = Path(full_path)
+    if not path_obj.exists():
+        return {'error': f'File not found: {file_path}'}
+    
+    signature = {
+        'path': file_path,
+        'file_size': path_obj.stat().st_size,
+        'extension': path_obj.suffix.lower()
+    }
+    
+    try:
+        # Read data based on file type
+        ext = path_obj.suffix.lower()
+        
+        if ext == '.csv':
+            df = pd.read_csv(full_path, nrows=MAX_DATA_SAMPLE_ROWS + 100)  # Read extra to get accurate types
+        elif ext == '.json':
+            # Try to read as regular JSON first, then as JSON lines
+            try:
+                df = pd.read_json(full_path)
+            except ValueError:
+                df = pd.read_json(full_path, lines=True, nrows=MAX_DATA_SAMPLE_ROWS + 100)
+        elif ext == '.jsonl':
+            df = pd.read_json(full_path, lines=True, nrows=MAX_DATA_SAMPLE_ROWS + 100)
+        elif ext in ['.xlsx', '.xls']:
+            df = pd.read_excel(full_path, nrows=MAX_DATA_SAMPLE_ROWS + 100)
+        elif ext == '.parquet':
+            df = pd.read_parquet(full_path)
+            df = df.head(MAX_DATA_SAMPLE_ROWS + 100)  # Limit for processing
+        elif ext == '.feather':
+            df = pd.read_feather(full_path)
+            df = df.head(MAX_DATA_SAMPLE_ROWS + 100)
+        else:
+            return {'error': f'Unsupported file type: {ext}', 'path': file_path}
+        
+        # For full row count, we need to count separately for large files
+        if ext == '.csv':
+            try:
+                full_df = pd.read_csv(full_path)
+                num_rows = len(full_df)
+            except Exception:
+                num_rows = len(df)  # Fallback to what we read
+        elif ext == '.json':
+            try:
+                full_df = pd.read_json(full_path)
+                num_rows = len(full_df)
+            except Exception:
+                try:
+                    full_df = pd.read_json(full_path, lines=True)
+                    num_rows = len(full_df)
+                except Exception:
+                    num_rows = len(df)
+        elif ext == '.jsonl':
+            try:
+                full_df = pd.read_json(full_path, lines=True)
+                num_rows = len(full_df)
+            except Exception:
+                num_rows = len(df)
+        elif ext in ['.xlsx', '.xls']:
+            try:
+                full_df = pd.read_excel(full_path)
+                num_rows = len(full_df)
+            except Exception:
+                num_rows = len(df)
+        else:
+            num_rows = len(df)
+        
+        # Extract column information
+        signature['column_names'] = df.columns.tolist()
+        signature['num_columns'] = len(df.columns)
+        signature['num_rows'] = num_rows
+        
+        # Get column types
+        column_types = {}
+        for col in df.columns:
+            dtype = str(df[col].dtype)
+            # Simplify type names for LLM
+            if 'int' in dtype:
+                column_types[col] = 'integer'
+            elif 'float' in dtype:
+                column_types[col] = 'float'
+            elif 'bool' in dtype:
+                column_types[col] = 'boolean'
+            elif 'datetime' in dtype:
+                column_types[col] = 'datetime'
+            elif 'object' in dtype:
+                column_types[col] = 'string'
+            else:
+                column_types[col] = dtype
+        
+        signature['column_types'] = column_types
+        
+        # Get sample data (first few rows)
+        sample_df = df.head(MAX_DATA_SAMPLE_ROWS)
+        signature['sample_data'] = sample_df.to_dict(orient='records')
+        
+        # Get basic statistics for numeric columns
+        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+        if numeric_cols:
+            stats = {}
+            for col in numeric_cols:
+                stats[col] = {
+                    'min': float(df[col].min()) if not pd.isna(df[col].min()) else None,
+                    'max': float(df[col].max()) if not pd.isna(df[col].max()) else None,
+                    'mean': float(df[col].mean()) if not pd.isna(df[col].mean()) else None
+                }
+            signature['numeric_stats'] = stats
+        
+        # Get null counts
+        null_counts = df.isnull().sum().to_dict()
+        signature['null_counts'] = {k: int(v) for k, v in null_counts.items()}
+        
+    except Exception as e:
+        signature['error'] = str(e)
+    
+    return signature
+
+
+def get_postgresql_signature(connection_string: str) -> dict:
+    """
+    Extract the signature of a PostgreSQL database.
+    
+    Connection string format: username:password@host:port/database
+    or just: username:password@host:port (to list all databases)
+    
+    Args:
+        connection_string: PostgreSQL connection string
+        
+    Returns:
+        Dict with database signature information
+    """
+    import re
+    
+    # Parse connection string
+    # Format: username:password@host:port/database or username:password@host:port
+    match = re.match(r'^([^:]+):([^@]+)@([^:]+):(\d+)(?:/(.+))?$', connection_string)
+    if not match:
+        return {'error': f'Invalid connection string format. Expected: username:password@host:port/database'}
+    
+    username, password, host, port, database = match.groups()
+    port = int(port)
+    
+    signature = {
+        'host': host,
+        'port': port,
+        'database': database or 'all',
+        'tables': []
+    }
+    
+    try:
+        import psycopg2
+        
+        # Connect to PostgreSQL
+        if database:
+            conn = psycopg2.connect(
+                host=host,
+                port=port,
+                user=username,
+                password=password,
+                database=database
+            )
+        else:
+            # Connect to default 'postgres' database to list all databases
+            conn = psycopg2.connect(
+                host=host,
+                port=port,
+                user=username,
+                password=password,
+                database='postgres'
+            )
+        
+        cursor = conn.cursor()
+        
+        if not database:
+            # List all databases
+            cursor.execute("SELECT datname FROM pg_database WHERE datistemplate = false;")
+            databases = [row[0] for row in cursor.fetchall()]
+            signature['databases'] = databases
+            conn.close()
+            
+            # Get signature for each database
+            all_db_signatures = []
+            for db_name in databases:
+                try:
+                    db_conn = psycopg2.connect(
+                        host=host,
+                        port=port,
+                        user=username,
+                        password=password,
+                        database=db_name
+                    )
+                    db_cursor = db_conn.cursor()
+                    db_sig = _get_db_tables_signature(db_cursor, db_name)
+                    all_db_signatures.append(db_sig)
+                    db_conn.close()
+                except Exception as e:
+                    all_db_signatures.append({
+                        'database': db_name,
+                        'error': str(e)
+                    })
+            
+            signature['database_signatures'] = all_db_signatures
+        else:
+            # Get tables for specific database
+            db_sig = _get_db_tables_signature(cursor, database)
+            signature['tables'] = db_sig.get('tables', [])
+            conn.close()
+            
+    except ImportError:
+        signature['error'] = 'psycopg2 is not installed. Install with: pip install psycopg2-binary'
+    except Exception as e:
+        signature['error'] = str(e)
+    
+    return signature
+
+
+def _get_db_tables_signature(cursor, database_name: str) -> dict:
+    """
+    Get signature for tables in a database.
+    
+    Args:
+        cursor: Database cursor
+        database_name: Name of the database
+        
+    Returns:
+        Dict with tables information
+    """
+    result = {
+        'database': database_name,
+        'tables': []
+    }
+    
+    # Get all tables in the public schema
+    cursor.execute("""
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+        ORDER BY table_name;
+    """)
+    tables = [row[0] for row in cursor.fetchall()]
+    
+    for table_name in tables:
+        table_info = {
+            'name': table_name,
+            'columns': [],
+            'column_types': {}
+        }
+        
+        # Get column information
+        cursor.execute("""
+            SELECT column_name, data_type, is_nullable, column_default
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = %s
+            ORDER BY ordinal_position;
+        """, (table_name,))
+        
+        columns = cursor.fetchall()
+        for col_name, data_type, is_nullable, col_default in columns:
+            table_info['columns'].append(col_name)
+            table_info['column_types'][col_name] = {
+                'type': data_type,
+                'nullable': is_nullable == 'YES',
+                'default': col_default
+            }
+        
+        table_info['num_columns'] = len(columns)
+        
+        # Get row count
+        try:
+            cursor.execute(f'SELECT COUNT(*) FROM "{table_name}"')
+            table_info['num_rows'] = cursor.fetchone()[0]
+        except Exception:
+            table_info['num_rows'] = 'unknown'
+        
+        # Get sample data (first few rows)
+        try:
+            cursor.execute(f'SELECT * FROM "{table_name}" LIMIT {MAX_DATA_SAMPLE_ROWS}')
+            rows = cursor.fetchall()
+            sample_data = []
+            for row in rows:
+                row_dict = {}
+                for i, col_name in enumerate(table_info['columns']):
+                    val = row[i]
+                    # Convert to JSON-serializable format
+                    if hasattr(val, 'isoformat'):
+                        val = val.isoformat()
+                    elif isinstance(val, bytes):
+                        val = '<binary data>'
+                    row_dict[col_name] = val
+                sample_data.append(row_dict)
+            table_info['sample_data'] = sample_data
+        except Exception as e:
+            table_info['sample_error'] = str(e)
+        
+        result['tables'].append(table_info)
+    
+    return result
+
+
+def collect_data_files(working_dir: str, max_files: int = 100) -> list:
+    """
+    Collect all data files (CSV, JSON, Excel) from the working directory.
+    
+    Args:
+        working_dir: Root directory to scan
+        max_files: Maximum number of files to collect
+        
+    Returns:
+        List of dicts with data file signatures
+    """
+    files = []
+    working_path = Path(working_dir)
+    
+    for file_path in working_path.rglob('*'):
+        # Check if we've reached the limit
+        if len(files) >= max_files:
+            break
+            
+        # Skip directories in exclusion list
+        if any(excluded in file_path.parts[:-1] for excluded in DATAMAP_EXCLUDE_DIRS):
+            continue
+        
+        # Skip non-files
+        if not file_path.is_file():
+            continue
+            
+        # Check if file matches data file extensions
+        if file_path.suffix.lower() in DATA_FILE_EXTENSIONS:
+            relative_path = file_path.relative_to(working_path)
+            signature = get_data_source_signature(str(relative_path), working_dir)
+            files.append(signature)
+                
+    return files
+
+
+def generate_datamap_prompt(data_sources: list, pg_signature: dict = None, code_files: list = None, tree_output: str = None) -> str:
+    """
+    Generate an LLM prompt to create a comprehensive data map.
+    
+    Args:
+        data_sources: List of data file signatures
+        pg_signature: Optional PostgreSQL database signature
+        code_files: Optional list of code files for cross-reference
+        tree_output: Optional directory tree string to include
+        
+    Returns:
+        Prompt string for the LLM
+    """
+    # Build data source summaries
+    source_summaries = []
+    
+    # Process file-based data sources
+    for source in data_sources:
+        if 'error' in source:
+            source_summaries.append(f"### {source.get('path', 'Unknown')} (Error: {source['error']})")
+            continue
+            
+        summary_parts = [f"### {source['path']}"]
+        summary_parts.append(f"- **Type**: {source['extension']}")
+        summary_parts.append(f"- **Size**: {source['file_size']:,} bytes")
+        summary_parts.append(f"- **Rows**: {source['num_rows']:,}")
+        summary_parts.append(f"- **Columns**: {source['num_columns']}")
+        
+        # Column details
+        summary_parts.append("\n**Columns:**")
+        for col_name, col_type in source.get('column_types', {}).items():
+            null_count = source.get('null_counts', {}).get(col_name, 0)
+            null_info = f" (nulls: {null_count})" if null_count > 0 else ""
+            summary_parts.append(f"  - `{col_name}`: {col_type}{null_info}")
+        
+        # Numeric stats if available
+        if 'numeric_stats' in source:
+            summary_parts.append("\n**Numeric Statistics:**")
+            for col_name, stats in source['numeric_stats'].items():
+                summary_parts.append(f"  - `{col_name}`: min={stats['min']}, max={stats['max']}, mean={stats['mean']:.2f}" if stats['mean'] else f"  - `{col_name}`: min={stats['min']}, max={stats['max']}")
+        
+        # Sample data
+        if 'sample_data' in source and source['sample_data']:
+            summary_parts.append("\n**Sample Data (first rows):**")
+            summary_parts.append("```json")
+            import json as json_module
+            summary_parts.append(json_module.dumps(source['sample_data'][:3], indent=2, default=str))
+            summary_parts.append("```")
+        
+        source_summaries.append('\n'.join(summary_parts))
+    
+    # Process PostgreSQL database if provided
+    pg_section = ""
+    if pg_signature:
+        if 'error' in pg_signature:
+            pg_section = f"\n## PostgreSQL Database (Error: {pg_signature['error']})\n"
+        else:
+            pg_parts = ["\n## PostgreSQL Database"]
+            pg_parts.append(f"- **Host**: {pg_signature['host']}:{pg_signature['port']}")
+            
+            if 'database_signatures' in pg_signature:
+                # Multiple databases
+                for db_sig in pg_signature['database_signatures']:
+                    if 'error' in db_sig:
+                        pg_parts.append(f"\n### Database: {db_sig['database']} (Error: {db_sig['error']})")
+                        continue
+                        
+                    pg_parts.append(f"\n### Database: {db_sig['database']}")
+                    for table in db_sig.get('tables', []):
+                        pg_parts.append(f"\n#### Table: `{table['name']}`")
+                        pg_parts.append(f"- **Rows**: {table['num_rows']}")
+                        pg_parts.append(f"- **Columns**: {table['num_columns']}")
+                        pg_parts.append("\n**Schema:**")
+                        for col_name in table['columns']:
+                            col_info = table['column_types'].get(col_name, {})
+                            nullable = " (nullable)" if col_info.get('nullable') else ""
+                            pg_parts.append(f"  - `{col_name}`: {col_info.get('type', 'unknown')}{nullable}")
+            else:
+                # Single database
+                for table in pg_signature.get('tables', []):
+                    pg_parts.append(f"\n### Table: `{table['name']}`")
+                    pg_parts.append(f"- **Rows**: {table['num_rows']}")
+                    pg_parts.append(f"- **Columns**: {table['num_columns']}")
+                    pg_parts.append("\n**Schema:**")
+                    for col_name in table['columns']:
+                        col_info = table['column_types'].get(col_name, {})
+                        nullable = " (nullable)" if col_info.get('nullable') else ""
+                        pg_parts.append(f"  - `{col_name}`: {col_info.get('type', 'unknown')}{nullable}")
+                    
+                    if 'sample_data' in table:
+                        pg_parts.append("\n**Sample Data:**")
+                        pg_parts.append("```json")
+                        import json as json_module
+                        pg_parts.append(json_module.dumps(table['sample_data'][:3], indent=2, default=str))
+                        pg_parts.append("```")
+            
+            pg_section = '\n'.join(pg_parts)
+    
+    # Build code files section for cross-reference
+    code_section = ""
+    if code_files:
+        code_parts = ["\n## Related Code Files"]
+        code_parts.append("\nThese are code files in the working directory that may use the data sources:")
+        for code_file in code_files[:20]:  # Limit to 20 files
+            code_parts.append(f"- `{code_file['path']}` ({code_file['size']:,} bytes)")
+        code_section = '\n'.join(code_parts)
+    
+    # Build tree section if provided
+    tree_section = ""
+    if tree_output:
+        tree_section = f"""## Directory Tree
+
+```
+{tree_output}
+```
+
+"""
+    
+    # Join data source summaries
+    data_content = '\n\n'.join(source_summaries) if source_summaries else "No data files found."
+    
+    prompt = f"""You are a data analyst creating a comprehensive data map for a project. Analyze the following data sources and create a detailed data map that will help developers understand and work with the data.
+
+{tree_section}## Data Files in Working Directory
+
+{data_content}
+{pg_section}
+{code_section}
+
+## Instructions
+
+Create a detailed data map with these sections:
+
+1. **Data Overview**:
+   - Summary of all data sources available
+   - Total number of files and their types
+   - Estimated total data volume
+
+2. **Data Schema Summary**:
+   - For each data source, describe its structure
+   - Highlight key columns and their purposes
+   - Note any patterns in column naming
+
+3. **Data Quality Notes**:
+   - Note any columns with null values
+   - Identify potential data type issues
+   - Flag any inconsistencies observed
+
+4. **Relationships**:
+   - Identify potential relationships between data sources
+   - Note any foreign key-like columns
+   - Suggest possible joins or connections
+
+5. **Usage Recommendations**:
+   - Suggest which data source to use for common tasks
+   - Recommend data transformations that may be needed
+   - Note any preprocessing requirements
+
+6. **Code Integration**:
+   - For each data source, note which code files might use it
+   - Suggest how to load and process each data type
+   - Provide example code patterns
+
+Please provide a clear, well-structured data map in Markdown format."""
+
+    return prompt
+
+
+async def load_datamap_to_context(mcp_client, datamap_path: str, working_dir: str, session_id: str = None) -> dict:
+    """
+    Load a .datamap file into context using the MCP client.
+    
+    Args:
+        mcp_client: MCPClient instance
+        datamap_path: Path to the .datamap file
+        working_dir: Working directory
+        session_id: Optional session ID for persistence
+        
+    Returns:
+        Result dict with status and message
+    """
+    args = {
+        'file_path': datamap_path,
+        'working_dir': working_dir
+    }
+    if session_id:
+        args['session_id'] = session_id
+        
+    result = await mcp_client.call_tool('coder', 'add_file_context', args)
+    
+    try:
+        return json.loads(result) if result else {'status': 'error', 'message': 'MCP tool returned empty result'}
+    except json.JSONDecodeError as parse_error:
+        # Provide more specific error information with type safety
+        result_str = str(result) if result is not None else ''
+        error_preview = (result_str[:100] + '...') if len(result_str) > 100 else result_str
+        return {'status': 'error', 'message': f'Failed to parse response: {parse_error}. Response: {error_preview}'}
+
+
+# ==================== End Datamap Functions ====================
+
+
 def collect_source_files(working_dir: str, max_files: int = 500) -> list:
     """
     Collect all source code files from the working directory.
@@ -1064,6 +1641,8 @@ def print_banner():
     console.print("  [bold]'/session clear'[/bold] - Clear all saved sessions")
     console.print("  [bold]'/repomap create'[/bold] - Create a repository map from working directory")
     console.print("  [bold]'/repomap load'[/bold] - Load existing .repomap file into context")
+    console.print("  [bold]'/datamap create'[/bold] - Create a data map from data files (--files-only, --with-pg, --with-files)")
+    console.print("  [bold]'/datamap load'[/bold] - Load existing .datamap file into context")
     console.print("  [bold]'/code <prompt>'[/bold] - Analyze and execute code tasks (requires session)")
     console.print()
 
@@ -1437,6 +2016,210 @@ def main(verbose=False):
                             console.print(f"[dim]{traceback.format_exc()}[/dim]")
                     continue
 
+                # Handle /datamap create command
+                if user_input_normalized.lower().startswith('datamap create'):
+                    # Parse command arguments
+                    args_str = user_input_normalized[14:].strip()  # Everything after "datamap create"
+                    
+                    # Parse flags
+                    with_files = '--with-files' in args_str or '--files-only' in args_str
+                    with_pg = '--with-pg' in args_str
+                    files_only = '--files-only' in args_str
+                    
+                    # Extract PostgreSQL connection string if provided
+                    pg_connection = None
+                    if with_pg:
+                        # Look for the connection string after --with-pg
+                        import re as re_module
+                        pg_match = re_module.search(r'--with-pg\s+([^\s]+)', args_str)
+                        if pg_match:
+                            pg_connection = pg_match.group(1)
+                        else:
+                            console.print("\n❌ [red]--with-pg requires a connection string: --with-pg username:password@host:port/database[/red]\n")
+                            continue
+                    
+                    # If no flags provided, default to files only
+                    if not with_files and not with_pg and not files_only:
+                        files_only = True
+                        with_files = True
+                    
+                    console.print("\n📊 [bold cyan]Creating data map...[/bold cyan]")
+                    console.print(f"[dim]Scanning working directory: {get_user_working_dir()}[/dim]")
+                    if with_files or files_only:
+                        console.print("[dim]  - Scanning for data files (CSV, JSON, Excel)[/dim]")
+                    if with_pg and pg_connection:
+                        console.print(f"[dim]  - Connecting to PostgreSQL[/dim]")
+                    console.print()
+
+                    try:
+                        data_sources = []
+                        pg_signature = None
+                        code_files = []
+                        
+                        # Collect data files if requested
+                        if with_files or files_only:
+                            console.print("[yellow]📂 Collecting data files...[/yellow]")
+                            data_sources = collect_data_files(get_user_working_dir())
+                            
+                            if data_sources:
+                                console.print(f"[green]✓ Found {len(data_sources)} data files[/green]")
+                                # Show summary of file types
+                                extensions = {}
+                                for source in data_sources:
+                                    ext = source.get('extension', 'unknown')
+                                    extensions[ext] = extensions.get(ext, 0) + 1
+                                for ext, count in extensions.items():
+                                    console.print(f"[dim]  - {ext}: {count} file(s)[/dim]")
+                            else:
+                                console.print("[yellow]⚠️  No data files found in working directory[/yellow]")
+                        
+                        # Connect to PostgreSQL if requested
+                        if with_pg and pg_connection:
+                            console.print("\n[yellow]🐘 Connecting to PostgreSQL database...[/yellow]")
+                            pg_signature = get_postgresql_signature(pg_connection)
+                            
+                            if 'error' in pg_signature:
+                                console.print(f"[yellow]⚠️  PostgreSQL error: {pg_signature['error']}[/yellow]")
+                            else:
+                                tables_count = len(pg_signature.get('tables', []))
+                                if 'database_signatures' in pg_signature:
+                                    total_tables = sum(len(db.get('tables', [])) for db in pg_signature.get('database_signatures', []))
+                                    console.print(f"[green]✓ Connected to PostgreSQL ({len(pg_signature.get('databases', []))} databases, {total_tables} tables)[/green]")
+                                else:
+                                    console.print(f"[green]✓ Connected to PostgreSQL ({tables_count} tables)[/green]")
+                        
+                        # Check if we have any data to process
+                        if not data_sources and (not pg_signature or 'error' in pg_signature):
+                            console.print("\n❌ [red]No data sources found to create data map.[/red]\n")
+                            continue
+                        
+                        # Collect code files for cross-reference
+                        console.print("\n[yellow]📝 Collecting code files for cross-reference...[/yellow]")
+                        code_files = collect_source_files(get_user_working_dir(), max_files=50)
+                        console.print(f"[green]✓ Found {len(code_files)} code files[/green]")
+                        
+                        # Generate directory tree
+                        console.print("\n[yellow]🌳 Generating directory tree...[/yellow]")
+                        tree_output = generate_tree(get_user_working_dir(), max_depth=5)
+                        console.print(f"[green]✓ Directory tree generated[/green]\n")
+                        
+                        # Generate the LLM prompt
+                        console.print("[yellow]🤖 Generating data map with LLM...[/yellow]")
+                        datamap_prompt = generate_datamap_prompt(
+                            data_sources,
+                            pg_signature=pg_signature,
+                            code_files=code_files,
+                            tree_output=tree_output
+                        )
+
+                        # Check prompt size and warn if it's very large
+                        prompt_size = len(datamap_prompt)
+                        estimated_tokens = prompt_size // 4
+                        if prompt_size > 500_000:
+                            console.print(f"[yellow]⚠️  Warning: Large prompt size ({prompt_size:,} chars, ~{estimated_tokens:,} tokens)[/yellow]")
+                            console.print(f"[yellow]   This may exceed token limits for some LLMs or cause slower processing.[/yellow]\n")
+
+                        # Use a separate chat manager for datamap generation
+                        datamap_chat_manager = ChatManager(system_prompt=config.get_system_prompt())
+                        datamap_chat_manager.add_user_message(datamap_prompt)
+                        messages = datamap_chat_manager.get_messages()
+                        
+                        spinner = Spinner("dots", text="[dim]Analyzing data sources...[/dim]", style="cyan")
+                        
+                        with Live(spinner, console=console, refresh_per_second=10):
+                            if stream:
+                                full_response = ""
+                                for chunk in ollama_client.chat(
+                                    messages=messages,
+                                    stream=True,
+                                    temperature=temperature
+                                ):
+                                    full_response += chunk
+                            else:
+                                response = ollama_client.chat(
+                                    messages=messages,
+                                    stream=False,
+                                    temperature=temperature
+                                )
+                                full_response = response.get('message', {}).get('content', '')
+                        
+                        # Prepend the tree to the datamap output
+                        datamap_content = f"""# Data Map
+
+## Directory Tree
+
+```
+{tree_output}
+```
+
+{full_response}
+"""
+
+                        # Write the datamap to file
+                        datamap_path = os.path.join(get_user_working_dir(), '.datamap')
+                        with open(datamap_path, 'w', encoding='utf-8') as f:
+                            f.write(datamap_content)
+                        
+                        console.print(f"\n[bold green]✓ Data map created successfully![/bold green]")
+                        console.print(f"[cyan]📄 Saved to: {datamap_path}[/cyan]\n")
+                        
+                        # Show preview
+                        preview_lines = datamap_content.split('\n')[:20]
+                        console.print("[dim]Preview:[/dim]")
+                        console.print(CustomMarkdown('\n'.join(preview_lines) + '\n...', code_theme="monokai"))
+                        console.print()
+                        
+                    except Exception as e:
+                        console.print(f"\n❌ [red]Error creating data map: {e}[/red]\n")
+                        if verbose:
+                            import traceback
+                            console.print(f"[dim]{traceback.format_exc()}[/dim]")
+                    continue
+
+                # Handle /datamap load command
+                if user_input_normalized.lower() == 'datamap load':
+                    datamap_path = os.path.join(get_user_working_dir(), '.datamap')
+                    
+                    if not os.path.exists(datamap_path):
+                        console.print(f"\n❌ [red]No .datamap file found at: {datamap_path}[/red]")
+                        console.print("[dim]Use '/datamap create' to generate a data map first.[/dim]\n")
+                        continue
+                    
+                    console.print(f"\n📂 [cyan]Loading data map: {datamap_path}[/cyan]")
+                    
+                    try:
+                        # Get session ID if active
+                        session_id = session_manager.get_session_id() if session_manager.is_active() else None
+                        
+                        # Load the datamap into context
+                        result = run_async(load_datamap_to_context(
+                            mcp_client,
+                            '.datamap',
+                            get_user_working_dir(),
+                            session_id
+                        ))
+                        
+                        if result.get('status') == 'success':
+                            content_size = result.get('content_size', 0)
+                            console.print(f"[bold green]✓ Data map loaded into context![/bold green]")
+                            console.print(f"[dim]  Size: {content_size:,} bytes[/dim]")
+                            if session_id:
+                                console.print(f"[dim]  Session: {session_id[:16]}...[/dim]")
+                            else:
+                                console.print(f"[dim]  Session: temporary (start a session for persistence)[/dim]")
+                            console.print()
+                        else:
+                            error_msg = result.get('message', 'Unknown error')
+                            console.print(f"[yellow]⚠️  Warning: {error_msg}[/yellow]")
+                            console.print("[dim]The datamap file may still be usable.[/dim]\n")
+                            
+                    except Exception as e:
+                        console.print(f"\n❌ [red]Error loading data map: {e}[/red]\n")
+                        if verbose:
+                            import traceback
+                            console.print(f"[dim]{traceback.format_exc()}[/dim]")
+                    continue
+
                 # Handle /code command - simplified version
                 if user_input_normalized.lower().startswith('code '):
                     prompt_text = user_input_normalized[5:].strip()  # Extract text after "code "
@@ -1477,6 +2260,27 @@ def main(verbose=False):
                                 debug_print(f"Repomap load warning: {repomap_result.get('message')}", icon="⚠️")
                         except Exception as e:
                             debug_print(f"Failed to load repomap: {e}", icon="⚠️")
+
+                    # Load .datamap file into context if it exists and not already loaded in this session
+                    datamap_path = os.path.join(get_user_working_dir(), '.datamap')
+                    datamap_loaded_key = f'datamap_loaded_{datamap_path}'
+                    if os.path.exists(datamap_path) and not session_manager.session_metadata.get(datamap_loaded_key):
+                        console.print("[cyan]📊 Loading data map into context...[/cyan]")
+                        try:
+                            datamap_result = run_async(load_datamap_to_context(
+                                mcp_client,
+                                '.datamap',
+                                get_user_working_dir(),
+                                session_id
+                            ))
+                            if datamap_result.get('status') == 'success':
+                                console.print("[green]✓ Data map loaded[/green]")
+                                # Mark datamap as loaded for this session
+                                session_manager.session_metadata[datamap_loaded_key] = True
+                            else:
+                                debug_print(f"Datamap load warning: {datamap_result.get('message')}", icon="⚠️")
+                        except Exception as e:
+                            debug_print(f"Failed to load datamap: {e}", icon="⚠️")
 
                     # Store @ references in session metadata for access by all tools
                     if at_references:

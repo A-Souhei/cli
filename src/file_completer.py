@@ -28,6 +28,11 @@ class SlashCommandCompleter(Completer):
         ('/session info', 'View current session info'),
         ('/repomap create', 'Create a repository map from working directory'),
         ('/repomap load', 'Load existing .repomap file into context'),
+        ('/datamap create', 'Create a data map from data files'),
+        ('/datamap create --files-only', 'Create a data map from local data files only'),
+        ('/datamap create --with-pg', 'Create a data map including PostgreSQL database'),
+        ('/datamap create --with-files --with-pg', 'Create a data map from files and PostgreSQL'),
+        ('/datamap load', 'Load existing .datamap file into context'),
         ('/code <prompt>', 'Analyze and execute code tasks (requires session)'),
     ]
 
