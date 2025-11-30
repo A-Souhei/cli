@@ -39,6 +39,7 @@ from src.utils.repomap import (
     REPOMAP_EXCLUDE_SUFFIXES,
     collect_source_files,
     generate_repomap_prompt,
+    generate_repomap_update_prompt,
     load_repomap_to_context,
 )
 
@@ -52,6 +53,7 @@ from src.utils.datamap import (
     get_postgresql_signature,
     collect_data_files,
     generate_datamap_prompt,
+    generate_datamap_update_prompt,
     load_datamap_to_context,
 )
 
@@ -547,6 +549,113 @@ def main(verbose=False):
                             console.print(f"[dim]{traceback.format_exc()}[/dim]")
                     continue
 
+                # Handle /repomap update command
+                if user_input_normalized.lower() == 'repomap update':
+                    repomap_path = os.path.join(get_user_working_dir(), '.repomap')
+                    
+                    if not os.path.exists(repomap_path):
+                        console.print(f"\n❌ [red]No .repomap file found at: {repomap_path}[/red]")
+                        console.print("[dim]Use '/repomap create' to generate a repository map first.[/dim]\n")
+                        continue
+                    
+                    console.print("\n📦 [bold cyan]Updating repository map...[/bold cyan]")
+                    console.print(f"[dim]Scanning working directory for new files: {get_user_working_dir()}[/dim]\n")
+
+                    try:
+                        # Read existing repomap content
+                        with open(repomap_path, 'r', encoding='utf-8') as f:
+                            existing_repomap = f.read()
+                        
+                        # Extract existing file paths from the repomap
+                        # Look for patterns like "### path/to/file.py" in the existing content
+                        existing_paths = set()
+                        for match in re.finditer(r'^### ([^\s(]+)', existing_repomap, re.MULTILINE):
+                            existing_paths.add(match.group(1))
+                        
+                        # Collect all current source files
+                        console.print("[yellow]📂 Collecting source code files...[/yellow]")
+                        all_source_files = collect_source_files(get_user_working_dir())
+                        
+                        # Filter to only new files
+                        new_files = [f for f in all_source_files if f['path'] not in existing_paths]
+                        
+                        if not new_files:
+                            console.print("\n[green]✓ No new files found. Repository map is up to date![/green]\n")
+                            continue
+                            
+                        console.print(f"[green]✓ Found {len(new_files)} new source files to add[/green]")
+                        for f in new_files[:10]:  # Show first 10
+                            console.print(f"[dim]  + {f['path']}[/dim]")
+                        if len(new_files) > 10:
+                            console.print(f"[dim]  ... and {len(new_files) - 10} more[/dim]")
+                        console.print()
+                        
+                        # Generate updated directory tree
+                        console.print("[yellow]🌳 Generating directory tree...[/yellow]")
+                        tree_output = generate_tree(get_user_working_dir(), max_depth=5)
+                        console.print(f"[green]✓ Directory tree generated[/green]\n")
+                        
+                        # Generate the update prompt
+                        console.print("[yellow]🤖 Updating repository map with LLM...[/yellow]")
+                        update_prompt = generate_repomap_update_prompt(new_files, existing_repomap, tree_output=tree_output)
+
+                        # Use a separate chat manager
+                        update_chat_manager = ChatManager(system_prompt=config.get_system_prompt())
+                        update_chat_manager.add_user_message(update_prompt)
+                        messages = update_chat_manager.get_messages()
+                        
+                        spinner = Spinner("dots", text="[dim]Updating repository map...[/dim]", style="cyan")
+                        
+                        with Live(spinner, console=console, refresh_per_second=10):
+                            if stream:
+                                full_response = ""
+                                for chunk in ollama_client.chat(
+                                    messages=messages,
+                                    stream=True,
+                                    temperature=temperature
+                                ):
+                                    full_response += chunk
+                            else:
+                                response = ollama_client.chat(
+                                    messages=messages,
+                                    stream=False,
+                                    temperature=temperature
+                                )
+                                full_response = response.get('message', {}).get('content', '')
+                        
+                        # Prepend the updated tree to the repomap output
+                        updated_repomap_content = f"""# Repository Map
+
+## Directory Tree
+
+```
+{tree_output}
+```
+
+{full_response}
+"""
+
+                        # Write the updated repomap to file
+                        with open(repomap_path, 'w', encoding='utf-8') as f:
+                            f.write(updated_repomap_content)
+                        
+                        console.print(f"\n[bold green]✓ Repository map updated successfully![/bold green]")
+                        console.print(f"[cyan]📄 Updated: {repomap_path}[/cyan]")
+                        console.print(f"[dim]Added {len(new_files)} new file(s)[/dim]\n")
+                        
+                        # Show preview
+                        preview_lines = updated_repomap_content.split('\n')[:20]
+                        console.print("[dim]Preview:[/dim]")
+                        console.print(CustomMarkdown('\n'.join(preview_lines) + '\n...', code_theme="monokai"))
+                        console.print()
+                        
+                    except Exception as e:
+                        console.print(f"\n❌ [red]Error updating repository map: {e}[/red]\n")
+                        if verbose:
+                            import traceback
+                            console.print(f"[dim]{traceback.format_exc()}[/dim]")
+                    continue
+
                 # Handle /datamap create command
                 if user_input_normalized.lower().startswith('datamap create'):
                     # Parse command arguments
@@ -561,8 +670,7 @@ def main(verbose=False):
                     pg_connection = None
                     if with_pg:
                         # Look for the connection string after --with-pg
-                        import re as re_module
-                        pg_match = re_module.search(r'--with-pg\s+([^\s]+)', args_str)
+                        pg_match = re.search(r'--with-pg\s+([^\s]+)', args_str)
                         if pg_match:
                             pg_connection = pg_match.group(1)
                         else:
@@ -746,6 +854,179 @@ def main(verbose=False):
                             
                     except Exception as e:
                         console.print(f"\n❌ [red]Error loading data map: {e}[/red]\n")
+                        if verbose:
+                            import traceback
+                            console.print(f"[dim]{traceback.format_exc()}[/dim]")
+                    continue
+
+                # Handle /datamap update command
+                if user_input_normalized.lower().startswith('datamap update'):
+                    datamap_path = os.path.join(get_user_working_dir(), '.datamap')
+                    
+                    if not os.path.exists(datamap_path):
+                        console.print(f"\n❌ [red]No .datamap file found at: {datamap_path}[/red]")
+                        console.print("[dim]Use '/datamap create' to generate a data map first.[/dim]\n")
+                        continue
+                    
+                    # Parse command arguments
+                    args_str = user_input_normalized[14:].strip()  # Everything after "datamap update"
+                    
+                    # Parse flags
+                    with_files = '--with-files' in args_str
+                    with_pg = '--with-pg' in args_str
+                    
+                    # If no flags provided, default to files only
+                    if not with_files and not with_pg:
+                        with_files = True
+                    
+                    # Extract PostgreSQL connection string if provided
+                    pg_connection = None
+                    if with_pg:
+                        pg_match = re.search(r'--with-pg\s+([^\s]+)', args_str)
+                        if pg_match:
+                            pg_connection = pg_match.group(1)
+                        else:
+                            console.print("\n❌ [red]--with-pg requires a connection string: --with-pg username:password@host:port/database[/red]\n")
+                            continue
+                    
+                    console.print("\n📊 [bold cyan]Updating data map...[/bold cyan]")
+                    console.print(f"[dim]Scanning working directory for new data sources: {get_user_working_dir()}[/dim]")
+                    if with_files:
+                        console.print("[dim]  - Scanning for new data files (CSV, JSON, Excel)[/dim]")
+                    if with_pg and pg_connection:
+                        console.print(f"[dim]  - Connecting to PostgreSQL for new tables[/dim]")
+                    console.print()
+
+                    try:
+                        # Read existing datamap content
+                        with open(datamap_path, 'r', encoding='utf-8') as f:
+                            existing_datamap = f.read()
+                        
+                        # Extract existing file paths from the datamap
+                        existing_paths = set()
+                        for match in re.finditer(r'^### ([^\s(]+)', existing_datamap, re.MULTILINE):
+                            existing_paths.add(match.group(1))
+                        
+                        new_data_sources = []
+                        new_pg_signature = None
+                        code_files = []
+                        
+                        # Collect new data files if requested
+                        if with_files:
+                            console.print("[yellow]📂 Collecting data files...[/yellow]")
+                            all_data_files = collect_data_files(get_user_working_dir())
+                            
+                            # Filter to only new files
+                            new_data_sources = [f for f in all_data_files if f.get('path') not in existing_paths]
+                            
+                            if new_data_sources:
+                                console.print(f"[green]✓ Found {len(new_data_sources)} new data files[/green]")
+                                for source in new_data_sources[:5]:
+                                    console.print(f"[dim]  + {source.get('path', 'unknown')}[/dim]")
+                                if len(new_data_sources) > 5:
+                                    console.print(f"[dim]  ... and {len(new_data_sources) - 5} more[/dim]")
+                            else:
+                                console.print("[dim]  No new data files found[/dim]")
+                        
+                        # Connect to PostgreSQL if requested
+                        if with_pg and pg_connection:
+                            console.print("\n[yellow]🐘 Connecting to PostgreSQL database...[/yellow]")
+                            new_pg_signature = get_postgresql_signature(pg_connection)
+                            
+                            if 'error' in new_pg_signature:
+                                console.print(f"[yellow]⚠️  PostgreSQL error: {new_pg_signature['error']}[/yellow]")
+                            else:
+                                tables_count = len(new_pg_signature.get('tables', []))
+                                if 'database_signatures' in new_pg_signature:
+                                    total_tables = sum(len(db.get('tables', [])) for db in new_pg_signature.get('database_signatures', []))
+                                    console.print(f"[green]✓ Connected to PostgreSQL ({len(new_pg_signature.get('databases', []))} databases, {total_tables} tables)[/green]")
+                                else:
+                                    console.print(f"[green]✓ Connected to PostgreSQL ({tables_count} tables)[/green]")
+                        
+                        # Check if we have any new data to process
+                        if not new_data_sources and (not new_pg_signature or 'error' in new_pg_signature):
+                            console.print("\n[green]✓ No new data sources found. Data map is up to date![/green]\n")
+                            continue
+                        
+                        # Collect code files for cross-reference
+                        console.print("\n[yellow]📝 Collecting code files for cross-reference...[/yellow]")
+                        code_files = collect_source_files(get_user_working_dir(), max_files=50)
+                        console.print(f"[green]✓ Found {len(code_files)} code files[/green]")
+                        
+                        # Generate updated directory tree
+                        console.print("\n[yellow]🌳 Generating directory tree...[/yellow]")
+                        tree_output = generate_tree(get_user_working_dir(), max_depth=5)
+                        console.print(f"[green]✓ Directory tree generated[/green]\n")
+                        
+                        # Generate the update prompt
+                        console.print("[yellow]🤖 Updating data map with LLM...[/yellow]")
+                        update_prompt = generate_datamap_update_prompt(
+                            new_data_sources,
+                            new_pg_signature=new_pg_signature,
+                            existing_datamap=existing_datamap,
+                            code_files=code_files,
+                            tree_output=tree_output
+                        )
+
+                        # Use a separate chat manager
+                        update_chat_manager = ChatManager(system_prompt=config.get_system_prompt())
+                        update_chat_manager.add_user_message(update_prompt)
+                        messages = update_chat_manager.get_messages()
+                        
+                        spinner = Spinner("dots", text="[dim]Updating data map...[/dim]", style="cyan")
+                        
+                        with Live(spinner, console=console, refresh_per_second=10):
+                            if stream:
+                                full_response = ""
+                                for chunk in ollama_client.chat(
+                                    messages=messages,
+                                    stream=True,
+                                    temperature=temperature
+                                ):
+                                    full_response += chunk
+                            else:
+                                response = ollama_client.chat(
+                                    messages=messages,
+                                    stream=False,
+                                    temperature=temperature
+                                )
+                                full_response = response.get('message', {}).get('content', '')
+                        
+                        # Prepend the updated tree to the datamap output
+                        updated_datamap_content = f"""# Data Map
+
+## Directory Tree
+
+```
+{tree_output}
+```
+
+{full_response}
+"""
+
+                        # Write the updated datamap to file
+                        with open(datamap_path, 'w', encoding='utf-8') as f:
+                            f.write(updated_datamap_content)
+                        
+                        new_count = len(new_data_sources)
+                        if new_pg_signature and 'error' not in new_pg_signature:
+                            tables_count = len(new_pg_signature.get('tables', []))
+                            if 'database_signatures' in new_pg_signature:
+                                tables_count = sum(len(db.get('tables', [])) for db in new_pg_signature.get('database_signatures', []))
+                            new_count += tables_count
+                        
+                        console.print(f"\n[bold green]✓ Data map updated successfully![/bold green]")
+                        console.print(f"[cyan]📄 Updated: {datamap_path}[/cyan]")
+                        console.print(f"[dim]Added {new_count} new data source(s)[/dim]\n")
+                        
+                        # Show preview
+                        preview_lines = updated_datamap_content.split('\n')[:20]
+                        console.print("[dim]Preview:[/dim]")
+                        console.print(CustomMarkdown('\n'.join(preview_lines) + '\n...', code_theme="monokai"))
+                        console.print()
+                        
+                    except Exception as e:
+                        console.print(f"\n❌ [red]Error updating data map: {e}[/red]\n")
                         if verbose:
                             import traceback
                             console.print(f"[dim]{traceback.format_exc()}[/dim]")

@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.utils.repomap import (
     collect_source_files,
     generate_repomap_prompt,
+    generate_repomap_update_prompt,
     load_repomap_to_context,
     SOURCE_CODE_EXTENSIONS,
     REPOMAP_EXCLUDE_DIRS,
@@ -428,6 +429,64 @@ class TestLoadRepomapToContext:
         await load_repomap_to_context(MockMCPClient(), '/path/to/.repomap', '/path')
         
         assert 'session_id' not in captured_args
+
+
+@pytest.mark.unit
+class TestGenerateRepomapUpdatePrompt:
+    """Tests for generate_repomap_update_prompt function."""
+
+    def test_generates_update_prompt_with_new_files(self):
+        """Test that update prompt includes new files."""
+        new_files = [
+            {'path': 'new_module.py', 'content': 'def new_func(): pass', 'size': 21},
+        ]
+        existing_repomap = """# Repository Map
+
+## Directory Structure
+- main.py: Entry point
+
+## Key Components
+- main(): Main function
+"""
+        
+        prompt = generate_repomap_update_prompt(new_files, existing_repomap)
+        
+        # Check that new file is included
+        assert 'new_module.py' in prompt
+        assert 'def new_func()' in prompt
+        
+        # Check that existing repomap is included
+        assert 'main.py: Entry point' in prompt
+        
+        # Check for update-specific instructions
+        assert 'DO NOT regenerate' in prompt
+        assert 'Preserve all existing content' in prompt
+        assert 'ADD the new files' in prompt
+
+    def test_update_prompt_includes_tree_when_provided(self):
+        """Test that update prompt includes tree when provided."""
+        new_files = [{'path': 'test.py', 'content': '# test', 'size': 6}]
+        existing_repomap = "# Existing Map"
+        tree_output = "├── src/\n│   └── test.py"
+        
+        prompt = generate_repomap_update_prompt(new_files, existing_repomap, tree_output=tree_output)
+        
+        assert 'Updated Directory Tree' in prompt
+        assert '├── src/' in prompt
+
+    def test_update_prompt_preserves_existing_structure(self):
+        """Test that update prompt emphasizes preserving existing structure."""
+        new_files = [{'path': 'utils.py', 'content': 'pass', 'size': 4}]
+        existing_repomap = "# Detailed existing content"
+        
+        prompt = generate_repomap_update_prompt(new_files, existing_repomap)
+        
+        # Should include the existing repomap
+        assert 'Existing Repository Map' in prompt
+        assert 'Detailed existing content' in prompt
+        
+        # Should emphasize preservation
+        assert 'Preserve' in prompt
 
 
 if __name__ == "__main__":

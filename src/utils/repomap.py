@@ -229,6 +229,78 @@ Please provide a clear, well-structured repository map in Markdown format that a
     return prompt
 
 
+def generate_repomap_update_prompt(new_files: list, existing_repomap: str, tree_output: str = None) -> str:
+    """
+    Generate an LLM prompt to update an existing repository map with new files.
+
+    Args:
+        new_files: List of new file dicts with 'path', 'content', and 'size' keys
+        existing_repomap: The existing .repomap file content
+        tree_output: Optional directory tree string to include (default: None)
+
+    Returns:
+        Prompt string for the LLM
+    """
+    # Build file summaries for new files only
+    file_summaries = []
+    for f in new_files:
+        file_summaries.append(f"### {f['path']} ({f['size']} bytes)")
+        # Truncate content to avoid overwhelming the LLM
+        content = f['content']
+        if len(content) > MAX_FILE_CONTENT_PREVIEW:
+            content_preview = content[:MAX_FILE_CONTENT_PREVIEW]
+        else:
+            content_preview = content
+        file_summaries.append(f"```\n{content_preview}\n```\n")
+    
+    # Build tree section if provided
+    tree_section = ""
+    if tree_output:
+        tree_section = f"""## Updated Directory Tree
+
+```
+{tree_output}
+```
+
+"""
+    
+    # Join file summaries with newlines
+    new_files_content = "\n".join(file_summaries)
+    
+    prompt = f"""You are a software architect updating an existing repository map. Your task is to integrate information about NEW files into the existing repository map.
+
+## Existing Repository Map
+
+{existing_repomap}
+
+{tree_section}## NEW Files to Add
+
+The following files are NEW and need to be integrated into the repository map:
+
+{new_files_content}
+
+## Instructions
+
+1. **DO NOT regenerate the entire repository map from scratch**
+2. **Preserve all existing content and structure**
+3. **ADD the new files to the appropriate sections**
+4. Update these sections as needed:
+   - Add new files to the Directory Structure section
+   - Add new components to the Key Components section
+   - Update Entry Points if new entry points were added
+   - Update Dependencies if new dependencies are visible
+   - Add any new architectural patterns observed
+
+5. **Format requirements:**
+   - Keep the same markdown structure as the existing repomap
+   - Add new files in alphabetical order within their sections
+   - Maintain consistency in description style
+
+Please provide the UPDATED repository map in Markdown format."""
+
+    return prompt
+
+
 async def load_repomap_to_context(mcp_client, repomap_path: str, working_dir: str, session_id: str = None) -> dict:
     """
     Load a .repomap file into context using the MCP client.

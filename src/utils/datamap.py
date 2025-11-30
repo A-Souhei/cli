@@ -561,6 +561,170 @@ Please provide a clear, well-structured data map in Markdown format."""
     return prompt
 
 
+def generate_datamap_update_prompt(new_data_sources: list, new_pg_signature: dict = None, 
+                                    existing_datamap: str = None, code_files: list = None, 
+                                    tree_output: str = None) -> str:
+    """
+    Generate an LLM prompt to update an existing data map with new data sources.
+    
+    Args:
+        new_data_sources: List of new data file signatures
+        new_pg_signature: Optional new PostgreSQL database signature
+        existing_datamap: The existing .datamap file content
+        code_files: Optional list of code files for cross-reference
+        tree_output: Optional directory tree string to include
+        
+    Returns:
+        Prompt string for the LLM
+    """
+    # Build data source summaries for new files only
+    source_summaries = []
+    
+    # Process new file-based data sources
+    for source in new_data_sources:
+        if 'error' in source:
+            source_summaries.append(f"### {source.get('path', 'Unknown')} (Error: {source['error']})")
+            continue
+            
+        summary_parts = [f"### {source['path']}"]
+        summary_parts.append(f"- **Type**: {source['extension']}")
+        summary_parts.append(f"- **Size**: {source['file_size']:,} bytes")
+        summary_parts.append(f"- **Rows**: {source['num_rows']:,}")
+        summary_parts.append(f"- **Columns**: {source['num_columns']}")
+        
+        # Column details
+        summary_parts.append("\n**Columns:**")
+        for col_name, col_type in source.get('column_types', {}).items():
+            null_count = source.get('null_counts', {}).get(col_name, 0)
+            null_info = f" (nulls: {null_count})" if null_count > 0 else ""
+            summary_parts.append(f"  - `{col_name}`: {col_type}{null_info}")
+        
+        # Numeric stats if available
+        if 'numeric_stats' in source:
+            summary_parts.append("\n**Numeric Statistics:**")
+            for col_name, stats in source['numeric_stats'].items():
+                mean_val = stats.get('mean')
+                if mean_val is not None:
+                    stat_line = f"  - `{col_name}`: min={stats['min']}, max={stats['max']}, mean={mean_val:.2f}"
+                else:
+                    stat_line = f"  - `{col_name}`: min={stats['min']}, max={stats['max']}"
+                summary_parts.append(stat_line)
+        
+        # Sample data
+        if 'sample_data' in source and source['sample_data']:
+            summary_parts.append("\n**Sample Data (first rows):**")
+            summary_parts.append("```json")
+            summary_parts.append(json.dumps(source['sample_data'][:3], indent=2, default=str))
+            summary_parts.append("```")
+        
+        source_summaries.append('\n'.join(summary_parts))
+    
+    # Process new PostgreSQL database if provided
+    pg_section = ""
+    if new_pg_signature:
+        if 'error' in new_pg_signature:
+            pg_section = f"\n## NEW PostgreSQL Database (Error: {new_pg_signature['error']})\n"
+        else:
+            pg_parts = ["\n## NEW PostgreSQL Database"]
+            pg_parts.append(f"- **Host**: {new_pg_signature['host']}:{new_pg_signature['port']}")
+            
+            if 'database_signatures' in new_pg_signature:
+                # Multiple databases
+                for db_sig in new_pg_signature['database_signatures']:
+                    if 'error' in db_sig:
+                        pg_parts.append(f"\n### Database: {db_sig['database']} (Error: {db_sig['error']})")
+                        continue
+                        
+                    pg_parts.append(f"\n### Database: {db_sig['database']}")
+                    for table in db_sig.get('tables', []):
+                        pg_parts.append(f"\n#### Table: `{table['name']}`")
+                        pg_parts.append(f"- **Rows**: {table['num_rows']}")
+                        pg_parts.append(f"- **Columns**: {table['num_columns']}")
+                        pg_parts.append("\n**Schema:**")
+                        for col_name in table['columns']:
+                            col_info = table['column_types'].get(col_name, {})
+                            nullable = " (nullable)" if col_info.get('nullable') else ""
+                            pg_parts.append(f"  - `{col_name}`: {col_info.get('type', 'unknown')}{nullable}")
+            else:
+                # Single database
+                for table in new_pg_signature.get('tables', []):
+                    pg_parts.append(f"\n### Table: `{table['name']}`")
+                    pg_parts.append(f"- **Rows**: {table['num_rows']}")
+                    pg_parts.append(f"- **Columns**: {table['num_columns']}")
+                    pg_parts.append("\n**Schema:**")
+                    for col_name in table['columns']:
+                        col_info = table['column_types'].get(col_name, {})
+                        nullable = " (nullable)" if col_info.get('nullable') else ""
+                        pg_parts.append(f"  - `{col_name}`: {col_info.get('type', 'unknown')}{nullable}")
+                    
+                    if 'sample_data' in table:
+                        pg_parts.append("\n**Sample Data:**")
+                        pg_parts.append("```json")
+                        pg_parts.append(json.dumps(table['sample_data'][:3], indent=2, default=str))
+                        pg_parts.append("```")
+            
+            pg_section = '\n'.join(pg_parts)
+    
+    # Build code files section for cross-reference
+    code_section = ""
+    if code_files:
+        code_parts = ["\n## Related Code Files"]
+        code_parts.append("\nThese are code files in the working directory that may use the data sources:")
+        for code_file in code_files[:20]:  # Limit to 20 files
+            code_parts.append(f"- `{code_file['path']}` ({code_file['size']:,} bytes)")
+        code_section = '\n'.join(code_parts)
+    
+    # Build tree section if provided
+    tree_section = ""
+    if tree_output:
+        tree_section = f"""## Updated Directory Tree
+
+```
+{tree_output}
+```
+
+"""
+    
+    # Join data source summaries
+    new_data_content = '\n\n'.join(source_summaries) if source_summaries else "No new data files."
+    
+    prompt = f"""You are a data analyst updating an existing data map. Your task is to integrate information about NEW data sources into the existing data map.
+
+## Existing Data Map
+
+{existing_datamap}
+
+{tree_section}## NEW Data Sources to Add
+
+The following data sources are NEW and need to be integrated into the data map:
+
+{new_data_content}
+{pg_section}
+{code_section}
+
+## Instructions
+
+1. **DO NOT regenerate the entire data map from scratch**
+2. **Preserve all existing content and structure**
+3. **ADD the new data sources to the appropriate sections**
+4. Update these sections as needed:
+   - Add new data sources to the Data Overview
+   - Add new schemas to the Data Schema Summary
+   - Update Data Quality Notes with any issues in new data
+   - Identify new Relationships between old and new data sources
+   - Update Usage Recommendations
+   - Update Code Integration section
+
+5. **Format requirements:**
+   - Keep the same markdown structure as the existing datamap
+   - Add new data sources in a logical order
+   - Maintain consistency in description style
+
+Please provide the UPDATED data map in Markdown format."""
+
+    return prompt
+
+
 async def load_datamap_to_context(mcp_client, datamap_path: str, working_dir: str, session_id: str = None) -> dict:
     """
     Load a .datamap file into context using the MCP client.

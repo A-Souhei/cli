@@ -14,6 +14,7 @@ from src.utils.datamap import (
     collect_data_files,
     get_data_source_signature,
     generate_datamap_prompt,
+    generate_datamap_update_prompt,
     load_datamap_to_context,
     DATA_FILE_EXTENSIONS,
     DATAMAP_EXCLUDE_DIRS,
@@ -510,6 +511,122 @@ class TestLoadDatamapToContext:
         await load_datamap_to_context(MockMCPClient(), '/path/to/.datamap', '/path')
 
         assert 'session_id' not in captured_args
+
+
+@pytest.mark.unit
+class TestGenerateDatamapUpdatePrompt:
+    """Tests for generate_datamap_update_prompt function."""
+
+    def test_generates_update_prompt_with_new_files(self):
+        """Test that update prompt includes new data files."""
+        new_data_sources = [
+            {
+                'path': 'new_data.csv',
+                'extension': '.csv',
+                'file_size': 1024,
+                'num_rows': 100,
+                'num_columns': 5,
+                'column_types': {'id': 'integer', 'name': 'string'},
+                'null_counts': {'id': 0, 'name': 2},
+            }
+        ]
+        existing_datamap = """# Data Map
+
+## Data Overview
+- old_data.csv: 50 rows
+
+## Data Schema
+- id: integer
+"""
+        
+        prompt = generate_datamap_update_prompt(new_data_sources, existing_datamap=existing_datamap)
+        
+        # Check that new file is included
+        assert 'new_data.csv' in prompt
+        assert '100' in prompt  # num_rows
+        
+        # Check that existing datamap is included
+        assert 'old_data.csv' in prompt
+        
+        # Check for update-specific instructions
+        assert 'DO NOT regenerate' in prompt
+        assert 'Preserve all existing content' in prompt
+        assert 'ADD the new data sources' in prompt
+
+    def test_update_prompt_includes_tree_when_provided(self):
+        """Test that update prompt includes tree when provided."""
+        new_data_sources = [
+            {
+                'path': 'test.csv',
+                'extension': '.csv',
+                'file_size': 100,
+                'num_rows': 10,
+                'num_columns': 2,
+                'column_types': {'a': 'integer'},
+                'null_counts': {},
+            }
+        ]
+        existing_datamap = "# Existing Data Map"
+        tree_output = "├── data/\n│   └── test.csv"
+        
+        prompt = generate_datamap_update_prompt(new_data_sources, existing_datamap=existing_datamap, tree_output=tree_output)
+        
+        assert 'Updated Directory Tree' in prompt
+        assert '├── data/' in prompt
+
+    def test_update_prompt_includes_postgresql(self):
+        """Test that update prompt includes PostgreSQL signature."""
+        new_data_sources = []
+        new_pg_signature = {
+            'host': 'localhost',
+            'port': 5432,
+            'tables': [
+                {
+                    'name': 'users',
+                    'columns': ['id', 'name'],
+                    'column_types': {
+                        'id': {'type': 'integer', 'nullable': False},
+                        'name': {'type': 'text', 'nullable': True}
+                    },
+                    'num_columns': 2,
+                    'num_rows': 100
+                }
+            ]
+        }
+        existing_datamap = "# Existing Data Map"
+        
+        prompt = generate_datamap_update_prompt(
+            new_data_sources, 
+            new_pg_signature=new_pg_signature,
+            existing_datamap=existing_datamap
+        )
+        
+        assert 'PostgreSQL' in prompt
+        assert 'users' in prompt
+
+    def test_update_prompt_preserves_existing_structure(self):
+        """Test that update prompt emphasizes preserving existing structure."""
+        new_data_sources = [
+            {
+                'path': 'new.csv',
+                'extension': '.csv',
+                'file_size': 100,
+                'num_rows': 5,
+                'num_columns': 1,
+                'column_types': {'x': 'integer'},
+                'null_counts': {},
+            }
+        ]
+        existing_datamap = "# Detailed existing data map content"
+        
+        prompt = generate_datamap_update_prompt(new_data_sources, existing_datamap=existing_datamap)
+        
+        # Should include the existing datamap
+        assert 'Existing Data Map' in prompt
+        assert 'Detailed existing data map content' in prompt
+        
+        # Should emphasize preservation
+        assert 'Preserve' in prompt
 
 
 if __name__ == "__main__":
