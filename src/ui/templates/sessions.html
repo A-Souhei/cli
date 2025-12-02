@@ -3,21 +3,21 @@
 {% block title %}Sessions - AI CLI{% endblock %}
 
 {% block content %}
-<div class="p-8">
+<div class="p-6">
     <!-- Header -->
-    <div class="flex items-center justify-between mb-8">
+    <div class="flex items-center justify-between mb-6">
         <div>
-            <h1 class="text-3xl font-bold text-white mb-2">Sessions</h1>
-            <p class="text-gray-400">Manage your conversation sessions</p>
+            <h1 class="text-xl font-semibold dark:text-white text-surface-900 mb-1">Sessions</h1>
+            <p class="dark:text-surface-400 text-surface-500 text-sm">Manage your conversation sessions</p>
         </div>
-        <div class="flex items-center space-x-4">
-            <label class="flex items-center space-x-2 text-gray-300">
-                <input type="checkbox" id="show-all" class="rounded bg-dark-700 border-dark-600 text-primary-500 focus:ring-primary-500">
-                <span class="text-sm">Show all directories</span>
+        <div class="flex items-center gap-3">
+            <label class="flex items-center gap-2 dark:text-surface-300 text-surface-600 text-sm cursor-pointer">
+                <input type="checkbox" id="show-all" class="rounded dark:bg-surface-800 dark:border-surface-600 bg-white border-surface-300 text-primary-500 focus:ring-primary-500 focus:ring-offset-0">
+                <span>All directories</span>
             </label>
-            <button onclick="clearSessions()" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors flex items-center space-x-2">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+            <button onclick="clearSessions()" class="btn btn-danger btn-sm gap-1.5">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                 </svg>
                 <span>Clear All</span>
             </button>
@@ -25,35 +25,33 @@
     </div>
     
     <!-- Working Directory Info -->
-    <div class="bg-dark-800 rounded-lg p-4 border border-dark-700 mb-6">
-        <div class="flex items-center space-x-3">
-            <svg class="w-5 h-5 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
-            </svg>
-            <span class="text-gray-300">Current Directory:</span>
-            <code class="text-primary-400 bg-dark-900 px-2 py-1 rounded">{{ working_dir }}</code>
-        </div>
+    <div class="card p-3 mb-5 flex items-center gap-2.5">
+        <svg class="w-4 h-4 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+        </svg>
+        <span class="dark:text-surface-300 text-surface-600 text-sm">Current:</span>
+        <code class="text-primary-500 dark:bg-surface-800 bg-surface-100 px-2 py-0.5 rounded text-xs font-mono">{{ working_dir }}</code>
     </div>
     
     <!-- Sessions List -->
-    <div id="sessions-container" class="space-y-4">
-        <div class="text-gray-400 text-center py-12">
-            <svg class="w-12 h-12 mx-auto mb-4 text-gray-600 animate-spin" fill="none" viewBox="0 0 24 24">
+    <div id="sessions-container" class="space-y-3">
+        <div class="dark:text-surface-400 text-surface-500 text-center py-10">
+            <svg class="w-8 h-8 mx-auto mb-3 animate-spin opacity-50" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
-            <p>Loading sessions...</p>
+            <p class="text-sm">Loading sessions...</p>
         </div>
     </div>
 </div>
 
 <!-- Session Details Modal -->
-<div id="session-modal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50">
-    <div class="bg-dark-800 rounded-xl p-6 max-w-4xl w-full mx-4 max-h-[80vh] overflow-auto border border-dark-700">
-        <div class="flex items-center justify-between mb-6">
-            <h2 class="text-xl font-bold text-white" id="modal-title">Session Details</h2>
-            <button onclick="closeModal()" class="text-gray-400 hover:text-white">
-                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<div id="session-modal" class="fixed inset-0 bg-black/50 backdrop-blur-sm hidden items-center justify-center z-50">
+    <div class="card p-5 max-w-3xl w-full mx-4 max-h-[80vh] overflow-auto">
+        <div class="flex items-center justify-between mb-5">
+            <h2 class="text-base font-semibold dark:text-white text-surface-900" id="modal-title">Session Details</h2>
+            <button onclick="closeModal()" class="btn btn-ghost btn-icon">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                 </svg>
             </button>
@@ -93,50 +91,46 @@
                     const shortId = safeSessionId ? safeSessionId.substring(0, 16) + '...' : 'N/A';
                     
                     return `
-                    <div class="bg-dark-800 rounded-xl p-6 border border-dark-700 hover:border-primary-500/50 transition-colors" data-session-id="${safeSessionId}">
+                    <div class="card p-4 hover:dark:border-primary-500/30 hover:border-primary-300 transition-colors" data-session-id="${safeSessionId}">
                         <div class="flex items-start justify-between">
-                            <div class="flex items-start space-x-4">
-                                <div class="w-12 h-12 bg-primary-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
-                                    <svg class="w-6 h-6 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                            <div class="flex items-start gap-3">
+                                <div class="w-10 h-10 dark:bg-primary-500/15 bg-primary-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                    <svg class="w-5 h-5 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
                                     </svg>
                                 </div>
-                                <div>
-                                    <h3 class="text-lg font-semibold text-white mb-1">${safeTitle}</h3>
-                                    <p class="text-gray-400 text-sm mb-2">
-                                        <span class="font-mono">${shortId}</span>
-                                    </p>
-                                    <div class="flex items-center space-x-4 text-sm text-gray-500">
-                                        <span class="flex items-center space-x-1">
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/>
+                                <div class="min-w-0">
+                                    <h3 class="text-sm font-medium dark:text-white text-surface-900 mb-1">${safeTitle}</h3>
+                                    <p class="dark:text-surface-400 text-surface-500 text-xs font-mono mb-1.5">${shortId}</p>
+                                    <div class="flex items-center gap-4 text-xs dark:text-surface-500 text-surface-400">
+                                        <span class="flex items-center gap-1">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/>
                                             </svg>
-                                            <span>${session.num_interactions || 0} interactions</span>
+                                            ${session.num_interactions || 0}
                                         </span>
                                         ${session.start_time ? `
-                                        <span class="flex items-center space-x-1">
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                        <span class="flex items-center gap-1">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                                             </svg>
-                                            <span>${new Date(session.start_time).toLocaleString()}</span>
+                                            ${new Date(session.start_time).toLocaleDateString()}
                                         </span>
                                         ` : ''}
                                     </div>
-                                    ${safeWorkingDir ? `
-                                    <p class="text-gray-500 text-xs mt-2 font-mono truncate max-w-md" title="${safeWorkingDir}">${safeWorkingDir}</p>
-                                    ` : ''}
+                                    ${safeWorkingDir ? `<p class="dark:text-surface-600 text-surface-400 text-[10px] mt-1.5 font-mono truncate max-w-sm" title="${safeWorkingDir}">${safeWorkingDir}</p>` : ''}
                                 </div>
                             </div>
-                            <div class="flex items-center space-x-2">
-                                <button class="view-session-btn p-2 text-gray-400 hover:text-primary-400 hover:bg-dark-700 rounded-lg transition-colors" title="View Details" data-session-id="${safeSessionId}">
-                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                            <div class="flex items-center gap-1">
+                                <button class="view-session-btn btn btn-ghost btn-icon" title="View" data-session-id="${safeSessionId}">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
                                     </svg>
                                 </button>
-                                <button class="delete-session-btn p-2 text-gray-400 hover:text-red-400 hover:bg-dark-700 rounded-lg transition-colors" title="Delete" data-session-id="${safeSessionId}">
-                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                <button class="delete-session-btn btn btn-ghost btn-icon hover:!text-red-500" title="Delete" data-session-id="${safeSessionId}">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                                     </svg>
                                 </button>
                             </div>
@@ -148,22 +142,22 @@
                 attachSessionEventListeners();
             } else {
                 container.innerHTML = `
-                    <div class="text-center py-12">
-                        <svg class="w-16 h-16 mx-auto mb-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/>
+                    <div class="text-center py-10">
+                        <svg class="w-12 h-12 mx-auto mb-3 dark:text-surface-600 text-surface-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/>
                         </svg>
-                        <h3 class="text-lg font-medium text-gray-400 mb-2">No sessions found</h3>
-                        <p class="text-gray-500">Start a session in the CLI with <code class="bg-dark-700 px-2 py-1 rounded">/session start</code></p>
+                        <h3 class="text-sm font-medium dark:text-surface-400 text-surface-500 mb-1.5">No sessions found</h3>
+                        <p class="dark:text-surface-500 text-surface-400 text-xs">Start with <code class="dark:bg-surface-800 bg-surface-100 px-1.5 py-0.5 rounded text-primary-500">/session start</code></p>
                     </div>
                 `;
             }
         } catch (error) {
             container.innerHTML = `
-                <div class="text-center py-12 text-red-400">
-                    <svg class="w-12 h-12 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                <div class="text-center py-10 text-red-500">
+                    <svg class="w-10 h-10 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                     </svg>
-                    <p>Failed to load sessions: ${error.message}</p>
+                    <p class="text-sm">Failed to load sessions: ${error.message}</p>
                 </div>
             `;
         }
@@ -175,7 +169,7 @@
         const modalContent = document.getElementById('modal-content');
         const modalTitle = document.getElementById('modal-title');
         
-        modalContent.innerHTML = '<div class="text-gray-400 text-center py-8">Loading...</div>';
+        modalContent.innerHTML = '<div class="dark:text-surface-400 text-surface-500 text-center py-6 text-sm">Loading...</div>';
         modal.classList.remove('hidden');
         modal.classList.add('flex');
         
@@ -200,52 +194,52 @@
                         const hasMore = responseText.length > 500;
                         
                         return `
-                        <div class="bg-dark-700 rounded-lg p-4">
-                            <div class="flex items-center space-x-2 mb-2">
-                                <span class="px-2 py-1 bg-primary-500/20 text-primary-400 text-xs rounded">#${idx + 1}</span>
-                                <span class="text-gray-500 text-xs">${new Date(interaction.timestamp).toLocaleString()}</span>
+                        <div class="dark:bg-surface-800 bg-surface-100 rounded-lg p-3">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="px-1.5 py-0.5 dark:bg-primary-500/15 bg-primary-100 text-primary-500 text-[10px] font-medium rounded">#${idx + 1}</span>
+                                <span class="dark:text-surface-500 text-surface-400 text-[10px]">${new Date(interaction.timestamp).toLocaleString()}</span>
                             </div>
-                            <div class="mb-3">
-                                <p class="text-gray-400 text-sm mb-1">User:</p>
-                                <p class="text-white">${safePrompt}</p>
+                            <div class="mb-2">
+                                <p class="dark:text-surface-500 text-surface-400 text-xs mb-0.5">User:</p>
+                                <p class="dark:text-white text-surface-900 text-sm">${safePrompt}</p>
                             </div>
                             <div>
-                                <p class="text-gray-400 text-sm mb-1">Assistant:</p>
-                                <div class="text-gray-300 text-sm max-h-40 overflow-y-auto">${safeResponse}${hasMore ? '...' : ''}</div>
+                                <p class="dark:text-surface-500 text-surface-400 text-xs mb-0.5">Assistant:</p>
+                                <div class="dark:text-surface-300 text-surface-600 text-xs max-h-32 overflow-y-auto">${safeResponse}${hasMore ? '...' : ''}</div>
                             </div>
                         </div>
                     `;}).join('');
                 } else {
-                    historyHtml = '<p class="text-gray-500">No interactions recorded</p>';
+                    historyHtml = '<p class="dark:text-surface-500 text-surface-400 text-sm">No interactions recorded</p>';
                 }
                 
                 modalContent.innerHTML = `
-                    <div class="grid grid-cols-2 gap-4 mb-6">
-                        <div class="bg-dark-700 rounded-lg p-4">
-                            <p class="text-gray-400 text-sm mb-1">Session ID</p>
-                            <p class="text-white font-mono text-sm">${safeSessionId}</p>
+                    <div class="grid grid-cols-2 gap-3 mb-5">
+                        <div class="dark:bg-surface-800 bg-surface-100 rounded-lg p-3">
+                            <p class="dark:text-surface-500 text-surface-400 text-xs mb-1">Session ID</p>
+                            <p class="dark:text-white text-surface-900 font-mono text-xs">${safeSessionId}</p>
                         </div>
-                        <div class="bg-dark-700 rounded-lg p-4">
-                            <p class="text-gray-400 text-sm mb-1">Start Time</p>
-                            <p class="text-white">${session.start_time ? new Date(session.start_time).toLocaleString() : 'N/A'}</p>
+                        <div class="dark:bg-surface-800 bg-surface-100 rounded-lg p-3">
+                            <p class="dark:text-surface-500 text-surface-400 text-xs mb-1">Start Time</p>
+                            <p class="dark:text-white text-surface-900 text-sm">${session.start_time ? new Date(session.start_time).toLocaleString() : 'N/A'}</p>
                         </div>
-                        <div class="bg-dark-700 rounded-lg p-4">
-                            <p class="text-gray-400 text-sm mb-1">Interactions</p>
-                            <p class="text-white">${session.history ? session.history.length : 0}</p>
+                        <div class="dark:bg-surface-800 bg-surface-100 rounded-lg p-3">
+                            <p class="dark:text-surface-500 text-surface-400 text-xs mb-1">Interactions</p>
+                            <p class="dark:text-white text-surface-900 text-sm">${session.history ? session.history.length : 0}</p>
                         </div>
-                        <div class="bg-dark-700 rounded-lg p-4">
-                            <p class="text-gray-400 text-sm mb-1">Working Directory</p>
-                            <p class="text-white text-sm font-mono truncate" title="${safeWorkingDir}">${safeWorkingDir}</p>
+                        <div class="dark:bg-surface-800 bg-surface-100 rounded-lg p-3">
+                            <p class="dark:text-surface-500 text-surface-400 text-xs mb-1">Working Directory</p>
+                            <p class="dark:text-white text-surface-900 text-xs font-mono truncate" title="${safeWorkingDir}">${safeWorkingDir}</p>
                         </div>
                     </div>
-                    <h3 class="text-lg font-semibold text-white mb-4">Conversation History</h3>
-                    <div class="space-y-4 max-h-96 overflow-y-auto">${historyHtml}</div>
+                    <h3 class="text-sm font-semibold dark:text-white text-surface-900 mb-3">Conversation History</h3>
+                    <div class="space-y-3 max-h-80 overflow-y-auto">${historyHtml}</div>
                 `;
             } else {
-                modalContent.innerHTML = '<div class="text-red-400 text-center py-8">Failed to load session details</div>';
+                modalContent.innerHTML = '<div class="text-red-500 text-center py-6 text-sm">Failed to load session details</div>';
             }
         } catch (error) {
-            modalContent.innerHTML = `<div class="text-red-400 text-center py-8">Error: ${error.message}</div>`;
+            modalContent.innerHTML = `<div class="text-red-500 text-center py-6 text-sm">Error: ${error.message}</div>`;
         }
     }
     

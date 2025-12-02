@@ -3,52 +3,52 @@
 {% block title %}{{ mcp_name }} Tools - AI CLI{% endblock %}
 
 {% block content %}
-<div class="p-8">
+<div class="p-6">
     <!-- Back link and Header -->
-    <div class="mb-8">
-        <a href="/mcps" class="inline-flex items-center space-x-2 text-gray-400 hover:text-white transition-colors mb-4">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+    <div class="mb-6">
+        <a href="/mcps" class="inline-flex items-center gap-1.5 dark:text-surface-400 text-surface-500 hover:text-primary-500 transition-colors text-sm mb-4">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 19l-7-7 7-7"/>
             </svg>
             <span>Back to MCPs</span>
         </a>
         
-        <div class="flex items-start space-x-4">
-            <div class="w-16 h-16 bg-gradient-to-br from-green-500 to-green-700 rounded-xl flex items-center justify-center flex-shrink-0">
-                <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/>
+        <div class="flex items-start gap-3">
+            <div class="w-12 h-12 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-lg flex items-center justify-center flex-shrink-0">
+                <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/>
                 </svg>
             </div>
             <div>
-                <h1 class="text-3xl font-bold text-white mb-1" id="mcp-title">{{ mcp_name }}</h1>
-                <p class="text-gray-400" id="mcp-description">Loading...</p>
+                <h1 class="text-xl font-semibold dark:text-white text-surface-900 mb-0.5" id="mcp-title">{{ mcp_name }}</h1>
+                <p class="dark:text-surface-400 text-surface-500 text-sm" id="mcp-description">Loading...</p>
             </div>
         </div>
     </div>
     
     <!-- Tools List -->
-    <div class="mb-6">
-        <h2 class="text-xl font-semibold text-white mb-4">Available Tools</h2>
+    <div class="mb-4">
+        <h2 class="text-sm font-semibold dark:text-white text-surface-900 mb-3">Available Tools</h2>
     </div>
     
-    <div id="tools-container" class="space-y-4">
-        <div class="text-gray-400 text-center py-12">
-            <svg class="w-12 h-12 mx-auto mb-4 text-gray-600 animate-spin" fill="none" viewBox="0 0 24 24">
+    <div id="tools-container" class="space-y-3">
+        <div class="dark:text-surface-400 text-surface-500 text-center py-10">
+            <svg class="w-8 h-8 mx-auto mb-3 opacity-50 animate-spin" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
-            <p>Loading tools...</p>
+            <p class="text-sm">Loading tools...</p>
         </div>
     </div>
 </div>
 
 <!-- Tool Details Modal -->
-<div id="tool-modal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50">
-    <div class="bg-dark-800 rounded-xl p-6 max-w-2xl w-full mx-4 border border-dark-700 max-h-[80vh] overflow-y-auto">
-        <div class="flex items-center justify-between mb-6">
-            <h2 class="text-xl font-bold text-white" id="tool-modal-title">Tool Details</h2>
-            <button onclick="closeToolModal()" class="text-gray-400 hover:text-white">
-                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<div id="tool-modal" class="fixed inset-0 bg-black/50 backdrop-blur-sm hidden items-center justify-center z-50">
+    <div class="card p-5 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
+        <div class="flex items-center justify-between mb-5">
+            <h2 class="text-base font-semibold dark:text-white text-surface-900" id="tool-modal-title">Tool Details</h2>
+            <button onclick="closeToolModal()" class="btn btn-ghost btn-icon">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                 </svg>
             </button>
@@ -87,13 +87,13 @@
             
             if (tools.length === 0) {
                 container.innerHTML = `
-                    <div class="text-center py-12">
-                        <svg class="w-16 h-16 mx-auto mb-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    <div class="text-center py-10">
+                        <svg class="w-12 h-12 mx-auto mb-3 dark:text-surface-600 text-surface-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
                         </svg>
-                        <h3 class="text-lg font-medium text-gray-400 mb-2">No tools found</h3>
-                        <p class="text-gray-500">Run the CLI to initialize this MCP's tools</p>
+                        <h3 class="text-sm font-medium dark:text-surface-400 text-surface-500 mb-1.5">No tools found</h3>
+                        <p class="dark:text-surface-500 text-surface-400 text-xs">Run the CLI to initialize this MCP's tools</p>
                     </div>
                 `;
                 return;
@@ -107,21 +107,21 @@
                     : 'No description available';
                 
                 return `
-                    <div class="bg-dark-800 rounded-xl border border-dark-700 hover:border-dark-600 transition-colors">
-                        <button class="w-full text-left p-5 flex items-start space-x-4"
+                    <div class="card hover:dark:border-primary-500/30 hover:border-primary-300 transition-colors">
+                        <button class="w-full text-left p-4 flex items-start gap-3"
                                 onclick="showToolDetails('${safeToolName}', \`${safeToolDesc.replace(/`/g, '\\`')}\`)">
-                            <div class="w-12 h-12 bg-purple-500/20 rounded-xl flex items-center justify-center flex-shrink-0">
-                                <svg class="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            <div class="w-10 h-10 dark:bg-violet-500/15 bg-violet-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                <svg class="w-5 h-5 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
                                 </svg>
                             </div>
                             <div class="flex-1 min-w-0">
-                                <h3 class="text-lg font-semibold text-white mb-1">${safeToolName}</h3>
-                                <p class="text-gray-400 text-sm">${escapeHtml(shortDesc)}</p>
+                                <h3 class="text-sm font-medium dark:text-white text-surface-900 mb-1">${safeToolName}</h3>
+                                <p class="dark:text-surface-400 text-surface-500 text-xs leading-relaxed">${escapeHtml(tool.description || 'No description available')}</p>
                             </div>
-                            <svg class="w-5 h-5 text-gray-500 flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                            <svg class="w-4 h-4 dark:text-surface-500 text-surface-400 flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5l7 7-7 7"/>
                             </svg>
                         </button>
                     </div>
@@ -130,11 +130,11 @@
             
         } catch (error) {
             container.innerHTML = `
-                <div class="text-center py-12 text-red-400">
-                    <svg class="w-12 h-12 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                <div class="text-center py-10 text-red-500">
+                    <svg class="w-10 h-10 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                     </svg>
-                    <p>Failed to load tools: ${error.message}</p>
+                    <p class="text-sm">Failed to load tools: ${error.message}</p>
                 </div>
             `;
         }
@@ -149,15 +149,15 @@
         modalTitle.textContent = toolName;
         
         modalContent.innerHTML = `
-            <div class="bg-dark-700 rounded-lg p-4 mb-4">
-                <h4 class="text-gray-400 text-sm mb-2">Description</h4>
-                <p class="text-white">${escapeHtml(description || 'No description available')}</p>
+            <div class="dark:bg-surface-800 bg-surface-100 rounded-lg p-3 mb-4">
+                <h4 class="dark:text-surface-400 text-surface-500 text-xs mb-1.5">Description</h4>
+                <p class="dark:text-white text-surface-900 text-sm">${escapeHtml(description || 'No description available')}</p>
             </div>
-            <div class="bg-dark-700 rounded-lg p-4">
-                <h4 class="text-gray-400 text-sm mb-2">Usage in CLI</h4>
-                <p class="text-gray-300 text-sm mb-3">This tool is automatically matched when you use the <code class="bg-dark-900 px-1.5 py-0.5 rounded text-primary-400">/code</code> command or when the AI determines it's needed based on your prompt.</p>
-                <div class="bg-dark-900 rounded-lg p-4 font-mono text-sm text-gray-300">
-                    <span class="text-green-400">/code</span> Use ${escapeHtml(toolName)} to...
+            <div class="dark:bg-surface-800 bg-surface-100 rounded-lg p-3">
+                <h4 class="dark:text-surface-400 text-surface-500 text-xs mb-1.5">Usage in CLI</h4>
+                <p class="dark:text-surface-300 text-surface-600 text-xs mb-2">This tool is automatically matched when you use the <code class="dark:bg-surface-900 bg-white px-1 py-0.5 rounded text-primary-500 text-xs">/code</code> command or when the AI determines it's needed based on your prompt.</p>
+                <div class="dark:bg-surface-900 bg-white rounded-lg p-3 font-mono text-xs dark:text-surface-300 text-surface-600">
+                    <span class="text-emerald-500">/code</span> Use ${escapeHtml(toolName)} to...
                 </div>
             </div>
         `;

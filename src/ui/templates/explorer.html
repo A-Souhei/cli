@@ -5,34 +5,34 @@
 {% block content %}
 <div class="h-full flex flex-col">
     <!-- Header -->
-    <div class="bg-dark-900 border-b border-dark-700 p-4">
+    <div class="dark:bg-surface-900 bg-white border-b dark:border-surface-700 border-surface-200 p-4">
         <div class="flex items-center justify-between">
             <div>
-                <h1 class="text-xl font-bold text-white flex items-center space-x-2">
-                    <svg class="w-6 h-6 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+                <h1 class="text-base font-semibold dark:text-white text-surface-900 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
                     </svg>
                     <span>File Explorer</span>
                 </h1>
-                <p class="text-gray-400 text-sm mt-1">Browse your working directory</p>
+                <p class="dark:text-surface-400 text-surface-500 text-xs mt-0.5">Browse your working directory</p>
             </div>
-            <div class="flex items-center space-x-2">
+            <div class="flex items-center gap-4">
                 <!-- Auto-refresh toggle -->
-                <label class="flex items-center space-x-2 text-sm text-gray-400 cursor-pointer">
-                    <input type="checkbox" id="auto-refresh" class="rounded bg-dark-800 border-dark-600 text-primary-500 focus:ring-primary-500">
+                <label class="flex items-center gap-1.5 text-xs dark:text-surface-400 text-surface-500 cursor-pointer">
+                    <input type="checkbox" id="auto-refresh" class="rounded dark:bg-surface-800 bg-white dark:border-surface-600 border-surface-300 text-primary-500 focus:ring-primary-500 focus:ring-offset-0">
                     <span>Auto-refresh</span>
                 </label>
                 
                 <!-- Show hidden files toggle -->
-                <label class="flex items-center space-x-2 text-sm text-gray-400 cursor-pointer ml-4">
-                    <input type="checkbox" id="show-hidden" class="rounded bg-dark-800 border-dark-600 text-primary-500 focus:ring-primary-500">
+                <label class="flex items-center gap-1.5 text-xs dark:text-surface-400 text-surface-500 cursor-pointer">
+                    <input type="checkbox" id="show-hidden" class="rounded dark:bg-surface-800 bg-white dark:border-surface-600 border-surface-300 text-primary-500 focus:ring-primary-500 focus:ring-offset-0">
                     <span>Show hidden</span>
                 </label>
                 
                 <!-- Refresh button -->
-                <button id="refresh-btn" class="ml-4 px-4 py-2 bg-dark-800 hover:bg-dark-700 border border-dark-600 text-gray-300 rounded-lg text-sm transition-colors flex items-center space-x-2">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                <button id="refresh-btn" class="btn btn-secondary btn-sm gap-1.5">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                     </svg>
                     <span>Refresh</span>
                 </button>
@@ -40,8 +40,8 @@
         </div>
         
         <!-- Breadcrumb -->
-        <div id="breadcrumb" class="flex items-center space-x-1 mt-4 text-sm">
-            <span class="text-gray-500">Loading...</span>
+        <div id="breadcrumb" class="flex items-center gap-1 mt-3 text-xs">
+            <span class="dark:text-surface-500 text-surface-400">Loading...</span>
         </div>
     </div>
     
@@ -50,23 +50,23 @@
         <!-- File List -->
         <div class="flex-1 overflow-auto p-4">
             <!-- Stats bar -->
-            <div id="stats-bar" class="mb-4 flex items-center justify-between text-sm text-gray-500">
+            <div id="stats-bar" class="mb-3 flex items-center justify-between text-xs dark:text-surface-500 text-surface-400">
                 <span id="item-count">Loading...</span>
                 <span id="last-refresh"></span>
             </div>
             
             <!-- File grid/list -->
-            <div id="file-list" class="space-y-1">
-                <div class="text-gray-500 text-center py-8">Loading...</div>
+            <div id="file-list" class="space-y-0.5">
+                <div class="dark:text-surface-500 text-surface-400 text-center py-6 text-sm">Loading...</div>
             </div>
         </div>
         
         <!-- File Preview Panel -->
-        <div id="preview-panel" class="hidden w-1/2 max-w-3xl border-l border-dark-700 bg-dark-900 flex flex-col">
-            <div class="p-4 border-b border-dark-700 flex items-center justify-between">
-                <h3 class="font-semibold text-white truncate" id="preview-title">Preview</h3>
-                <button id="close-preview" class="text-gray-400 hover:text-white transition-colors">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div id="preview-panel" class="hidden w-1/2 max-w-3xl border-l dark:border-surface-700 border-surface-200 dark:bg-surface-900 bg-white flex flex-col">
+            <div class="p-3 border-b dark:border-surface-700 border-surface-200 flex items-center justify-between">
+                <h3 class="font-medium dark:text-white text-surface-900 text-sm truncate" id="preview-title">Preview</h3>
+                <button id="close-preview" class="btn btn-ghost btn-icon">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                     </svg>
                 </button>
@@ -74,7 +74,7 @@
             <div id="preview-content" class="flex-1 overflow-auto p-4">
                 <!-- Preview content goes here -->
             </div>
-            <div id="preview-footer" class="p-4 border-t border-dark-700 text-sm text-gray-400">
+            <div id="preview-footer" class="p-3 border-t dark:border-surface-700 border-surface-200 text-xs dark:text-surface-400 text-surface-500">
                 <!-- File info goes here -->
             </div>
         </div>
@@ -106,69 +106,69 @@
     
     // File type icons (SVG paths)
     const icons = {
-        folder: `<svg class="w-5 h-5 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
+        folder: `<svg class="w-4 h-4 text-amber-500" fill="currentColor" viewBox="0 0 20 20">
             <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/>
         </svg>`,
-        file: `<svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        file: `<svg class="w-4 h-4 dark:text-surface-400 text-surface-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
         </svg>`,
-        python: `<svg class="w-5 h-5 text-yellow-400" viewBox="0 0 24 24" fill="currentColor">
+        python: `<svg class="w-4 h-4 text-yellow-500" viewBox="0 0 24 24" fill="currentColor">
             <path d="M12 0C5.373 0 6 2.687 6 2.687v2.688h6v.875H3.937S0 5.812 0 12c0 6.188 3.437 5.969 3.437 5.969h2.063v-2.875s-.125-3.437 3.375-3.437h5.75s3.25.063 3.25-3.125V3.344S18.312 0 12 0zm-2.75 2a.94.94 0 110 1.876.94.94 0 010-1.876z"/>
             <path d="M12 24c6.627 0 6-2.687 6-2.687v-2.688h-6v-.875h8.063S24 18.188 24 12c0-6.188-3.437-5.969-3.437-5.969h-2.063v2.875s.125 3.437-3.375 3.437h-5.75s-3.25-.063-3.25 3.125v5.188S5.687 24 12 24zm2.75-2a.94.94 0 110-1.876.94.94 0 010 1.876z"/>
         </svg>`,
-        javascript: `<svg class="w-5 h-5 text-yellow-300" viewBox="0 0 24 24" fill="currentColor">
+        javascript: `<svg class="w-4 h-4 text-yellow-400" viewBox="0 0 24 24" fill="currentColor">
             <path d="M0 0h24v24H0V0zm22.034 18.276c-.175-1.095-.888-2.015-3.003-2.873-.736-.345-1.554-.585-1.797-1.14-.091-.33-.105-.51-.046-.705.15-.646.915-.84 1.515-.66.39.12.75.42.976.9 1.034-.676 1.034-.676 1.755-1.125-.27-.42-.404-.601-.586-.78-.63-.705-1.469-1.065-2.834-1.034l-.705.089c-.676.165-1.32.525-1.71 1.005-1.14 1.291-.811 3.541.569 4.471 1.365 1.02 3.361 1.244 3.616 2.205.24 1.17-.87 1.545-1.966 1.41-.811-.18-1.26-.586-1.755-1.336l-1.83 1.051c.21.48.45.689.81 1.109 1.74 1.756 6.09 1.666 6.871-1.004.029-.09.24-.705.074-1.65l.046.067z"/>
         </svg>`,
-        typescript: `<svg class="w-5 h-5 text-blue-400" viewBox="0 0 24 24" fill="currentColor">
+        typescript: `<svg class="w-4 h-4 text-blue-500" viewBox="0 0 24 24" fill="currentColor">
             <path d="M1.125 0C.502 0 0 .502 0 1.125v21.75C0 23.498.502 24 1.125 24h21.75c.623 0 1.125-.502 1.125-1.125V1.125C24 .502 23.498 0 22.875 0H1.125zm17.363 9.75c.612 0 1.154.037 1.627.111a6.38 6.38 0 011.306.34v2.458a3.95 3.95 0 00-.643-.361 5.093 5.093 0 00-.717-.26 5.453 5.453 0 00-1.426-.2c-.3 0-.573.028-.819.086a2.1 2.1 0 00-.623.242c-.17.104-.3.229-.393.374a.888.888 0 00-.14.49c0 .196.053.373.156.529.104.156.252.304.443.444s.423.276.696.41c.273.135.582.274.926.416.47.197.892.407 1.266.628.374.222.695.473.963.753.268.279.472.598.614.957.142.359.214.776.214 1.253 0 .657-.125 1.21-.373 1.656a3.033 3.033 0 01-1.012 1.085 4.38 4.38 0 01-1.487.596c-.566.12-1.163.18-1.79.18a9.916 9.916 0 01-1.84-.164 5.544 5.544 0 01-1.512-.493v-2.63a5.033 5.033 0 001.586.75 6.458 6.458 0 001.758.254c.733 0 1.282-.135 1.647-.406.365-.27.547-.669.547-1.196 0-.252-.063-.468-.19-.649a1.989 1.989 0 00-.533-.493 5.186 5.186 0 00-.806-.42 38.67 38.67 0 00-1.026-.45c-.449-.188-.865-.399-1.248-.632a4.68 4.68 0 01-.985-.79 3.421 3.421 0 01-.648-1.022c-.157-.39-.235-.846-.235-1.368 0-.618.13-1.146.389-1.582a3.38 3.38 0 011.038-1.077 4.6 4.6 0 011.468-.607 6.96 6.96 0 011.68-.197zM9.813 9.75h4.688v1.922h-1.64v7.578H10.61v-7.578H9.812V9.75z"/>
         </svg>`,
-        html: `<svg class="w-5 h-5 text-orange-500" viewBox="0 0 24 24" fill="currentColor">
+        html: `<svg class="w-4 h-4 text-orange-500" viewBox="0 0 24 24" fill="currentColor">
             <path d="M1.5 0h21l-1.91 21.563L11.977 24l-8.565-2.438L1.5 0zm17.09 4.413L5.41 4.41l.213 2.622 10.125.002-.255 2.716h-6.64l.24 2.573h6.182l-.366 3.523-2.91.804-2.956-.81-.188-2.11h-2.61l.29 3.855L12 19.288l5.373-1.53L18.59 4.414z"/>
         </svg>`,
-        css: `<svg class="w-5 h-5 text-blue-500" viewBox="0 0 24 24" fill="currentColor">
+        css: `<svg class="w-4 h-4 text-blue-500" viewBox="0 0 24 24" fill="currentColor">
             <path d="M1.5 0h21l-1.91 21.563L11.977 24l-8.564-2.438L1.5 0zm17.09 4.413L5.41 4.41l.213 2.622 10.125.002-.255 2.716h-6.64l.24 2.573h6.182l-.366 3.523-2.91.804-2.956-.81-.188-2.11h-2.61l.29 3.855L12 19.288l5.373-1.53L18.59 4.414z"/>
         </svg>`,
-        json: `<svg class="w-5 h-5 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+        json: `<svg class="w-4 h-4 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
         </svg>`,
-        yaml: `<svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        yaml: `<svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
         </svg>`,
-        markdown: `<svg class="w-5 h-5 text-gray-300" viewBox="0 0 24 24" fill="currentColor">
+        markdown: `<svg class="w-4 h-4 dark:text-surface-300 text-surface-600" viewBox="0 0 24 24" fill="currentColor">
             <path d="M22.27 19.385H1.73A1.73 1.73 0 010 17.655V6.345a1.73 1.73 0 011.73-1.73h20.54A1.73 1.73 0 0124 6.345v11.308a1.73 1.73 0 01-1.73 1.732zM5.769 15.923v-4.5l2.308 2.885 2.307-2.885v4.5h2.308V8.078h-2.308l-2.307 2.885-2.308-2.885H3.46v7.847zM21.232 12h-2.309V8.077h-2.307V12h-2.308l3.461 4.039z"/>
         </svg>`,
-        shell: `<svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+        shell: `<svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
         </svg>`,
-        database: `<svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/>
+        database: `<svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/>
         </svg>`,
-        git: `<svg class="w-5 h-5 text-orange-600" viewBox="0 0 24 24" fill="currentColor">
+        git: `<svg class="w-4 h-4 text-orange-600" viewBox="0 0 24 24" fill="currentColor">
             <path d="M23.546 10.93L13.067.452c-.604-.603-1.582-.603-2.188 0L8.708 2.627l2.76 2.76c.645-.215 1.379-.07 1.889.441.516.515.658 1.258.438 1.9l2.658 2.66c.645-.223 1.387-.078 1.9.435.721.72.721 1.884 0 2.604-.719.719-1.881.719-2.6 0-.539-.541-.674-1.337-.404-1.996L12.86 8.955v6.525c.176.086.342.203.488.348.713.721.713 1.883 0 2.6-.719.721-1.889.721-2.609 0-.719-.719-.719-1.879 0-2.598.182-.18.387-.316.605-.406V8.835c-.217-.091-.424-.222-.6-.401-.545-.545-.676-1.342-.396-2.009L7.636 3.7.45 10.881c-.6.605-.6 1.584 0 2.189l10.48 10.477c.604.604 1.582.604 2.186 0l10.43-10.43c.605-.603.605-1.582 0-2.187"/>
         </svg>`,
-        docker: `<svg class="w-5 h-5 text-blue-400" viewBox="0 0 24 24" fill="currentColor">
+        docker: `<svg class="w-4 h-4 text-blue-500" viewBox="0 0 24 24" fill="currentColor">
             <path d="M13.983 11.078h2.119a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.119a.185.185 0 00-.185.185v1.888c0 .102.083.185.185.185m-2.954-5.43h2.118a.186.186 0 00.186-.186V3.574a.186.186 0 00-.186-.185h-2.118a.185.185 0 00-.185.185v1.888c0 .102.082.185.185.186m0 2.716h2.118a.187.187 0 00.186-.186V6.29a.186.186 0 00-.186-.185h-2.118a.185.185 0 00-.185.185v1.887c0 .102.082.185.185.186m-2.93 0h2.12a.186.186 0 00.184-.186V6.29a.185.185 0 00-.185-.185H8.1a.185.185 0 00-.185.185v1.887c0 .102.083.185.185.186m-2.964 0h2.119a.186.186 0 00.185-.186V6.29a.185.185 0 00-.185-.185H5.136a.186.186 0 00-.186.185v1.887c0 .102.084.185.186.186m5.893 2.715h2.118a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.118a.185.185 0 00-.185.185v1.888c0 .102.082.185.185.185m-2.93 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.185.185 0 00-.184.185v1.888c0 .102.083.185.185.185m-2.964 0h2.119a.185.185 0 00.185-.185V9.006a.185.185 0 00-.185-.186h-2.119a.185.185 0 00-.185.185v1.888c0 .102.083.185.185.185m-2.92 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.186.186 0 00-.185.185v1.888c0 .102.084.185.185.185M23.763 9.89c-.065-.051-.672-.51-1.954-.51-.338.001-.676.03-1.01.087-.248-1.7-1.653-2.53-1.716-2.566l-.344-.199-.226.327c-.284.438-.49.922-.612 1.43-.23.97-.09 1.882.403 2.661-.595.332-1.55.413-1.744.42H.751a.751.751 0 00-.75.748 11.376 11.376 0 00.692 4.062c.545 1.428 1.355 2.48 2.41 3.124 1.18.723 3.1 1.137 5.275 1.137.983.003 1.963-.086 2.93-.266a12.248 12.248 0 003.823-1.389c.98-.567 1.86-1.288 2.61-2.136 1.252-1.418 1.998-2.997 2.553-4.4h.221c1.372 0 2.215-.549 2.68-1.009.309-.293.55-.65.707-1.046l.098-.288z"/>
         </svg>`,
-        image: `<svg class="w-5 h-5 text-pink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+        image: `<svg class="w-4 h-4 text-pink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
         </svg>`,
-        pdf: `<svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+        pdf: `<svg class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
         </svg>`,
-        archive: `<svg class="w-5 h-5 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
+        archive: `<svg class="w-4 h-4 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
         </svg>`,
-        text: `<svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        text: `<svg class="w-4 h-4 dark:text-surface-400 text-surface-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
         </svg>`,
-        env: `<svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+        env: `<svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
         </svg>`,
-        makefile: `<svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+        makefile: `<svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
         </svg>`,
-        react: `<svg class="w-5 h-5 text-cyan-400" viewBox="0 0 24 24" fill="currentColor">
+        react: `<svg class="w-4 h-4 text-cyan-400" viewBox="0 0 24 24" fill="currentColor">
             <path d="M14.23 12.004a2.236 2.236 0 0 1-2.235 2.236 2.236 2.236 0 0 1-2.236-2.236 2.236 2.236 0 0 1 2.235-2.236 2.236 2.236 0 0 1 2.236 2.236zm2.648-10.69c-1.346 0-3.107.96-4.888 2.622-1.78-1.653-3.542-2.602-4.887-2.602-.41 0-.783.093-1.106.278-1.375.793-1.683 3.264-.973 6.365C1.98 8.917 0 10.42 0 12.004c0 1.59 1.99 3.097 5.043 4.03-.704 3.113-.39 5.588.988 6.38.32.187.69.275 1.102.275 1.345 0 3.107-.96 4.888-2.624 1.78 1.654 3.542 2.603 4.887 2.603.41 0 .783-.09 1.106-.275 1.374-.792 1.683-3.263.973-6.365C22.02 15.096 24 13.59 24 12.004c0-1.59-1.99-3.097-5.043-4.032.704-3.11.39-5.587-.988-6.38-.318-.184-.688-.277-1.092-.278zm-.005 1.09v.006c.225 0 .406.044.558.127.666.382.955 1.835.73 3.704-.054.46-.142.945-.25 1.44-.96-.236-2.006-.417-3.107-.534-.66-.905-1.345-1.727-2.035-2.447 1.592-1.48 3.087-2.292 4.105-2.295zm-9.77.02c1.012 0 2.514.808 4.11 2.28-.686.72-1.37 1.537-2.02 2.442-1.107.117-2.154.298-3.113.538-.112-.49-.195-.964-.254-1.42-.23-1.868.054-3.32.714-3.707.19-.09.4-.127.563-.132zm4.882 3.05c.455.468.91.992 1.36 1.564-.44-.02-.89-.034-1.345-.034-.46 0-.915.01-1.36.034.44-.572.895-1.096 1.345-1.565zM12 8.1c.74 0 1.477.034 2.202.093.406.582.802 1.203 1.183 1.86.372.64.71 1.29 1.018 1.946-.308.655-.646 1.31-1.013 1.95-.38.66-.773 1.288-1.18 1.87-.728.063-1.466.098-2.21.098-.74 0-1.477-.035-2.202-.093-.406-.582-.802-1.204-1.183-1.86-.372-.64-.71-1.29-1.018-1.946.303-.657.646-1.313 1.013-1.954.38-.66.773-1.286 1.18-1.868.728-.064 1.466-.098 2.21-.098zm-3.635.254c-.24.377-.48.763-.704 1.16-.225.39-.435.782-.635 1.174-.265-.656-.49-1.31-.676-1.947.64-.15 1.315-.283 2.015-.386zm7.26 0c.695.103 1.365.23 2.006.387-.18.632-.405 1.282-.66 1.933-.2-.39-.41-.783-.64-1.174-.225-.392-.465-.774-.705-1.146zm3.063.675c.484.15.944.317 1.375.498 1.732.74 2.852 1.708 2.852 2.476-.005.768-1.125 1.74-2.857 2.475-.42.18-.88.342-1.355.493-.28-.958-.646-1.956-1.1-2.98.45-1.017.81-2.01 1.085-2.964zm-13.395.004c.278.96.645 1.957 1.1 2.98-.45 1.017-.812 2.01-1.086 2.964-.484-.15-.944-.318-1.37-.5-1.732-.737-2.852-1.706-2.852-2.474 0-.768 1.12-1.742 2.852-2.476.42-.18.88-.342 1.356-.494zm11.678 4.28c.265.657.49 1.312.676 1.948-.64.157-1.316.29-2.016.39.24-.375.48-.762.705-1.158.225-.39.435-.788.636-1.18zm-9.945.02c.2.392.41.783.64 1.175.23.39.465.772.705 1.143-.695-.102-1.365-.23-2.006-.386.18-.63.406-1.282.66-1.933zM17.92 16.32c.112.493.2.968.254 1.423.23 1.868-.054 3.32-.714 3.708-.147.09-.338.128-.563.128-1.012 0-2.514-.807-4.11-2.28.686-.72 1.37-1.536 2.02-2.44 1.107-.118 2.154-.3 3.113-.54zm-11.83.01c.96.234 2.006.415 3.107.532.66.905 1.345 1.727 2.035 2.446-1.595 1.483-3.092 2.295-4.11 2.295-.22-.005-.406-.05-.553-.132-.666-.38-.955-1.834-.73-3.703.054-.46.142-.944.25-1.438zm4.56.64c.44.02.89.034 1.345.034.46 0 .915-.01 1.36-.034-.44.572-.895 1.095-1.345 1.565-.455-.47-.91-.993-1.36-1.565z"/>
         </svg>`
     };
@@ -204,13 +204,13 @@
         breadcrumb.innerHTML = items.map((item, idx) => {
             const isLast = idx === items.length - 1;
             if (isLast) {
-                return `<span class="text-white font-medium">${item.name}</span>`;
+                return `<span class="dark:text-white text-surface-900 font-medium">${item.name}</span>`;
             }
             return `
-                <button class="text-primary-400 hover:text-primary-300 transition-colors" onclick="loadDirectory('${item.path}')">
+                <button class="text-primary-500 hover:text-primary-400 transition-colors" onclick="loadDirectory('${item.path}')">
                     ${item.name}
                 </button>
-                <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="w-3.5 h-3.5 dark:text-surface-600 text-surface-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
                 </svg>
             `;
@@ -220,11 +220,11 @@
     function renderFileList(items) {
         if (items.length === 0) {
             fileList.innerHTML = `
-                <div class="text-center py-12 text-gray-500">
-                    <svg class="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+                <div class="text-center py-10 dark:text-surface-500 text-surface-400">
+                    <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
                     </svg>
-                    <p>This folder is empty</p>
+                    <p class="text-sm">This folder is empty</p>
                 </div>
             `;
             return;
@@ -232,19 +232,19 @@
         
         fileList.innerHTML = items.map(item => `
             <div 
-                class="file-item flex items-center p-3 rounded-lg hover:bg-dark-800 cursor-pointer transition-colors group ${selectedFile === item.path ? 'bg-dark-800 ring-1 ring-primary-500' : ''}"
+                class="file-item flex items-center p-2.5 rounded-lg hover:dark:bg-surface-800 hover:bg-surface-100 cursor-pointer transition-colors group ${selectedFile === item.path ? 'dark:bg-surface-800 bg-surface-100 ring-1 ring-primary-500' : ''}"
                 data-path="${item.path}"
                 data-is-dir="${item.is_dir}"
                 onclick="handleItemClick(event, '${item.path}', ${item.is_dir})"
                 ondblclick="handleItemDblClick('${item.path}', ${item.is_dir})"
             >
-                <div class="flex-shrink-0 mr-3">
+                <div class="flex-shrink-0 mr-2.5">
                     ${getIcon(item.icon)}
                 </div>
                 <div class="flex-1 min-w-0">
-                    <p class="text-white truncate ${item.is_dir ? 'font-medium' : ''}">${item.name}</p>
+                    <p class="dark:text-white text-surface-900 text-sm truncate ${item.is_dir ? 'font-medium' : ''}">${item.name}</p>
                 </div>
-                <div class="flex-shrink-0 text-right text-sm text-gray-500 space-x-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div class="flex-shrink-0 text-right text-xs dark:text-surface-500 text-surface-400 gap-3 opacity-0 group-hover:opacity-100 transition-opacity flex">
                     ${item.size_formatted ? `<span>${item.size_formatted}</span>` : ''}
                     <span>${item.modified_formatted}</span>
                 </div>
@@ -265,9 +265,9 @@
         
         // Update selection UI
         document.querySelectorAll('.file-item').forEach(el => {
-            el.classList.remove('bg-dark-800', 'ring-1', 'ring-primary-500');
+            el.classList.remove('dark:bg-surface-800', 'bg-surface-100', 'ring-1', 'ring-primary-500');
         });
-        event.currentTarget.classList.add('bg-dark-800', 'ring-1', 'ring-primary-500');
+        event.currentTarget.classList.add('dark:bg-surface-800', 'bg-surface-100', 'ring-1', 'ring-primary-500');
         
         // Show preview for files
         if (!isDir) {
@@ -287,7 +287,7 @@
     async function showPreview(path) {
         previewPanel.classList.remove('hidden');
         previewTitle.textContent = path.split('/').pop();
-        previewContent.innerHTML = '<div class="text-gray-500 text-center py-8">Loading...</div>';
+        previewContent.innerHTML = '<div class="dark:text-surface-500 text-surface-400 text-center py-6 text-sm">Loading...</div>';
         
         try {
             const response = await fetch(`/api/files/read?path=${encodeURIComponent(path)}`);
@@ -296,11 +296,11 @@
             if (data.status === 'success') {
                 if (data.is_binary) {
                     previewContent.innerHTML = `
-                        <div class="text-center py-8 text-gray-500">
-                            <svg class="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        <div class="text-center py-8 dark:text-surface-500 text-surface-400">
+                            <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                             </svg>
-                            <p>Binary file - cannot preview</p>
+                            <p class="text-sm">Binary file - cannot preview</p>
                         </div>
                     `;
                 } else {
@@ -309,14 +309,14 @@
                     const lineNumberWidth = String(lines.length).length;
                     
                     previewContent.innerHTML = `
-                        <pre class="text-sm font-mono bg-dark-950 rounded-lg p-4 overflow-x-auto"><code>${
+                        <pre class="text-xs font-mono dark:bg-surface-950 bg-surface-50 rounded-lg p-3 overflow-x-auto"><code>${
                             lines.map((line, idx) => {
                                 const lineNum = String(idx + 1).padStart(lineNumberWidth, ' ');
                                 const escapedLine = line
                                     .replace(/&/g, '&amp;')
                                     .replace(/</g, '&lt;')
                                     .replace(/>/g, '&gt;');
-                                return `<span class="text-gray-600 select-none">${lineNum}</span>  ${escapedLine}`;
+                                return `<span class="dark:text-surface-600 text-surface-400 select-none">${lineNum}</span>  <span class="dark:text-surface-300 text-surface-700">${escapedLine}</span>`;
                             }).join('\n')
                         }</code></pre>
                     `;
@@ -330,14 +330,14 @@
                 `;
             } else {
                 previewContent.innerHTML = `
-                    <div class="text-center py-8 text-red-400">
+                    <div class="text-center py-6 text-red-500 text-sm">
                         <p>${data.message}</p>
                     </div>
                 `;
             }
         } catch (error) {
             previewContent.innerHTML = `
-                <div class="text-center py-8 text-red-400">
+                <div class="text-center py-6 text-red-500 text-sm">
                     <p>Failed to load preview: ${error.message}</p>
                 </div>
             `;
@@ -351,11 +351,11 @@
     
     function showError(message) {
         fileList.innerHTML = `
-            <div class="text-center py-12 text-red-400">
-                <svg class="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+            <div class="text-center py-10 text-red-500">
+                <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
                 </svg>
-                <p>${message}</p>
+                <p class="text-sm">${message}</p>
             </div>
         `;
     }
