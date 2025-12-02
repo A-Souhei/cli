@@ -11,11 +11,12 @@ import asyncio
 import os
 from pathlib import Path
 from src.config import ConfigManager
+from src.config.llm_availability import LLMAvailabilityChecker
 from src.ollama_client import OllamaClient
 from src.chat import ChatManager
 from src.selector import InteractiveSelector
 from src.mcp import MCPClient
-from src.session import SessionManager
+from src.session import SessionManager, SessionTitleGenerator
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -171,11 +172,15 @@ def main(verbose=False):
         # Load configuration
         config = ConfigManager()
 
-        # Initialize Ollama client
+        # Check LLM availability and get the best available LLM
+        llm_checker = LLMAvailabilityChecker(config)
+        llm_config = llm_checker.get_available_llm()
+
+        # Initialize Ollama client with the available LLM
         ollama_client = OllamaClient(
-            host=config.get_ollama_url(),
-            model=config.get_ollama_model(),
-            timeout=config.get_ollama_timeout()
+            host=llm_config.url,
+            model=llm_config.model,
+            timeout=llm_config.timeout
         )
 
         # Initialize chat manager
@@ -184,8 +189,17 @@ def main(verbose=False):
             max_context_length=config.get_max_context_length()
         )
 
-        # Initialize session manager
-        session_manager = SessionManager()
+        # Initialize session title generator (uses local tinyollama)
+        title_generator = None
+        if config.has_tinyollama_config():
+            title_generator = SessionTitleGenerator(
+                ollama_url=config.get_tinyollama_url(),
+                model=config.get_tinyollama_model(),
+                timeout=config.get_tinyollama_timeout()
+            )
+
+        # Initialize session manager with title generator
+        session_manager = SessionManager(title_generator=title_generator)
 
         # Initialize MCP client
         system_mcps_dir = Path(__file__).parent / "system_mcps"
@@ -212,9 +226,17 @@ def main(verbose=False):
         # Clear the screen
         console.clear()
 
-        print_banner()
-        console.print(f"  📦 Model: [bold]{ollama_client.model}[/bold]")
-        console.print(f"  🔗 Server: [dim]{config.get_ollama_url()}[/dim]")
+        print_banner(console)
+        
+        # Show LLM status with fallback indicator
+        if llm_config.is_tinyollama:
+            console.print(f"  📦 Model: [bold yellow]{llm_config.model}[/bold yellow] [dim](fallback - remote unreachable)[/dim]")
+            console.print(f"  🔗 Server: [dim]{llm_config.url}[/dim]")
+            if llm_config.disabled_features:
+                console.print(f"  ⚠️  [dim]Disabled features: {', '.join(llm_config.disabled_features)}[/dim]")
+        else:
+            console.print(f"  📦 Model: [bold]{llm_config.model}[/bold]")
+            console.print(f"  🔗 Server: [dim]{llm_config.url}[/dim]")
         console.print()
 
         # Initialize command history
@@ -393,6 +415,13 @@ def main(verbose=False):
 
                 # Handle /repomap create command
                 if user_input_normalized.lower() == 'repomap create':
+                    # Check if repomap_create is disabled (e.g., when using tinyollama)
+                    if llm_checker.is_feature_disabled('repomap_create'):
+                        console.print("\n⚠️  [yellow]/repomap create is disabled when using tinyollama fallback.[/yellow]")
+                        console.print("[dim]This feature requires a larger model for reliable repository analysis.[/dim]")
+                        console.print("[dim]Connect to the primary Ollama server to use this feature.[/dim]\n")
+                        continue
+
                     console.print("\n📦 [bold cyan]Creating repository map...[/bold cyan]")
                     console.print(f"[dim]Scanning working directory: {get_user_working_dir()}[/dim]\n")
 
@@ -533,6 +562,13 @@ def main(verbose=False):
 
                 # Handle /repomap update command
                 if user_input_normalized.lower() == 'repomap update':
+                    # Check if repomap_update is disabled (e.g., when using tinyollama)
+                    if llm_checker.is_feature_disabled('repomap_update'):
+                        console.print("\n⚠️  [yellow]/repomap update is disabled when using tinyollama fallback.[/yellow]")
+                        console.print("[dim]This feature requires a larger model for reliable repository analysis.[/dim]")
+                        console.print("[dim]Connect to the primary Ollama server to use this feature.[/dim]\n")
+                        continue
+
                     repomap_path = os.path.join(get_user_working_dir(), '.repomap')
                     
                     if not os.path.exists(repomap_path):
@@ -640,6 +676,13 @@ def main(verbose=False):
 
                 # Handle /datamap create command
                 if user_input_normalized.lower().startswith('datamap create'):
+                    # Check if datamap_create is disabled (e.g., when using tinyollama)
+                    if llm_checker.is_feature_disabled('datamap_create'):
+                        console.print("\n⚠️  [yellow]/datamap create is disabled when using tinyollama fallback.[/yellow]")
+                        console.print("[dim]This feature requires a larger model for reliable data analysis.[/dim]")
+                        console.print("[dim]Connect to the primary Ollama server to use this feature.[/dim]\n")
+                        continue
+
                     # Parse command arguments
                     args_str = user_input_normalized[14:].strip()  # Everything after "datamap create"
                     
@@ -843,6 +886,13 @@ def main(verbose=False):
 
                 # Handle /datamap update command
                 if user_input_normalized.lower().startswith('datamap update'):
+                    # Check if datamap_update is disabled (e.g., when using tinyollama)
+                    if llm_checker.is_feature_disabled('datamap_update'):
+                        console.print("\n⚠️  [yellow]/datamap update is disabled when using tinyollama fallback.[/yellow]")
+                        console.print("[dim]This feature requires a larger model for reliable data analysis.[/dim]")
+                        console.print("[dim]Connect to the primary Ollama server to use this feature.[/dim]\n")
+                        continue
+
                     datamap_path = os.path.join(get_user_working_dir(), '.datamap')
                     
                     if not os.path.exists(datamap_path):
@@ -1016,6 +1066,13 @@ def main(verbose=False):
 
                 # Handle /code command - simplified version
                 if user_input_normalized.lower().startswith('code '):
+                    # Check if code mode is disabled (e.g., when using tinyollama)
+                    if llm_checker.is_feature_disabled('code_mode'):
+                        console.print("\n⚠️  [yellow]/code command is disabled when using tinyollama fallback.[/yellow]")
+                        console.print("[dim]This feature requires a larger model for reliable code generation.[/dim]")
+                        console.print("[dim]Connect to the primary Ollama server to use this feature.[/dim]\n")
+                        continue
+                        
                     prompt_text = user_input_normalized[5:].strip()  # Extract text after "code "
 
                     if not prompt_text:
