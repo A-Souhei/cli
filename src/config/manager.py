@@ -2,7 +2,7 @@
 
 import yaml
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 
 class ConfigManager:
@@ -63,3 +63,35 @@ class ConfigManager:
     def get_stream_enabled(self) -> bool:
         """Check if streaming is enabled."""
         return self.config.get('chat', {}).get('stream', True)
+
+    # ========================================================================
+    # TINYOLLAMA CONFIGURATION METHODS
+    # ========================================================================
+
+    def get_tinyollama_url(self) -> str:
+        """Get the tinyollama service URL."""
+        return self.config.get('tinyollama', {}).get('url', 'http://localhost:11434')
+
+    def get_tinyollama_model(self) -> str:
+        """Get the tinyollama model name."""
+        return self.config.get('tinyollama', {}).get('model', 'tinyllama')
+
+    def get_tinyollama_timeout(self) -> int:
+        """Get the tinyollama request timeout."""
+        return self.config.get('tinyollama', {}).get('timeout', 60)
+
+    def is_tinyollama_code_mode_disabled(self) -> bool:
+        """Check if code mode is disabled for tinyollama."""
+        return self.config.get('tinyollama', {}).get('disable_code_mode', True)
+
+    def get_tinyollama_disabled_features(self) -> List[str]:
+        """Get list of features disabled for tinyollama."""
+        return self.config.get('tinyollama', {}).get('disabled_features', [
+            'code_mode',
+            'coder_model',
+            'repomap_create'
+        ])
+
+    def has_tinyollama_config(self) -> bool:
+        """Check if tinyollama configuration exists."""
+        return 'tinyollama' in self.config

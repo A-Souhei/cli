@@ -7,6 +7,19 @@ ollama:
   model: "tinyllama"
   timeout: 120
 
+# Local tinyollama configuration (Docker container fallback)
+# This is used when remote ollama is not reachable or as a lightweight alternative
+tinyollama:
+  url: "http://localhost:11434"
+  model: "tinyllama"
+  timeout: 60
+  # Heavy features disabled for tinyollama (lightweight model limitations)
+  disable_code_mode: true
+  disabled_features:
+    - code_mode        # /code command - requires larger models for code generation
+    - coder_model      # Code editing - requires specialized coder models
+    - repomap_create   # Repository mapping - requires large context understanding
+
 chat:
   system_prompt: "You are a helpful AI assistant."
   max_context_length: 10
@@ -15,11 +28,21 @@ chat:
 
 ---
 
-# Example 2: Remote Ollama server
+# Example 2: Remote Ollama server with tinyollama fallback
 # ollama:
 #   url: "http://192.168.1.100:11434"  # Remote server IP
 #   model: "mistral"
 #   timeout: 180
+#
+# tinyollama:
+#   url: "http://localhost:11434"      # Local Docker container
+#   model: "tinyllama"
+#   timeout: 60
+#   disable_code_mode: true
+#   disabled_features:
+#     - code_mode
+#     - coder_model
+#     - repomap_create
 
 ---
 

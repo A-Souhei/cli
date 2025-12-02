@@ -3,6 +3,7 @@
 
 from src.session import SessionManager
 
+
 def test_session_manager():
     """Test SessionManager functionality."""
     print("Testing SessionManager...")
@@ -73,5 +74,42 @@ def test_session_manager():
 
     print("\n✅ All tests passed!")
 
+
+def test_session_title():
+    """Test SessionManager title functionality."""
+    print("\nTesting Session Title functionality...")
+
+    sm = SessionManager()
+
+    # Test 11: Title is None initially
+    session_id = sm.start_session()
+    assert sm.get_title() is None, "❌ Title should be None initially"
+    print("✓ Test 11: Title is None initially")
+
+    # Test 12: Manual title setting
+    sm.set_title("Test Session Title")
+    assert sm.get_title() == "Test Session Title", "❌ Title should be set"
+    print("✓ Test 12: Manual title setting works")
+
+    # Test 13: Title in session info
+    info = sm.get_session_info()
+    assert info["title"] == "Test Session Title", "❌ Title should be in session info"
+    print("✓ Test 13: Title included in session info")
+
+    # Test 14: Title in end session summary
+    summary = sm.end_session()
+    assert summary["title"] == "Test Session Title", "❌ Title should be in summary"
+    print("✓ Test 14: Title included in end session summary")
+
+    # Test 15: Title reset on new session
+    sm.start_session()
+    assert sm.get_title() is None, "❌ Title should be None for new session"
+    sm.end_session()
+    print("✓ Test 15: Title reset on new session")
+
+    print("\n✅ All title tests passed!")
+
+
 if __name__ == "__main__":
     test_session_manager()
+    test_session_title()
