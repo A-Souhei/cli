@@ -14,6 +14,11 @@ class SessionTitleGenerator:
     for a session based on the first user prompt.
     """
 
+    # Configuration constants
+    MAX_PROMPT_LENGTH = 500  # Maximum characters of prompt to send for title generation
+    MAX_TITLE_LENGTH = 50   # Maximum characters for generated title
+    MAX_TOKENS = 60         # Maximum tokens for LLM response
+
     def __init__(
         self,
         ollama_url: str = "http://localhost:11434",
@@ -46,10 +51,10 @@ class SessionTitleGenerator:
             return None
 
         # Truncate very long prompts to avoid token limits
-        truncated_prompt = first_prompt[:500] if len(first_prompt) > 500 else first_prompt
+        truncated_prompt = first_prompt[:self.MAX_PROMPT_LENGTH] if len(first_prompt) > self.MAX_PROMPT_LENGTH else first_prompt
 
         # Create a simple prompt for title generation
-        title_prompt = f"""Generate a short, descriptive title (maximum 50 characters) for a conversation that starts with this user message:
+        title_prompt = f"""Generate a short, descriptive title (maximum {self.MAX_TITLE_LENGTH} characters) for a conversation that starts with this user message:
 
 "{truncated_prompt}"
 
@@ -65,7 +70,7 @@ Respond with ONLY the title, no quotes, no explanation. The title should be conc
                         "stream": False,
                         "options": {
                             "temperature": 0.3,
-                            "num_predict": 60  # Short response for title
+                            "num_predict": self.MAX_TOKENS
                         }
                     }
                 )
@@ -117,9 +122,9 @@ Respond with ONLY the title, no quotes, no explanation. The title should be conc
             if title.startswith(prefix):
                 title = title[len(prefix):].strip()
 
-        # Truncate to 50 characters if needed
-        if len(title) > 50:
-            title = title[:47] + "..."
+        # Truncate to max length if needed
+        if len(title) > self.MAX_TITLE_LENGTH:
+            title = title[:self.MAX_TITLE_LENGTH - 3] + "..."
 
         # If title is too short or just whitespace, return empty
         if len(title.strip()) < 3:
