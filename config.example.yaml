@@ -19,6 +19,9 @@ tinyollama:
     - code_mode        # /code command - requires larger models for code generation
     - coder_model      # Code editing - requires specialized coder models
     - repomap_create   # Repository mapping - requires large context understanding
+    - repomap_update   # Repository map update - requires large context understanding
+    - datamap_create   # Data mapping - requires large context understanding
+    - datamap_update   # Data map update - requires large context understanding
 
 chat:
   system_prompt: "You are a helpful AI assistant."
@@ -43,6 +46,9 @@ chat:
 #     - code_mode
 #     - coder_model
 #     - repomap_create
+#     - repomap_update
+#     - datamap_create
+#     - datamap_update
 
 ---
 

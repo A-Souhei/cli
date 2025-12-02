@@ -89,7 +89,10 @@ class ConfigManager:
         return self.config.get('tinyollama', {}).get('disabled_features', [
             'code_mode',
             'coder_model',
-            'repomap_create'
+            'repomap_create',
+            'repomap_update',
+            'datamap_create',
+            'datamap_update'
         ])
 
     def has_tinyollama_config(self) -> bool:
