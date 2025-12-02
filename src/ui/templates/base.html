@@ -91,11 +91,20 @@
     </script>
     <!-- Markdown rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <style>
+    <style type="text/tailwindcss">
         /* Base styles */
         * {
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
+        }
+        
+        /* Hide scrollbar utility */
+        .scrollbar-hide {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        .scrollbar-hide::-webkit-scrollbar {
+            display: none;
         }
         
         /* Custom scrollbar - Dark */

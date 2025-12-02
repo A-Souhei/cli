@@ -3,139 +3,139 @@
 {% block title %}Chat - AI CLI{% endblock %}
 
 {% block content %}
-<div class="flex flex-col h-full overflow-hidden">
+<div class="flex flex-col h-full">
     <!-- Fixed Header with Toolbar -->
-    <div class="flex-shrink-0 px-4 py-3 bg-white dark:bg-surface-900 border-b border-surface-200 dark:border-surface-800">
-        <div class="flex items-center justify-between mb-3">
-            <div class="flex items-center gap-3">
+    <div class="flex-shrink-0 sticky top-0 z-40 px-4 py-2 bg-white dark:bg-surface-900 border-b border-surface-200 dark:border-surface-800 shadow-sm">
+        <div class="flex items-center gap-3">
+            <!-- Left: Title and Session Status -->
+            <div class="flex items-center gap-2 flex-shrink-0">
                 <h1 class="text-base font-semibold text-surface-900 dark:text-white">Chat</h1>
-                <!-- Session Status -->
-                <div id="session-status" class="flex items-center gap-1.5 px-2 py-1 bg-surface-100 dark:bg-surface-800 rounded-md">
+                <div id="session-status" class="flex items-center gap-1.5 px-2 py-0.5 bg-surface-100 dark:bg-surface-800 rounded-md">
                     <div id="session-indicator" class="w-1.5 h-1.5 rounded-full bg-surface-400 dark:bg-surface-500"></div>
-                    <span id="session-text" class="text-surface-500 dark:text-surface-400 text-xs">No Session</span>
+                    <span id="session-text" class="text-surface-500 dark:text-surface-400 text-xs whitespace-nowrap">No Session</span>
                 </div>
             </div>
-            <div class="flex items-center gap-2">
-                <!-- Model Selector -->
-                <select id="model-select" class="input text-xs py-1.5 px-2 pr-7 min-w-[140px]">
+            
+            <!-- Center: Command Toolbar -->
+            <div class="flex items-center gap-1.5 flex-1 overflow-x-auto overflow-y-visible scrollbar-hide">
+                <!-- Session Commands -->
+                <div class="relative flex-shrink-0" id="session-dropdown">
+                    <button id="session-btn" class="btn btn-secondary btn-sm gap-1 whitespace-nowrap">
+                        <svg class="w-3.5 h-3.5 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+                        </svg>
+                        <span>Session</span>
+                        <svg class="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+                    <div id="session-menu" data-dropdown-menu class="hidden dropdown-menu z-50 py-1 min-w-[160px]">
+                        <button class="session-action dropdown-item w-full text-left flex items-center gap-2" data-action="start">
+                            <span class="text-emerald-500">▶</span> Start
+                        </button>
+                        <button class="session-action dropdown-item w-full text-left flex items-center gap-2" data-action="end">
+                            <span class="text-red-400">■</span> End
+                        </button>
+                        <button class="session-action dropdown-item w-full text-left flex items-center gap-2" data-action="info">
+                            <span class="text-primary-400">ℹ</span> Info
+                        </button>
+                        <button class="session-action dropdown-item w-full text-left flex items-center gap-2" data-action="list">
+                            <span class="text-surface-400">☰</span> List
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Code Command -->
+                <button id="code-btn" class="btn btn-secondary btn-sm gap-1 flex-shrink-0 whitespace-nowrap" title="Execute code command">
+                    <svg class="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+                    </svg>
+                    <span>/code</span>
+                </button>
+                
+                <!-- Repomap Commands -->
+                <div class="relative flex-shrink-0" id="repomap-dropdown">
+                    <button id="repomap-btn" class="btn btn-secondary btn-sm gap-1 whitespace-nowrap">
+                        <svg class="w-3.5 h-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
+                        </svg>
+                        <span>Repomap</span>
+                        <svg class="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+                    <div id="repomap-menu" data-dropdown-menu class="hidden dropdown-menu z-50 py-1 min-w-[160px]">
+                        <button class="repomap-action dropdown-item w-full text-left" data-action="create">📦 Create</button>
+                        <button class="repomap-action dropdown-item w-full text-left" data-action="load">📂 Load</button>
+                        <button class="repomap-action dropdown-item w-full text-left" data-action="update">🔄 Update</button>
+                    </div>
+                </div>
+                
+                <!-- Datamap Commands -->
+                <div class="relative flex-shrink-0" id="datamap-dropdown">
+                    <button id="datamap-btn" class="btn btn-secondary btn-sm gap-1 whitespace-nowrap">
+                        <svg class="w-3.5 h-3.5 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/>
+                        </svg>
+                        <span>Datamap</span>
+                        <svg class="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+                    <div id="datamap-menu" data-dropdown-menu class="hidden dropdown-menu z-50 py-1 min-w-[160px]">
+                        <button class="datamap-action dropdown-item w-full text-left" data-action="create">🗄️ Create</button>
+                        <button class="datamap-action dropdown-item w-full text-left" data-action="load">📂 Load</button>
+                        <button class="datamap-action dropdown-item w-full text-left" data-action="update">🔄 Update</button>
+                    </div>
+                </div>
+                
+                <!-- Models -->
+                <button id="models-btn" class="btn btn-secondary btn-sm gap-1 flex-shrink-0 whitespace-nowrap" title="List available models">
+                    <svg class="w-3.5 h-3.5 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                    </svg>
+                    <span>Models</span>
+                </button>
+                
+                <!-- MCPs -->
+                <button id="mcps-btn" class="btn btn-secondary btn-sm gap-1 flex-shrink-0 whitespace-nowrap" title="List MCPs">
+                    <svg class="w-3.5 h-3.5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/>
+                    </svg>
+                    <span>MCPs</span>
+                </button>
+                
+                <!-- Attach File -->
+                <button id="attach-btn" class="btn btn-secondary btn-sm gap-1 flex-shrink-0 whitespace-nowrap" title="Attach file with @ prefix">
+                    <svg class="w-3.5 h-3.5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                    </svg>
+                    <span>@File</span>
+                </button>
+                
+                <!-- Help -->
+                <button id="help-btn" class="btn btn-ghost btn-sm gap-1 flex-shrink-0 whitespace-nowrap" title="Show available commands">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    <span>Help</span>
+                </button>
+            </div>
+            
+            <!-- Right: Model Selector and Clear -->
+            <div class="flex items-center gap-2 flex-shrink-0">
+                <select id="model-select" class="input text-xs py-1 px-2 pr-6 min-w-[100px]">
                     <option value="tinyllama">tinyllama</option>
                     <option value="llama3.1:8b">llama3.1:8b</option>
                     <option value="qwen2.5-coder:7b">qwen2.5-coder:7b</option>
                 </select>
-                <!-- Clear Chat Button -->
-                <button id="clear-chat" class="btn btn-ghost btn-sm gap-1.5">
+                <button id="clear-chat" class="btn btn-ghost btn-sm gap-1 whitespace-nowrap">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                     </svg>
                     <span>Clear</span>
                 </button>
             </div>
-        </div>
-        
-        <!-- Command Toolbar - Compact Pills -->
-        <div class="flex items-center gap-2 flex-wrap">
-            <!-- Session Commands -->
-            <div class="relative" id="session-dropdown">
-                <button id="session-btn" class="btn btn-secondary btn-sm gap-1">
-                    <svg class="w-3.5 h-3.5 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
-                    </svg>
-                    <span>Session</span>
-                    <svg class="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                    </svg>
-                </button>
-                <div id="session-menu" class="hidden absolute top-full left-0 mt-1 w-40 dropdown-menu z-50 py-1">
-                    <button class="session-action dropdown-item w-full text-left flex items-center gap-2" data-action="start">
-                        <span class="text-emerald-500">▶</span> Start
-                    </button>
-                    <button class="session-action dropdown-item w-full text-left flex items-center gap-2" data-action="end">
-                        <span class="text-red-400">■</span> End
-                    </button>
-                    <button class="session-action dropdown-item w-full text-left flex items-center gap-2" data-action="info">
-                        <span class="text-primary-400">ℹ</span> Info
-                    </button>
-                    <button class="session-action dropdown-item w-full text-left flex items-center gap-2" data-action="list">
-                        <span class="text-surface-400">☰</span> List
-                    </button>
-                </div>
-            </div>
-            
-            <!-- Code Command -->
-            <button id="code-btn" class="btn btn-secondary btn-sm gap-1" title="Execute code command">
-                <svg class="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
-                </svg>
-                <span>/code</span>
-            </button>
-            
-            <!-- Repomap Commands -->
-            <div class="relative" id="repomap-dropdown">
-                <button id="repomap-btn" class="btn btn-secondary btn-sm gap-1">
-                    <svg class="w-3.5 h-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
-                    </svg>
-                    <span>Repomap</span>
-                    <svg class="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                    </svg>
-                </button>
-                <div id="repomap-menu" class="hidden absolute top-full left-0 mt-1 w-40 dropdown-menu z-50 py-1">
-                    <button class="repomap-action dropdown-item w-full text-left" data-action="create">📦 Create</button>
-                    <button class="repomap-action dropdown-item w-full text-left" data-action="load">📂 Load</button>
-                    <button class="repomap-action dropdown-item w-full text-left" data-action="update">🔄 Update</button>
-                </div>
-            </div>
-            
-            <!-- Datamap Commands -->
-            <div class="relative" id="datamap-dropdown">
-                <button id="datamap-btn" class="btn btn-secondary btn-sm gap-1">
-                    <svg class="w-3.5 h-3.5 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/>
-                    </svg>
-                    <span>Datamap</span>
-                    <svg class="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                    </svg>
-                </button>
-                <div id="datamap-menu" class="hidden absolute top-full left-0 mt-1 w-40 dropdown-menu z-50 py-1">
-                    <button class="datamap-action dropdown-item w-full text-left" data-action="create">🗄️ Create</button>
-                    <button class="datamap-action dropdown-item w-full text-left" data-action="load">📂 Load</button>
-                    <button class="datamap-action dropdown-item w-full text-left" data-action="update">🔄 Update</button>
-                </div>
-            </div>
-            
-            <!-- Models -->
-            <button id="models-btn" class="btn btn-secondary btn-sm gap-1" title="List available models">
-                <svg class="w-3.5 h-3.5 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-                </svg>
-                <span>Models</span>
-            </button>
-            
-            <!-- MCPs -->
-            <button id="mcps-btn" class="btn btn-secondary btn-sm gap-1" title="List MCPs">
-                <svg class="w-3.5 h-3.5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/>
-                </svg>
-                <span>MCPs</span>
-            </button>
-            
-            <!-- Attach File -->
-            <button id="attach-btn" class="btn btn-secondary btn-sm gap-1" title="Attach file with @ prefix">
-                <svg class="w-3.5 h-3.5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
-                </svg>
-                <span>@File</span>
-            </button>
-            
-            <!-- Help -->
-            <button id="help-btn" class="btn btn-ghost btn-sm gap-1" title="Show available commands">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                </svg>
-                <span>Help</span>
-            </button>
         </div>
     </div>
     
@@ -331,32 +331,62 @@
     let sessionActive = false;
     
     // ========== Dropdown Menus ==========
-    function toggleDropdown(menu) {
-        const isHidden = menu.classList.contains('hidden');
-        document.querySelectorAll('#session-menu, #repomap-menu, #datamap-menu').forEach(m => m.classList.add('hidden'));
-        if (isHidden) {
+    const dropdownMenus = [sessionMenu, repomapMenu, datamapMenu];
+
+    function resetDropdownPosition(menu) {
+        menu.style.position = '';
+        menu.style.top = '';
+        menu.style.left = '';
+        menu.style.minWidth = '';
+        menu.style.marginTop = '';
+    }
+
+    function hideAllDropdowns() {
+        dropdownMenus.forEach(menu => {
+            menu.classList.add('hidden');
+            resetDropdownPosition(menu);
+        });
+    }
+
+    function positionDropdown(trigger, menu) {
+        const rect = trigger.getBoundingClientRect();
+        menu.style.position = 'fixed';
+        menu.style.top = `${rect.bottom + 6}px`;
+        menu.style.left = `${rect.left}px`;
+        menu.style.minWidth = `${Math.max(rect.width, 160)}px`;
+        menu.style.marginTop = '0';
+    }
+
+    function toggleDropdown(trigger, menu) {
+        const shouldOpen = menu.classList.contains('hidden');
+        hideAllDropdowns();
+        if (shouldOpen) {
+            positionDropdown(trigger, menu);
             menu.classList.remove('hidden');
         }
     }
-    
+
     sessionBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        toggleDropdown(sessionMenu);
+        e.preventDefault();
+        toggleDropdown(sessionBtn, sessionMenu);
     });
-    
+
     repomapBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        toggleDropdown(repomapMenu);
+        e.preventDefault();
+        toggleDropdown(repomapBtn, repomapMenu);
     });
-    
+
     datamapBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        toggleDropdown(datamapMenu);
+        e.preventDefault();
+        toggleDropdown(datamapBtn, datamapMenu);
     });
-    
-    document.addEventListener('click', () => {
-        document.querySelectorAll('#session-menu, #repomap-menu, #datamap-menu').forEach(m => m.classList.add('hidden'));
-    });
+
+    document.addEventListener('click', hideAllDropdowns);
+    window.addEventListener('resize', hideAllDropdowns);
+    window.addEventListener('scroll', hideAllDropdowns, true);
     
     // ========== Session Actions ==========
     document.querySelectorAll('.session-action').forEach(btn => {
