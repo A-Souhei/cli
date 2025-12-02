@@ -26,6 +26,7 @@ from src.ui.routes.mcps import mcps_bp
 from src.ui.routes.commands import commands_bp
 from src.ui.routes.docs import docs_bp
 from src.ui.routes.chat import chat_bp
+from src.ui.routes.files import files_bp
 
 
 def create_app(verbose: bool = False) -> Flask:
@@ -57,6 +58,7 @@ def create_app(verbose: bool = False) -> Flask:
     app.register_blueprint(commands_bp, url_prefix='/api/commands')
     app.register_blueprint(docs_bp, url_prefix='/api/docs')
     app.register_blueprint(chat_bp, url_prefix='/api/chat')
+    app.register_blueprint(files_bp, url_prefix='/api/files')
     
     @app.route('/')
     def index():
@@ -87,6 +89,11 @@ def create_app(verbose: bool = False) -> Flask:
     def docs_page():
         """Documentation page."""
         return render_template('docs.html')
+    
+    @app.route('/explorer')
+    def explorer_page():
+        """File explorer page."""
+        return render_template('explorer.html', working_dir=app.config['WORKING_DIR'])
     
     @app.route('/health')
     def health():
