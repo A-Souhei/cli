@@ -13,6 +13,7 @@ from datetime import datetime
 import httpx
 
 from src.sentry_config import capture_exception
+from src.session.exceptions import WorkingDirectoryMismatchError
 
 if TYPE_CHECKING:
     from src.session.title_generator import SessionTitleGenerator
@@ -43,6 +44,7 @@ class SessionManager:
         self.session_metadata: Dict[str, Any] = {}
         self.session_title: Optional[str] = None
         self._title_generated: bool = False
+        self.session_working_dir: Optional[str] = None
 
         # Title generator for automatic title generation
         self._title_generator = title_generator
@@ -60,12 +62,13 @@ class SessionManager:
         """
         self._title_generator = title_generator
 
-    def start_session(self, metadata: Optional[Dict[str, Any]] = None) -> str:
+    def start_session(self, metadata: Optional[Dict[str, Any]] = None, working_dir: Optional[str] = None) -> str:
         """
         Start a new session.
 
         Args:
             metadata: Optional metadata to attach to the session
+            working_dir: Working directory for the session. If None, uses current directory.
 
         Returns:
             The session ID (UUID)
@@ -76,6 +79,7 @@ class SessionManager:
         self.session_metadata = metadata or {}
         self.session_title = None
         self._title_generated = False
+        self.session_working_dir = working_dir or os.getcwd()
 
         start_time_str = self.session_start_time.strftime("%H:%M:%S")
         print(f"📝 Session started at {start_time_str}")
@@ -103,7 +107,8 @@ class SessionManager:
             "start_time": self.session_start_time.isoformat(),
             "duration_seconds": duration,
             "num_interactions": num_interactions,
-            "metadata": self.session_metadata
+            "metadata": self.session_metadata,
+            "working_dir": self.session_working_dir
         }
 
         # Clear session state
@@ -113,6 +118,7 @@ class SessionManager:
         self.session_metadata = {}
         self.session_title = None
         self._title_generated = False
+        self.session_working_dir = None
 
         print(f"✅ Session ended (started at {start_time_str}, {num_interactions} interactions)")
         return summary
@@ -232,6 +238,10 @@ class SessionManager:
         """Get the current session ID, or None if no active session."""
         return self.active_session
 
+    def get_working_dir(self) -> Optional[str]:
+        """Get the current session working directory, or None if no active session."""
+        return self.session_working_dir
+
     def get_session_info(self) -> Dict[str, Any]:
         """
         Get information about the current session.
@@ -251,7 +261,8 @@ class SessionManager:
             "start_time": self.session_start_time.isoformat(),
             "duration_seconds": duration,
             "num_interactions": len(self.session_history),
-            "metadata": self.session_metadata
+            "metadata": self.session_metadata,
+            "working_dir": self.session_working_dir
         }
 
     # ========================================================================
@@ -261,6 +272,9 @@ class SessionManager:
     def save_to_redis(self) -> bool:
         """
         Save the current session to Redis (no TTL - persists until deleted).
+
+        The session is saved with its working directory, which is required
+        when restoring the session.
 
         Returns:
             True if saved successfully, False otherwise
@@ -276,7 +290,8 @@ class SessionManager:
                 "history": self.session_history,
                 "start_time": self.session_start_time.isoformat() if self.session_start_time else None,
                 "metadata": self.session_metadata,
-                "saved_at": datetime.now().isoformat()
+                "saved_at": datetime.now().isoformat(),
+                "working_dir": self.session_working_dir
             }
 
             # Use Redis directly (no API, direct connection)
@@ -305,18 +320,26 @@ class SessionManager:
                     return False
 
         except Exception as e:
+            capture_exception(e)
             print(f"❌ Error saving session: {e}")
             return False
 
-    def restore_from_redis(self, session_id: str) -> bool:
+    def restore_from_redis(self, session_id: str, current_working_dir: Optional[str] = None) -> bool:
         """
         Restore a session from Redis by session ID.
 
+        Sessions can only be restored if the current working directory matches
+        the working directory stored with the session.
+
         Args:
             session_id: The session ID to restore
+            current_working_dir: Current working directory. If None, uses os.getcwd()
 
         Returns:
             True if restored successfully, False otherwise
+
+        Raises:
+            WorkingDirectoryMismatchError: If current directory doesn't match session's directory
         """
         try:
             key = f"{self._session_key_prefix}{session_id}"
@@ -330,12 +353,20 @@ class SessionManager:
                 if response.status_code == 200:
                     session_data = response.json()
 
+                    # Check working directory match
+                    stored_working_dir = session_data.get("working_dir")
+                    actual_current_dir = current_working_dir or os.getcwd()
+
+                    if stored_working_dir and stored_working_dir != actual_current_dir:
+                        raise WorkingDirectoryMismatchError(stored_working_dir, actual_current_dir)
+
                     # Restore session state
                     self.active_session = session_data["session_id"]
                     self.session_title = session_data.get("title")
                     self.session_history = session_data["history"]
                     self.session_metadata = session_data.get("metadata", {})
                     self._title_generated = self.session_title is not None
+                    self.session_working_dir = stored_working_dir or actual_current_dir
 
                     # Parse start time
                     start_time_str = session_data.get("start_time")
@@ -352,7 +383,10 @@ class SessionManager:
                     print(f"⚠️  Session not found: {session_id}")
                     return False
 
+        except WorkingDirectoryMismatchError:
+            raise  # Re-raise to let caller handle it
         except Exception as e:
+            capture_exception(e)
             print(f"❌ Error restoring session: {e}")
             return False
 
@@ -378,6 +412,7 @@ class SessionManager:
                     return []
 
         except Exception as e:
+            capture_exception(e)
             print(f"❌ Error listing sessions: {e}")
             return []
 
@@ -408,6 +443,7 @@ class SessionManager:
                     return False
 
         except Exception as e:
+            capture_exception(e)
             print(f"❌ Error deleting session: {e}")
             return False
 
@@ -434,5 +470,6 @@ class SessionManager:
                     return 0
 
         except Exception as e:
+            capture_exception(e)
             print(f"❌ Error clearing sessions: {e}")
             return 0

@@ -16,7 +16,7 @@ from src.ollama_client import OllamaClient
 from src.chat import ChatManager
 from src.selector import InteractiveSelector
 from src.mcp import MCPClient
-from src.session import SessionManager, SessionTitleGenerator
+from src.session import SessionManager, SessionTitleGenerator, WorkingDirectoryMismatchError
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -340,7 +340,7 @@ def main(verbose=False):
                     if session_manager.is_active():
                         console.print("\n⚠️  [yellow]Session already active. End current session first.[/yellow]\n")
                     else:
-                        session_manager.start_session()
+                        session_manager.start_session(working_dir=get_user_working_dir())
                         console.print()
                     continue
 
@@ -375,9 +375,27 @@ def main(verbose=False):
                         if session_manager.is_active():
                             console.print("\n⚠️  [yellow]Please end current session before restoring.[/yellow]\n")
                         else:
-                            success = session_manager.restore_from_redis(session_id)
-                            if success:
-                                console.print()
+                            try:
+                                success = session_manager.restore_from_redis(
+                                    session_id,
+                                    current_working_dir=get_user_working_dir()
+                                )
+                                if success:
+                                    console.print()
+                            except WorkingDirectoryMismatchError as e:
+                                console.print(f"\n❌ [red]Cannot restore session: working directory mismatch.[/red]")
+                                console.print(f"[dim]Session was created in: {e.stored_dir}[/dim]")
+                                console.print(f"[dim]Current directory is: {e.current_dir}[/dim]\n")
+                    continue
+
+                if user_input_normalized.lower().startswith('session delete '):
+                    session_id = user_input_normalized[15:].strip()
+                    if not session_id:
+                        console.print("\n❌ [red]Usage: /session delete <session_id>[/red]\n")
+                    else:
+                        success = session_manager.delete_session(session_id)
+                        if success:
+                            console.print()
                     continue
 
                 if user_input_normalized.lower() in ['session list', 'sessions list', 'sessions']:
@@ -386,8 +404,9 @@ def main(verbose=False):
                     if sessions:
                         for sess in sessions:
                             console.print(f"  • [cyan]{sess['session_id'][:16]}...[/cyan]")
+                            working_dir_info = f", Dir: {sess.get('working_dir', 'N/A')[:30]}..." if sess.get('working_dir') else ""
                             console.print(f"    Interactions: {sess.get('num_interactions', 0)}, "
-                                        f"Started: {sess.get('start_time', 'N/A')}")
+                                        f"Started: {sess.get('start_time', 'N/A')}{working_dir_info}")
                     else:
                         console.print("  [dim]No saved sessions found[/dim]")
                     console.print()
@@ -1087,7 +1106,7 @@ def main(verbose=False):
                     # Auto-start session if not active
                     if not session_manager.is_active():
                         console.print("\n[cyan]ℹ️  Starting a new session for /code command...[/cyan]")
-                        session_manager.start_session()
+                        session_manager.start_session(working_dir=get_user_working_dir())
 
                     session_id = session_manager.get_session_id()
 

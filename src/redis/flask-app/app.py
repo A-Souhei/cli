@@ -577,18 +577,19 @@ def list_sessions():
             if session_data:
                 try:
                     session = json.loads(session_data)
-                    # Extract summary info (including title)
+                    # Extract summary info (including title and working_dir)
                     summary = {
                         'session_id': session.get('session_id'),
                         'title': session.get('title'),
                         'num_interactions': len(session.get('history', [])),
                         'start_time': session.get('start_time'),
-                        'saved_at': session.get('saved_at')
+                        'saved_at': session.get('saved_at'),
+                        'working_dir': session.get('working_dir')
                     }
                     sessions.append(summary)
                 except (json.JSONDecodeError, KeyError, TypeError) as e:
                     # Skip malformed sessions - log and continue to next
-                    logger.warning(f"Skipping malformed session: {e}")
+                    print(f"Skipping malformed session: {e}")
                     continue
 
         return jsonify({
