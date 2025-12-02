@@ -404,7 +404,14 @@ def main(verbose=False):
                     if sessions:
                         for sess in sessions:
                             console.print(f"  • [cyan]{sess['session_id'][:16]}...[/cyan]")
-                            working_dir_info = f", Dir: {sess.get('working_dir', 'N/A')[:30]}..." if sess.get('working_dir') else ""
+                            working_dir = sess.get('working_dir')
+                            if working_dir:
+                                if len(working_dir) > 30:
+                                    working_dir_info = f", Dir: {working_dir[:30]}..."
+                                else:
+                                    working_dir_info = f", Dir: {working_dir}"
+                            else:
+                                working_dir_info = ""
                             console.print(f"    Interactions: {sess.get('num_interactions', 0)}, "
                                         f"Started: {sess.get('start_time', 'N/A')}{working_dir_info}")
                     else:
