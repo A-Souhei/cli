@@ -25,6 +25,7 @@ from src.ui.routes.sessions import sessions_bp
 from src.ui.routes.mcps import mcps_bp
 from src.ui.routes.commands import commands_bp
 from src.ui.routes.docs import docs_bp
+from src.ui.routes.chat import chat_bp
 
 
 def create_app(verbose: bool = False) -> Flask:
@@ -55,11 +56,22 @@ def create_app(verbose: bool = False) -> Flask:
     app.register_blueprint(mcps_bp, url_prefix='/api/mcps')
     app.register_blueprint(commands_bp, url_prefix='/api/commands')
     app.register_blueprint(docs_bp, url_prefix='/api/docs')
+    app.register_blueprint(chat_bp, url_prefix='/api/chat')
     
     @app.route('/')
     def index():
-        """Main dashboard page."""
+        """Main page - redirect to chat."""
+        return render_template('chat.html', working_dir=app.config['WORKING_DIR'])
+    
+    @app.route('/dashboard')
+    def dashboard_page():
+        """Dashboard page."""
         return render_template('index.html', working_dir=app.config['WORKING_DIR'])
+    
+    @app.route('/chat')
+    def chat_page():
+        """Chat page for sending prompts."""
+        return render_template('chat.html', working_dir=app.config['WORKING_DIR'])
     
     @app.route('/sessions')
     def sessions_page():
