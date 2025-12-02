@@ -55,7 +55,6 @@ def execute_code_command():
                 'text': text,
                 'session_id': session_id
             },
-            headers={"Content-Type": "application/json"},
             timeout=180
         )
         
@@ -116,7 +115,6 @@ def text_to_sequence():
                 'model': data.get('model', 'tinyllama'),
                 'max_iterations': data.get('max_iterations', 3)
             },
-            headers={"Content-Type": "application/json"},
             timeout=180
         )
         
@@ -175,7 +173,6 @@ def retrieve_tools():
                 'prompts': prompts,
                 'threshold': data.get('threshold', 0.5)
             },
-            headers={"Content-Type": "application/json"},
             timeout=60
         )
         

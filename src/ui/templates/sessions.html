@@ -85,8 +85,15 @@
             const data = await response.json();
             
             if (data.status === 'success' && data.sessions.length > 0) {
-                container.innerHTML = data.sessions.map(session => `
-                    <div class="bg-dark-800 rounded-xl p-6 border border-dark-700 hover:border-primary-500/50 transition-colors">
+                container.innerHTML = data.sessions.map(session => {
+                    // Escape all user-provided data
+                    const safeTitle = escapeHtml(session.title || 'Untitled Session');
+                    const safeSessionId = escapeHtml(session.session_id || '');
+                    const safeWorkingDir = escapeHtml(session.working_dir || '');
+                    const shortId = safeSessionId ? safeSessionId.substring(0, 16) + '...' : 'N/A';
+                    
+                    return `
+                    <div class="bg-dark-800 rounded-xl p-6 border border-dark-700 hover:border-primary-500/50 transition-colors" data-session-id="${safeSessionId}">
                         <div class="flex items-start justify-between">
                             <div class="flex items-start space-x-4">
                                 <div class="w-12 h-12 bg-primary-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
@@ -95,9 +102,9 @@
                                     </svg>
                                 </div>
                                 <div>
-                                    <h3 class="text-lg font-semibold text-white mb-1">${session.title || 'Untitled Session'}</h3>
+                                    <h3 class="text-lg font-semibold text-white mb-1">${safeTitle}</h3>
                                     <p class="text-gray-400 text-sm mb-2">
-                                        <span class="font-mono">${session.session_id ? session.session_id.substring(0, 16) + '...' : 'N/A'}</span>
+                                        <span class="font-mono">${shortId}</span>
                                     </p>
                                     <div class="flex items-center space-x-4 text-sm text-gray-500">
                                         <span class="flex items-center space-x-1">
@@ -115,19 +122,19 @@
                                         </span>
                                         ` : ''}
                                     </div>
-                                    ${session.working_dir ? `
-                                    <p class="text-gray-500 text-xs mt-2 font-mono truncate max-w-md" title="${session.working_dir}">${session.working_dir}</p>
+                                    ${safeWorkingDir ? `
+                                    <p class="text-gray-500 text-xs mt-2 font-mono truncate max-w-md" title="${safeWorkingDir}">${safeWorkingDir}</p>
                                     ` : ''}
                                 </div>
                             </div>
                             <div class="flex items-center space-x-2">
-                                <button onclick="viewSession('${session.session_id}')" class="p-2 text-gray-400 hover:text-primary-400 hover:bg-dark-700 rounded-lg transition-colors" title="View Details">
+                                <button class="view-session-btn p-2 text-gray-400 hover:text-primary-400 hover:bg-dark-700 rounded-lg transition-colors" title="View Details" data-session-id="${safeSessionId}">
                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
                                     </svg>
                                 </button>
-                                <button onclick="deleteSession('${session.session_id}')" class="p-2 text-gray-400 hover:text-red-400 hover:bg-dark-700 rounded-lg transition-colors" title="Delete">
+                                <button class="delete-session-btn p-2 text-gray-400 hover:text-red-400 hover:bg-dark-700 rounded-lg transition-colors" title="Delete" data-session-id="${safeSessionId}">
                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                                     </svg>
@@ -135,7 +142,10 @@
                             </div>
                         </div>
                     </div>
-                `).join('');
+                `;}).join('');
+                
+                // Attach event listeners after rendering
+                attachSessionEventListeners();
             } else {
                 container.innerHTML = `
                     <div class="text-center py-12">
@@ -177,9 +187,19 @@
                 const session = data.session;
                 modalTitle.textContent = session.title || 'Session Details';
                 
+                // Escape session data for display
+                const safeSessionId = escapeHtml(session.session_id);
+                const safeWorkingDir = escapeHtml(session.working_dir || 'N/A');
+                
                 let historyHtml = '';
                 if (session.history && session.history.length > 0) {
-                    historyHtml = session.history.map((interaction, idx) => `
+                    historyHtml = session.history.map((interaction, idx) => {
+                        const safePrompt = escapeHtml(interaction.prompt || '');
+                        const responseText = String(interaction.response || '');
+                        const safeResponse = escapeHtml(responseText.substring(0, 500));
+                        const hasMore = responseText.length > 500;
+                        
+                        return `
                         <div class="bg-dark-700 rounded-lg p-4">
                             <div class="flex items-center space-x-2 mb-2">
                                 <span class="px-2 py-1 bg-primary-500/20 text-primary-400 text-xs rounded">#${idx + 1}</span>
@@ -187,14 +207,14 @@
                             </div>
                             <div class="mb-3">
                                 <p class="text-gray-400 text-sm mb-1">User:</p>
-                                <p class="text-white">${escapeHtml(interaction.prompt)}</p>
+                                <p class="text-white">${safePrompt}</p>
                             </div>
                             <div>
                                 <p class="text-gray-400 text-sm mb-1">Assistant:</p>
-                                <div class="text-gray-300 text-sm max-h-40 overflow-y-auto">${escapeHtml(interaction.response.substring(0, 500))}${interaction.response.length > 500 ? '...' : ''}</div>
+                                <div class="text-gray-300 text-sm max-h-40 overflow-y-auto">${safeResponse}${hasMore ? '...' : ''}</div>
                             </div>
                         </div>
-                    `).join('');
+                    `;}).join('');
                 } else {
                     historyHtml = '<p class="text-gray-500">No interactions recorded</p>';
                 }
@@ -203,7 +223,7 @@
                     <div class="grid grid-cols-2 gap-4 mb-6">
                         <div class="bg-dark-700 rounded-lg p-4">
                             <p class="text-gray-400 text-sm mb-1">Session ID</p>
-                            <p class="text-white font-mono text-sm">${session.session_id}</p>
+                            <p class="text-white font-mono text-sm">${safeSessionId}</p>
                         </div>
                         <div class="bg-dark-700 rounded-lg p-4">
                             <p class="text-gray-400 text-sm mb-1">Start Time</p>
@@ -215,7 +235,7 @@
                         </div>
                         <div class="bg-dark-700 rounded-lg p-4">
                             <p class="text-gray-400 text-sm mb-1">Working Directory</p>
-                            <p class="text-white text-sm font-mono truncate" title="${session.working_dir || 'N/A'}">${session.working_dir || 'N/A'}</p>
+                            <p class="text-white text-sm font-mono truncate" title="${safeWorkingDir}">${safeWorkingDir}</p>
                         </div>
                     </div>
                     <h3 class="text-lg font-semibold text-white mb-4">Conversation History</h3>
@@ -274,9 +294,29 @@
     
     // Escape HTML
     function escapeHtml(text) {
+        if (text === null || text === undefined) return '';
         const div = document.createElement('div');
-        div.textContent = text;
+        div.textContent = String(text);
         return div.innerHTML;
+    }
+    
+    // Attach event listeners for session buttons (called after rendering)
+    function attachSessionEventListeners() {
+        // View buttons
+        document.querySelectorAll('.view-session-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const sessionId = this.dataset.sessionId;
+                if (sessionId) viewSession(sessionId);
+            });
+        });
+        
+        // Delete buttons
+        document.querySelectorAll('.delete-session-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const sessionId = this.dataset.sessionId;
+                if (sessionId) deleteSession(sessionId);
+            });
+        });
     }
     
     // Close modal on click outside

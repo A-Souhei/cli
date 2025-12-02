@@ -76,10 +76,19 @@
             
             container.innerHTML = mcpsData.mcps.map(mcp => {
                 const tools = toolsByMcp[mcp.name] || [];
+                const safeMcpName = escapeHtml(mcp.name);
+                const safeMcpDesc = escapeHtml(mcp.description || 'Model Context Protocol Server');
+                
                 const toolsHtml = tools.length > 0 
-                    ? tools.map(tool => `
-                        <button onclick="showToolDetails('${escapeHtml(tool.tool_name)}', '${escapeHtml(tool.description || '')}')" 
-                                class="flex items-start space-x-3 p-4 bg-dark-700 rounded-lg hover:bg-dark-600 transition-colors text-left w-full">
+                    ? tools.map(tool => {
+                        const safeToolName = escapeHtml(tool.tool_name || '');
+                        const safeToolDesc = escapeHtml(tool.description || '');
+                        const shortDesc = tool.description ? tool.description.substring(0, 100) + (tool.description.length > 100 ? '...' : '') : 'No description';
+                        
+                        return `
+                        <button class="tool-details-btn flex items-start space-x-3 p-4 bg-dark-700 rounded-lg hover:bg-dark-600 transition-colors text-left w-full"
+                                data-tool-name="${safeToolName}"
+                                data-tool-desc="${safeToolDesc}">
                             <div class="w-10 h-10 bg-purple-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
                                 <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
@@ -87,14 +96,14 @@
                                 </svg>
                             </div>
                             <div class="flex-1 min-w-0">
-                                <h4 class="text-white font-medium truncate">${tool.tool_name}</h4>
-                                <p class="text-gray-400 text-sm line-clamp-2">${tool.description ? tool.description.substring(0, 100) + (tool.description.length > 100 ? '...' : '') : 'No description'}</p>
+                                <h4 class="text-white font-medium truncate">${safeToolName}</h4>
+                                <p class="text-gray-400 text-sm line-clamp-2">${escapeHtml(shortDesc)}</p>
                             </div>
                             <svg class="w-5 h-5 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
                             </svg>
                         </button>
-                    `).join('')
+                    `;}).join('')
                     : '<p class="text-gray-500 p-4">No tools registered. Run the CLI to initialize tools.</p>';
                 
                 return `
@@ -109,8 +118,8 @@
                                         </svg>
                                     </div>
                                     <div>
-                                        <h3 class="text-xl font-bold text-white mb-1">${mcp.name}</h3>
-                                        <p class="text-gray-400 text-sm mb-2">${mcp.description || 'Model Context Protocol Server'}</p>
+                                        <h3 class="text-xl font-bold text-white mb-1">${safeMcpName}</h3>
+                                        <p class="text-gray-400 text-sm mb-2">${safeMcpDesc}</p>
                                         <div class="flex items-center space-x-4 text-sm">
                                             <span class="flex items-center space-x-1 text-gray-500">
                                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -144,6 +153,9 @@
                 `;
             }).join('');
             
+            // Attach event listeners for tool buttons
+            attachToolEventListeners();
+            
         } catch (error) {
             container.innerHTML = `
                 <div class="text-center py-12 text-red-400">
@@ -162,23 +174,40 @@
         const modalTitle = document.getElementById('tool-modal-title');
         const modalContent = document.getElementById('tool-modal-content');
         
+        // Use textContent for title (safe by default)
         modalTitle.textContent = toolName;
+        
+        // Escape description for display
+        const safeDescription = escapeHtml(description || 'No description available');
+        const safeToolName = escapeHtml(toolName);
+        
         modalContent.innerHTML = `
             <div class="bg-dark-700 rounded-lg p-4 mb-4">
                 <h4 class="text-gray-400 text-sm mb-2">Description</h4>
-                <p class="text-white">${description || 'No description available'}</p>
+                <p class="text-white">${safeDescription}</p>
             </div>
             <div class="bg-dark-700 rounded-lg p-4">
                 <h4 class="text-gray-400 text-sm mb-2">Usage in CLI</h4>
                 <p class="text-gray-300 text-sm mb-2">This tool is automatically matched when you use the <code class="bg-dark-900 px-1 rounded text-primary-400">/code</code> command or when the AI determines it's needed based on your prompt.</p>
                 <div class="bg-dark-900 rounded p-3 font-mono text-sm text-gray-300">
-                    /code Use ${toolName} to...
+                    /code Use ${safeToolName} to...
                 </div>
             </div>
         `;
         
         modal.classList.remove('hidden');
         modal.classList.add('flex');
+    }
+    
+    // Attach event listeners for tool buttons
+    function attachToolEventListeners() {
+        document.querySelectorAll('.tool-details-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const toolName = this.dataset.toolName;
+                const toolDesc = this.dataset.toolDesc;
+                if (toolName) showToolDetails(toolName, toolDesc);
+            });
+        });
     }
     
     // Close tool modal
@@ -190,8 +219,9 @@
     
     // Escape HTML
     function escapeHtml(text) {
+        if (text === null || text === undefined) return '';
         const div = document.createElement('div');
-        div.textContent = text;
+        div.textContent = String(text);
         return div.innerHTML;
     }
     
