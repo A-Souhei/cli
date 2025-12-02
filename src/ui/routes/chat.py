@@ -231,8 +231,8 @@ def send_message():
             # Try to save to Redis, but always save to UI store as fallback
             try:
                 session_manager.save_to_redis()
-            except Exception:
-                pass  # Redis save failed, but we have the UI store
+            except Exception as redis_err:
+                capture_exception(redis_err)  # Log but don't fail - we have UI store
             
             # Always save to UI in-memory store for display
             _save_current_session_to_ui_store()
@@ -246,6 +246,7 @@ def send_message():
             })
             
         except Exception as e:
+            capture_exception(e)
             return jsonify({
                 'status': 'error',
                 'message': f'LLM Error: {str(e)}'
@@ -385,8 +386,8 @@ def handle_session_end():
     if num_interactions > 0:
         try:
             session_manager.save_to_redis()
-        except:
-            pass
+        except Exception as e:
+            capture_exception(e)
     
     summary = session_manager.end_session()
     
@@ -470,6 +471,7 @@ def handle_session_restore(session_id):
                 'message': f'❌ Failed to restore session: {session_id}'
             })
     except Exception as e:
+        capture_exception(e)
         return jsonify({
             'status': 'error',
             'message': f'❌ Error restoring session: {str(e)}'
@@ -511,6 +513,7 @@ def handle_models():
                 'response': "📋 **Available Models:**\n\n_No models found._"
             })
     except Exception as e:
+        capture_exception(e)
         return jsonify({
             'status': 'error',
             'message': f'❌ Error listing models: {str(e)}'
@@ -587,6 +590,7 @@ def handle_code_command(prompt):
             'message': '❌ Cannot connect to the code execution service.\n\nMake sure the PostgreSQL API is running:\n```\ndocker compose --profile app up -d\n```'
         })
     except Exception as e:
+        capture_exception(e)
         return jsonify({
             'status': 'error',
             'message': f'❌ Error: {str(e)}'
