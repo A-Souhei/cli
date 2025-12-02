@@ -59,14 +59,15 @@ def _create_session_manager() -> SessionManager:
     from src.config.manager import ConfigManager
     
     config = ConfigManager()
-    ollama_url = config.get_ollama_url()
     
-    # Create title generator using tinyllama (lightweight model for title generation)
-    title_generator = SessionTitleGenerator(
-        ollama_url=ollama_url,
-        model="tinyllama",  # Use tinyllama for fast title generation
-        timeout=15  # Short timeout since title gen is non-critical
-    )
+    # Create title generator using local tinyollama (lightweight model for title generation)
+    title_generator = None
+    if config.has_tinyollama_config():
+        title_generator = SessionTitleGenerator(
+            ollama_url=config.get_tinyollama_url(),  # Use LOCAL tinyollama
+            model=config.get_tinyollama_model(),
+            timeout=config.get_tinyollama_timeout()
+        )
     
     # Create session manager with title generator
     session_manager = SessionManager(title_generator=title_generator)
