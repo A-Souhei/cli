@@ -1,7 +1,7 @@
 """LLM availability checker and fallback logic for the AI CLI."""
 
 import httpx
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any
 from dataclasses import dataclass
 
 from src.sentry_config import capture_exception

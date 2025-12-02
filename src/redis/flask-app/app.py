@@ -586,9 +586,9 @@ def list_sessions():
                         'saved_at': session.get('saved_at')
                     }
                     sessions.append(summary)
-                except (json.JSONDecodeError, KeyError, TypeError) as e:
-                    # Skip malformed sessions - silently continue
-                    pass
+                except (json.JSONDecodeError, KeyError, TypeError):
+                    # Skip malformed sessions - continue to next
+                    continue
 
         return jsonify({
             'status': 'success',
