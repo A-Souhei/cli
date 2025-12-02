@@ -5,27 +5,27 @@
 {% block content %}
 <div class="h-full flex flex-col">
     <!-- Header -->
-    <div class="dark:bg-surface-900 bg-white border-b dark:border-surface-700 border-surface-200 p-4">
-        <div class="flex items-center justify-between">
+    <div class="flex-shrink-0 bg-white dark:bg-surface-900 border-b border-surface-200 dark:border-surface-800 p-4">
+        <div class="flex items-center justify-between mb-3">
             <div>
-                <h1 class="text-base font-semibold dark:text-white text-surface-900 flex items-center gap-2">
+                <h1 class="text-base font-semibold text-surface-900 dark:text-white flex items-center gap-2">
                     <svg class="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
                     </svg>
                     <span>File Explorer</span>
                 </h1>
-                <p class="dark:text-surface-400 text-surface-500 text-xs mt-0.5">Browse your working directory</p>
+                <p class="text-surface-500 dark:text-surface-400 text-xs mt-0.5">Browse your working directory</p>
             </div>
             <div class="flex items-center gap-4">
                 <!-- Auto-refresh toggle -->
-                <label class="flex items-center gap-1.5 text-xs dark:text-surface-400 text-surface-500 cursor-pointer">
-                    <input type="checkbox" id="auto-refresh" class="rounded dark:bg-surface-800 bg-white dark:border-surface-600 border-surface-300 text-primary-500 focus:ring-primary-500 focus:ring-offset-0">
+                <label class="flex items-center gap-1.5 text-xs text-surface-500 dark:text-surface-400 cursor-pointer">
+                    <input type="checkbox" id="auto-refresh" class="rounded bg-white dark:bg-surface-800 border-surface-300 dark:border-surface-600 text-primary-500 focus:ring-primary-500 focus:ring-offset-0">
                     <span>Auto-refresh</span>
                 </label>
                 
                 <!-- Show hidden files toggle -->
-                <label class="flex items-center gap-1.5 text-xs dark:text-surface-400 text-surface-500 cursor-pointer">
-                    <input type="checkbox" id="show-hidden" class="rounded dark:bg-surface-800 bg-white dark:border-surface-600 border-surface-300 text-primary-500 focus:ring-primary-500 focus:ring-offset-0">
+                <label class="flex items-center gap-1.5 text-xs text-surface-500 dark:text-surface-400 cursor-pointer">
+                    <input type="checkbox" id="show-hidden" class="rounded bg-white dark:bg-surface-800 border-surface-300 dark:border-surface-600 text-primary-500 focus:ring-primary-500 focus:ring-offset-0">
                     <span>Show hidden</span>
                 </label>
                 
@@ -40,8 +40,8 @@
         </div>
         
         <!-- Breadcrumb -->
-        <div id="breadcrumb" class="flex items-center gap-1 mt-3 text-xs">
-            <span class="dark:text-surface-500 text-surface-400">Loading...</span>
+        <div id="breadcrumb" class="flex items-center gap-1 text-xs">
+            <span class="text-surface-400 dark:text-surface-500">Loading...</span>
         </div>
     </div>
     

@@ -5,27 +5,25 @@
 {% block content %}
 <div class="flex flex-col h-full overflow-hidden">
     <!-- Fixed Header with Toolbar -->
-    <div class="flex-shrink-0 px-4 py-3 dark:bg-surface-900 bg-white dark:border-b dark:border-surface-800 border-b border-surface-200 shadow-sm">
-        <div class="flex items-center justify-between">
+    <div class="flex-shrink-0 px-4 py-3 bg-white dark:bg-surface-900 border-b border-surface-200 dark:border-surface-800">
+        <div class="flex items-center justify-between mb-3">
             <div class="flex items-center gap-3">
-                <h1 class="text-base font-semibold dark:text-white text-surface-900">Chat</h1>
+                <h1 class="text-base font-semibold text-surface-900 dark:text-white">Chat</h1>
                 <!-- Session Status -->
-                <div id="session-status" class="flex items-center gap-1.5 px-2 py-1 dark:bg-surface-800 bg-surface-100 rounded-md">
-                    <div id="session-indicator" class="w-1.5 h-1.5 rounded-full dark:bg-surface-500 bg-surface-400"></div>
-                    <span id="session-text" class="dark:text-surface-400 text-surface-500 text-xs">No Session</span>
+                <div id="session-status" class="flex items-center gap-1.5 px-2 py-1 bg-surface-100 dark:bg-surface-800 rounded-md">
+                    <div id="session-indicator" class="w-1.5 h-1.5 rounded-full bg-surface-400 dark:bg-surface-500"></div>
+                    <span id="session-text" class="text-surface-500 dark:text-surface-400 text-xs">No Session</span>
                 </div>
             </div>
             <div class="flex items-center gap-2">
                 <!-- Model Selector -->
-                <div class="flex items-center gap-2">
-                    <select id="model-select" class="input text-xs py-1 px-2 pr-7 min-w-[140px]">
-                        <option value="tinyllama">tinyllama</option>
-                        <option value="llama3.1:8b">llama3.1:8b</option>
-                        <option value="qwen2.5-coder:7b">qwen2.5-coder:7b</option>
-                    </select>
-                </div>
+                <select id="model-select" class="input text-xs py-1.5 px-2 pr-7 min-w-[140px]">
+                    <option value="tinyllama">tinyllama</option>
+                    <option value="llama3.1:8b">llama3.1:8b</option>
+                    <option value="qwen2.5-coder:7b">qwen2.5-coder:7b</option>
+                </select>
                 <!-- Clear Chat Button -->
-                <button id="clear-chat" class="btn btn-ghost btn-sm">
+                <button id="clear-chat" class="btn btn-ghost btn-sm gap-1.5">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                     </svg>
@@ -35,7 +33,7 @@
         </div>
         
         <!-- Command Toolbar - Compact Pills -->
-        <div class="flex items-center gap-1.5 mt-2.5 flex-wrap">
+        <div class="flex items-center gap-2 flex-wrap">
             <!-- Session Commands -->
             <div class="relative" id="session-dropdown">
                 <button id="session-btn" class="btn btn-secondary btn-sm gap-1">
@@ -247,16 +245,16 @@
     </div>
     
     <!-- Input Area -->
-    <div class="px-4 py-3 dark:bg-surface-900/50 bg-white dark:border-t dark:border-surface-800 border-t border-surface-200">
+    <div class="flex-shrink-0 px-4 py-3 bg-white dark:bg-surface-900 border-t border-surface-200 dark:border-surface-800">
         <!-- Attached files preview -->
         <div id="attached-files-preview" class="hidden mb-2 flex flex-wrap gap-1.5"></div>
         
-        <form id="chat-form" class="flex gap-2">
+        <form id="chat-form" class="flex items-end gap-2">
             <!-- Plus button for file attachment -->
             <button 
                 type="button" 
                 id="plus-attach-btn"
-                class="btn btn-secondary btn-icon p-2.5"
+                class="btn btn-secondary flex-shrink-0 p-2.5"
                 title="Attach file (@)"
             >
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -276,7 +274,7 @@
             <button 
                 type="submit" 
                 id="send-button"
-                class="btn btn-primary gap-1.5 px-4"
+                class="btn btn-primary flex-shrink-0 gap-1.5 px-4 py-2.5"
             >
                 <span class="hidden sm:inline">Send</span>
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
