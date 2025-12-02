@@ -989,6 +989,76 @@
         }
     }
     
+    // Restore a session by ID
+    async function restoreSession(sessionId) {
+        try {
+            addLoadingIndicator();
+            
+            // First, end any existing session
+            await fetch('/api/chat/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: '/session end' })
+            });
+            
+            // Then restore the requested session
+            const response = await fetch('/api/chat/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: `/session restore ${sessionId}` })
+            });
+            
+            const data = await response.json();
+            removeLoadingIndicator();
+            
+            if (response.ok && data.status === 'success') {
+                updateSessionStatus(true, sessionId);
+                
+                // Fetch session history and display it
+                try {
+                    const historyResponse = await fetch(`/api/sessions/${sessionId}`);
+                    const historyData = await historyResponse.json();
+                    
+                    if (historyResponse.ok && historyData.status === 'success' && historyData.session) {
+                        const session = historyData.session;
+                        const history = session.history || [];
+                        
+                        // Clear chat and display history
+                        chatMessages.innerHTML = '';
+                        
+                        // Display each interaction from history
+                        history.forEach(interaction => {
+                            if (interaction.prompt) {
+                                addUserMessage(interaction.prompt);
+                            }
+                            if (interaction.response) {
+                                addAssistantMessage(interaction.response);
+                            }
+                        });
+                        
+                        // Add restoration confirmation message
+                        addAssistantMessage(`✅ Session restored: ${session.title || 'Untitled'} (${history.length} interactions)`);
+                    } else {
+                        addAssistantMessage(data.response || `Session ${sessionId.substring(0, 8)}... restored`);
+                    }
+                } catch (historyError) {
+                    console.error('Failed to load session history:', historyError);
+                    addAssistantMessage(data.response || `Session ${sessionId.substring(0, 8)}... restored`);
+                }
+            } else {
+                addAssistantMessage(data.message || 'Failed to restore session', true);
+                // Fall back to creating new session
+                autoCreateSession();
+            }
+        } catch (error) {
+            removeLoadingIndicator();
+            console.error('Failed to restore session:', error);
+            addAssistantMessage('Failed to restore session: ' + error.message, true);
+            // Fall back to creating new session
+            autoCreateSession();
+        }
+    }
+    
     // Load available models from Ollama API
     async function loadModels() {
         try {
@@ -1014,7 +1084,18 @@
     
     // Initialize session and models on load
     loadModels();
-    autoCreateSession();
+    
+    // Check if we should restore a session from URL parameter
+    const urlParams = new URLSearchParams(window.location.search);
+    const restoreSessionId = urlParams.get('restore');
+    
+    if (restoreSessionId) {
+        // Restore the session instead of creating new one
+        restoreSession(restoreSessionId);
+    } else {
+        // Auto-create new session
+        autoCreateSession();
+    }
     
     // Close modals on escape
     document.addEventListener('keydown', (e) => {
