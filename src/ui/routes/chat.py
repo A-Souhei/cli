@@ -30,7 +30,6 @@ def get_available_models():
         
         config = ConfigManager()
         ollama_url = config.get_ollama_url()
-        
         # Call Ollama API to get models
         response = httpx.get(f"{ollama_url}/api/tags", timeout=10)
         response.raise_for_status()
@@ -44,11 +43,12 @@ def get_available_models():
         })
     except Exception as e:
         capture_exception(e)
+        # Return empty list with 200 status so frontend doesn't break
         return jsonify({
             'status': 'error',
             'message': f'Failed to fetch models: {str(e)}',
             'models': []
-        }), 500
+        })
 
 
 def get_ollama_client():
@@ -64,7 +64,7 @@ def get_ollama_client():
     return OllamaClient(host=host, model=model, timeout=timeout), config
 
 
-@chat_bp.route('/send', methods=['POST'])
+@chat_bp.route('/send', methods=['GET', 'POST'])
 def send_message():
     """
     Send a message to the LLM and get a response.
@@ -73,6 +73,13 @@ def send_message():
         message: The user message
         model: Optional model name (defaults to config model)
     """
+    # Handle GET requests with a clear error message
+    if request.method == 'GET':
+        return jsonify({
+            'status': 'error',
+            'message': 'This endpoint requires a POST request with a JSON body containing a "message" field.'
+        }), 405
+    
     try:
         data = request.get_json()
         if not data:
@@ -138,35 +145,6 @@ def send_message():
                 'message': f'LLM Error: {str(e)}'
             }), 500
         
-    except Exception as e:
-        capture_exception(e)
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
-
-
-@chat_bp.route('/models', methods=['GET'])
-def list_models():
-    """
-    List available models from Ollama.
-    """
-    try:
-        client, _ = get_ollama_client()
-        
-        # Get list of models
-        try:
-            models = client.list_models()
-            return jsonify({
-                'status': 'success',
-                'models': models
-            })
-        except Exception as e:
-            return jsonify({
-                'status': 'error',
-                'message': f'Failed to list models: {str(e)}'
-            }), 500
-            
     except Exception as e:
         capture_exception(e)
         return jsonify({
