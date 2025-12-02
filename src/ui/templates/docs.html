@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block title %}Documentation - AI CLI{% endblock %}
+
+{% block content %}
+<div class="flex h-full">
+    <!-- Documentation Sidebar -->
+    <aside class="w-64 bg-dark-900 border-r border-dark-700 overflow-y-auto flex-shrink-0">
+        <div class="p-4">
+            <h2 class="text-lg font-semibold text-white mb-4">Documentation</h2>
+            <nav id="docs-nav" class="space-y-1">
+                <div class="text-gray-400 text-center py-4">Loading...</div>
+            </nav>
+        </div>
+    </aside>
+    
+    <!-- Documentation Content -->
+    <main class="flex-1 overflow-y-auto p-8">
+        <div id="docs-content" class="max-w-4xl">
+            <div class="text-gray-400 text-center py-12">
+                <svg class="w-16 h-16 mx-auto mb-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+                </svg>
+                <p>Select a document from the sidebar to view</p>
+            </div>
+        </div>
+    </main>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let currentDoc = null;
+    
+    // Load documentation list
+    async function loadDocsList() {
+        const nav = document.getElementById('docs-nav');
+        
+        try {
+            const response = await fetch('/api/docs/');
+            const data = await response.json();
+            
+            if (data.status === 'success' && data.docs.length > 0) {
+                // Add CLI Usage first (built-in)
+                let navHtml = `
+                    <button onclick="loadDoc('cli-usage', 'CLI Usage')" 
+                            class="doc-link flex items-center space-x-2 w-full px-3 py-2 text-left rounded-lg text-gray-300 hover:bg-dark-800 hover:text-white transition-colors"
+                            data-doc="cli-usage">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                        </svg>
+                        <span>CLI Usage</span>
+                    </button>
+                    <div class="border-t border-dark-700 my-2"></div>
+                `;
+                
+                // Add documentation files
+                navHtml += data.docs.map(doc => `
+                    <button onclick="loadDoc('${doc.filename}', '${escapeHtml(doc.name)}')" 
+                            class="doc-link flex items-center space-x-2 w-full px-3 py-2 text-left rounded-lg text-gray-300 hover:bg-dark-800 hover:text-white transition-colors"
+                            data-doc="${doc.filename}">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        </svg>
+                        <span class="truncate">${doc.name}</span>
+                    </button>
+                `).join('');
+                
+                nav.innerHTML = navHtml;
+                
+                // Load CLI Usage by default
+                loadDoc('cli-usage', 'CLI Usage');
+            } else {
+                nav.innerHTML = '<p class="text-gray-500 text-sm">No documentation found</p>';
+            }
+        } catch (error) {
+            nav.innerHTML = `<p class="text-red-400 text-sm">Error: ${error.message}</p>`;
+        }
+    }
+    
+    // Load a specific document
+    async function loadDoc(docName, title) {
+        const content = document.getElementById('docs-content');
+        currentDoc = docName;
+        
+        // Update nav active state
+        document.querySelectorAll('.doc-link').forEach(link => {
+            if (link.dataset.doc === docName) {
+                link.classList.add('bg-primary-600', 'text-white');
+                link.classList.remove('text-gray-300', 'hover:bg-dark-800', 'hover:text-white');
+            } else {
+                link.classList.remove('bg-primary-600', 'text-white');
+                link.classList.add('text-gray-300', 'hover:bg-dark-800', 'hover:text-white');
+            }
+        });
+        
+        content.innerHTML = `
+            <div class="text-gray-400 text-center py-12">
+                <svg class="w-12 h-12 mx-auto mb-4 text-gray-600 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p>Loading documentation...</p>
+            </div>
+        `;
+        
+        try {
+            const response = await fetch(`/api/docs/${docName}`);
+            const data = await response.json();
+            
+            if (data.status === 'success' && data.doc) {
+                // Parse markdown to HTML
+                const htmlContent = marked.parse(data.doc.content);
+                
+                content.innerHTML = `
+                    <article class="markdown-content">
+                        ${htmlContent}
+                    </article>
+                `;
+            } else {
+                content.innerHTML = `
+                    <div class="text-center py-12 text-red-400">
+                        <p>Failed to load documentation</p>
+                    </div>
+                `;
+            }
+        } catch (error) {
+            content.innerHTML = `
+                <div class="text-center py-12 text-red-400">
+                    <p>Error: ${error.message}</p>
+                </div>
+            `;
+        }
+    }
+    
+    // Escape HTML
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    // Load docs list on page load
+    document.addEventListener('DOMContentLoaded', loadDocsList);
+</script>
+{% endblock %}

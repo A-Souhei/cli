@@ -2028,5 +2028,16 @@ if __name__ == "__main__":
         action='store_true',
         help='Enable verbose mode to show debug information'
     )
+    parser.add_argument(
+        '--show-ui',
+        action='store_true',
+        help='Launch the web-based UI instead of CLI'
+    )
     args = parser.parse_args()
-    main(verbose=args.verbose)
+    
+    if args.show_ui:
+        # Import and start UI server
+        from src.ui.server import start_ui_server
+        start_ui_server(verbose=args.verbose)
+    else:
+        main(verbose=args.verbose)
