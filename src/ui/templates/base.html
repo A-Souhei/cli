@@ -61,18 +61,136 @@
         }
         
         /* Markdown content styles */
-        .markdown-content h1 { @apply text-2xl font-bold mb-4 text-white; }
-        .markdown-content h2 { @apply text-xl font-semibold mb-3 text-white; }
-        .markdown-content h3 { @apply text-lg font-medium mb-2 text-white; }
-        .markdown-content p { @apply mb-4 text-gray-300; }
-        .markdown-content ul { @apply list-disc list-inside mb-4 text-gray-300; }
-        .markdown-content ol { @apply list-decimal list-inside mb-4 text-gray-300; }
-        .markdown-content li { @apply mb-1; }
-        .markdown-content code { @apply bg-dark-800 px-1.5 py-0.5 rounded text-primary-400 text-sm; }
-        .markdown-content pre { @apply bg-dark-900 p-4 rounded-lg mb-4 overflow-x-auto; }
-        .markdown-content pre code { @apply bg-transparent p-0; }
-        .markdown-content a { @apply text-primary-400 hover:text-primary-300 underline; }
-        .markdown-content blockquote { @apply border-l-4 border-primary-500 pl-4 italic text-gray-400 mb-4; }
+        .markdown-content h1 { 
+            font-size: 1.875rem; 
+            font-weight: 700; 
+            margin-bottom: 1rem; 
+            color: white;
+            border-bottom: 1px solid #334155;
+            padding-bottom: 0.5rem;
+        }
+        .markdown-content h2 { 
+            font-size: 1.5rem; 
+            font-weight: 600; 
+            margin-bottom: 0.75rem; 
+            margin-top: 1.5rem;
+            color: white; 
+        }
+        .markdown-content h3 { 
+            font-size: 1.25rem; 
+            font-weight: 500; 
+            margin-bottom: 0.5rem; 
+            margin-top: 1rem;
+            color: white; 
+        }
+        .markdown-content h4 {
+            font-size: 1.1rem;
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+            color: #e2e8f0;
+        }
+        .markdown-content p { 
+            margin-bottom: 1rem; 
+            color: #cbd5e1;
+            line-height: 1.7;
+        }
+        .markdown-content ul { 
+            list-style-type: disc; 
+            margin-left: 1.5rem;
+            margin-bottom: 1rem; 
+            color: #cbd5e1; 
+        }
+        .markdown-content ol { 
+            list-style-type: decimal; 
+            margin-left: 1.5rem;
+            margin-bottom: 1rem; 
+            color: #cbd5e1; 
+        }
+        .markdown-content li { 
+            margin-bottom: 0.25rem;
+            line-height: 1.6;
+        }
+        .markdown-content li > ul,
+        .markdown-content li > ol {
+            margin-top: 0.25rem;
+            margin-bottom: 0;
+        }
+        .markdown-content code { 
+            background-color: #1e293b; 
+            padding: 0.125rem 0.375rem; 
+            border-radius: 0.25rem; 
+            color: #38bdf8; 
+            font-size: 0.875rem;
+            font-family: ui-monospace, monospace;
+        }
+        .markdown-content pre { 
+            background-color: #0f172a; 
+            padding: 1rem; 
+            border-radius: 0.5rem; 
+            margin-bottom: 1rem; 
+            overflow-x: auto;
+            border: 1px solid #334155;
+        }
+        .markdown-content pre code { 
+            background-color: transparent; 
+            padding: 0;
+            color: #e2e8f0;
+        }
+        .markdown-content a { 
+            color: #38bdf8; 
+            text-decoration: underline; 
+        }
+        .markdown-content a:hover { 
+            color: #7dd3fc; 
+        }
+        .markdown-content blockquote { 
+            border-left: 4px solid #0ea5e9; 
+            padding-left: 1rem; 
+            font-style: italic; 
+            color: #94a3b8; 
+            margin-bottom: 1rem;
+            background-color: #1e293b;
+            padding: 1rem;
+            border-radius: 0 0.5rem 0.5rem 0;
+        }
+        .markdown-content table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1rem;
+        }
+        .markdown-content th,
+        .markdown-content td {
+            border: 1px solid #334155;
+            padding: 0.5rem 0.75rem;
+            text-align: left;
+        }
+        .markdown-content th {
+            background-color: #1e293b;
+            color: white;
+            font-weight: 600;
+        }
+        .markdown-content td {
+            color: #cbd5e1;
+        }
+        .markdown-content tr:nth-child(even) {
+            background-color: #1e293b40;
+        }
+        .markdown-content hr {
+            border: none;
+            border-top: 1px solid #334155;
+            margin: 2rem 0;
+        }
+        .markdown-content img {
+            max-width: 100%;
+            border-radius: 0.5rem;
+        }
+        .markdown-content strong {
+            color: white;
+            font-weight: 600;
+        }
+        .markdown-content em {
+            color: #94a3b8;
+        }
     </style>
     {% block head %}{% endblock %}
 </head>
@@ -125,11 +243,11 @@
                     <span>Sessions</span>
                 </a>
                 
-                <a href="/mcps" class="nav-link flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors {% if request.path == '/mcps' %}bg-primary-600 text-white{% else %}text-gray-300 hover:bg-dark-800 hover:text-white{% endif %}">
+                <a href="/mcps" class="nav-link flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors {% if request.path.startswith('/mcps') %}bg-primary-600 text-white{% else %}text-gray-300 hover:bg-dark-800 hover:text-white{% endif %}">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/>
                     </svg>
-                    <span>MCPs & Tools</span>
+                    <span>MCPs</span>
                 </a>
                 
                 <a href="/docs" class="nav-link flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors {% if request.path == '/docs' %}bg-primary-600 text-white{% else %}text-gray-300 hover:bg-dark-800 hover:text-white{% endif %}">

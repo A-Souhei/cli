@@ -1,18 +1,18 @@
 {% extends "base.html" %}
 
-{% block title %}MCPs & Tools - AI CLI{% endblock %}
+{% block title %}MCPs - AI CLI{% endblock %}
 
 {% block content %}
 <div class="p-8">
     <!-- Header -->
     <div class="mb-8">
-        <h1 class="text-3xl font-bold text-white mb-2">MCPs & Tools</h1>
-        <p class="text-gray-400">Discover available Model Context Protocol servers and their tools</p>
+        <h1 class="text-3xl font-bold text-white mb-2">MCPs</h1>
+        <p class="text-gray-400">Available Model Context Protocol servers</p>
     </div>
     
     <!-- MCPs Grid -->
-    <div id="mcps-container" class="space-y-6">
-        <div class="text-gray-400 text-center py-12">
+    <div id="mcps-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div class="text-gray-400 text-center py-12 col-span-full">
             <svg class="w-12 h-12 mx-auto mb-4 text-gray-600 animate-spin" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -21,33 +21,16 @@
         </div>
     </div>
 </div>
-
-<!-- Tool Details Modal -->
-<div id="tool-modal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50">
-    <div class="bg-dark-800 rounded-xl p-6 max-w-2xl w-full mx-4 border border-dark-700">
-        <div class="flex items-center justify-between mb-6">
-            <h2 class="text-xl font-bold text-white" id="tool-modal-title">Tool Details</h2>
-            <button onclick="closeToolModal()" class="text-gray-400 hover:text-white">
-                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                </svg>
-            </button>
-        </div>
-        <div id="tool-modal-content" class="space-y-4">
-            <!-- Content will be loaded here -->
-        </div>
-    </div>
-</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-    // Load MCPs and their tools
+    // Load MCPs
     async function loadMCPs() {
         const container = document.getElementById('mcps-container');
         
         try {
-            // First, get all MCPs
+            // Get all MCPs
             const mcpsResponse = await fetch('/api/mcps/');
             const mcpsData = await mcpsResponse.json();
             
@@ -55,15 +38,14 @@
                 throw new Error(mcpsData.message || 'Failed to load MCPs');
             }
             
-            // Then, get all tools
+            // Get tools count per MCP
             const toolsResponse = await fetch('/api/mcps/tools');
             const toolsData = await toolsResponse.json();
-            
             const toolsByMcp = toolsData.tools_by_mcp || {};
             
             if (mcpsData.mcps.length === 0) {
                 container.innerHTML = `
-                    <div class="text-center py-12">
+                    <div class="text-center py-12 col-span-full">
                         <svg class="w-16 h-16 mx-auto mb-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/>
                         </svg>
@@ -79,86 +61,52 @@
                 const safeMcpName = escapeHtml(mcp.name);
                 const safeMcpDesc = escapeHtml(mcp.description || 'Model Context Protocol Server');
                 
-                const toolsHtml = tools.length > 0 
-                    ? tools.map(tool => {
-                        const safeToolName = escapeHtml(tool.tool_name || '');
-                        const safeToolDesc = escapeHtml(tool.description || '');
-                        const shortDesc = tool.description ? tool.description.substring(0, 100) + (tool.description.length > 100 ? '...' : '') : 'No description';
-                        
-                        return `
-                        <button class="tool-details-btn flex items-start space-x-3 p-4 bg-dark-700 rounded-lg hover:bg-dark-600 transition-colors text-left w-full"
-                                data-tool-name="${safeToolName}"
-                                data-tool-desc="${safeToolDesc}">
-                            <div class="w-10 h-10 bg-purple-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
-                                <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                                </svg>
-                            </div>
-                            <div class="flex-1 min-w-0">
-                                <h4 class="text-white font-medium truncate">${safeToolName}</h4>
-                                <p class="text-gray-400 text-sm line-clamp-2">${escapeHtml(shortDesc)}</p>
-                            </div>
-                            <svg class="w-5 h-5 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-                            </svg>
-                        </button>
-                    `;}).join('')
-                    : '<p class="text-gray-500 p-4">No tools registered. Run the CLI to initialize tools.</p>';
-                
                 return `
-                    <div class="bg-dark-800 rounded-xl border border-dark-700 overflow-hidden">
-                        <!-- MCP Header -->
-                        <div class="p-6 border-b border-dark-700">
-                            <div class="flex items-start justify-between">
-                                <div class="flex items-start space-x-4">
-                                    <div class="w-14 h-14 bg-gradient-to-br from-green-500 to-green-700 rounded-xl flex items-center justify-center flex-shrink-0">
-                                        <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/>
-                                        </svg>
-                                    </div>
-                                    <div>
-                                        <h3 class="text-xl font-bold text-white mb-1">${safeMcpName}</h3>
-                                        <p class="text-gray-400 text-sm mb-2">${safeMcpDesc}</p>
-                                        <div class="flex items-center space-x-4 text-sm">
-                                            <span class="flex items-center space-x-1 text-gray-500">
-                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                                                </svg>
-                                                <span>${tools.length} tools</span>
-                                            </span>
-                                            ${mcp.has_readme ? `
-                                            <span class="flex items-center space-x-1 text-green-500">
-                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                                                </svg>
-                                                <span>README</span>
-                                            </span>
-                                            ` : ''}
-                                        </div>
-                                    </div>
+                    <a href="/mcps/${encodeURIComponent(mcp.name)}" 
+                       class="block bg-dark-800 rounded-xl border border-dark-700 hover:border-primary-500 transition-all hover:shadow-lg hover:shadow-primary-500/10 group">
+                        <div class="p-6">
+                            <div class="flex items-start space-x-4">
+                                <div class="w-14 h-14 bg-gradient-to-br from-green-500 to-green-700 rounded-xl flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+                                    <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/>
+                                    </svg>
+                                </div>
+                                <div class="flex-1 min-w-0">
+                                    <h3 class="text-xl font-bold text-white mb-1 group-hover:text-primary-400 transition-colors">${safeMcpName}</h3>
+                                    <p class="text-gray-400 text-sm line-clamp-2">${safeMcpDesc}</p>
                                 </div>
                             </div>
-                        </div>
-                        
-                        <!-- Tools Grid -->
-                        <div class="p-6">
-                            <h4 class="text-lg font-semibold text-white mb-4">Available Tools</h4>
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                ${toolsHtml}
+                            
+                            <div class="mt-4 pt-4 border-t border-dark-700 flex items-center justify-between">
+                                <div class="flex items-center space-x-4 text-sm">
+                                    <span class="flex items-center space-x-1 text-gray-500">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                        </svg>
+                                        <span>${tools.length} tool${tools.length !== 1 ? 's' : ''}</span>
+                                    </span>
+                                    ${mcp.has_readme ? `
+                                    <span class="flex items-center space-x-1 text-green-500">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                        </svg>
+                                        <span>Docs</span>
+                                    </span>
+                                    ` : ''}
+                                </div>
+                                <svg class="w-5 h-5 text-gray-500 group-hover:text-primary-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                                </svg>
                             </div>
                         </div>
-                    </div>
+                    </a>
                 `;
             }).join('');
             
-            // Attach event listeners for tool buttons
-            attachToolEventListeners();
-            
         } catch (error) {
             container.innerHTML = `
-                <div class="text-center py-12 text-red-400">
+                <div class="text-center py-12 col-span-full text-red-400">
                     <svg class="w-12 h-12 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                     </svg>
@@ -168,55 +116,6 @@
         }
     }
     
-    // Show tool details in modal
-    function showToolDetails(toolName, description) {
-        const modal = document.getElementById('tool-modal');
-        const modalTitle = document.getElementById('tool-modal-title');
-        const modalContent = document.getElementById('tool-modal-content');
-        
-        // Use textContent for title (safe by default)
-        modalTitle.textContent = toolName;
-        
-        // Escape description for display
-        const safeDescription = escapeHtml(description || 'No description available');
-        const safeToolName = escapeHtml(toolName);
-        
-        modalContent.innerHTML = `
-            <div class="bg-dark-700 rounded-lg p-4 mb-4">
-                <h4 class="text-gray-400 text-sm mb-2">Description</h4>
-                <p class="text-white">${safeDescription}</p>
-            </div>
-            <div class="bg-dark-700 rounded-lg p-4">
-                <h4 class="text-gray-400 text-sm mb-2">Usage in CLI</h4>
-                <p class="text-gray-300 text-sm mb-2">This tool is automatically matched when you use the <code class="bg-dark-900 px-1 rounded text-primary-400">/code</code> command or when the AI determines it's needed based on your prompt.</p>
-                <div class="bg-dark-900 rounded p-3 font-mono text-sm text-gray-300">
-                    /code Use ${safeToolName} to...
-                </div>
-            </div>
-        `;
-        
-        modal.classList.remove('hidden');
-        modal.classList.add('flex');
-    }
-    
-    // Attach event listeners for tool buttons
-    function attachToolEventListeners() {
-        document.querySelectorAll('.tool-details-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                const toolName = this.dataset.toolName;
-                const toolDesc = this.dataset.toolDesc;
-                if (toolName) showToolDetails(toolName, toolDesc);
-            });
-        });
-    }
-    
-    // Close tool modal
-    function closeToolModal() {
-        const modal = document.getElementById('tool-modal');
-        modal.classList.add('hidden');
-        modal.classList.remove('flex');
-    }
-    
     // Escape HTML
     function escapeHtml(text) {
         if (text === null || text === undefined) return '';
@@ -224,11 +123,6 @@
         div.textContent = String(text);
         return div.innerHTML;
     }
-    
-    // Close modal on click outside
-    document.getElementById('tool-modal').addEventListener('click', function(e) {
-        if (e.target === this) closeToolModal();
-    });
     
     // Load MCPs on page load
     document.addEventListener('DOMContentLoaded', loadMCPs);

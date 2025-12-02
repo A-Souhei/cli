@@ -82,8 +82,13 @@ def create_app(verbose: bool = False) -> Flask:
     
     @app.route('/mcps')
     def mcps_page():
-        """MCPs and tools page."""
+        """MCPs page."""
         return render_template('mcps.html')
+    
+    @app.route('/mcps/<mcp_name>')
+    def mcp_tools_page(mcp_name):
+        """MCP tools page."""
+        return render_template('mcp_tools.html', mcp_name=mcp_name)
     
     @app.route('/docs')
     def docs_page():
