@@ -31,6 +31,48 @@ from prompt_toolkit.formatted_text import FormattedText
 from src.file_completer import CombinedCompleter, extract_at_context, remove_at_prefixed_paths
 from src.utils.tree import generate_tree
 
+# Import repomap functionality from separate module
+from src.utils.repomap import (
+    collect_source_files,
+    generate_repomap_prompt,
+    generate_repomap_update_prompt,
+    load_repomap_to_context,
+)
+
+# Import datamap functionality from separate module
+from src.utils.datamap import (
+    get_postgresql_signature,
+    collect_data_files,
+    generate_datamap_prompt,
+    generate_datamap_update_prompt,
+    load_datamap_to_context,
+)
+
+# Import ratings functionality from separate module
+from src.utils.ratings import (
+    process_rating,
+    get_prompt_guidance,
+)
+
+# Import code handlers from separate module
+from src.utils.code_handlers import (
+    handle_code_file_writing,
+    handle_file_modifications,
+    handle_code_execution,
+    display_execution_result,
+)
+
+# Import MCP discovery from separate module
+from src.utils.mcp_discovery import (
+    list_system_mcps,
+    get_mcp_tools,
+)
+
+# Import banner functionality from separate module
+from src.utils.banner import (
+    print_banner,
+)
+
 # Apply nest_asyncio once globally to allow nested event loops
 import nest_asyncio
 nest_asyncio.apply()
@@ -51,261 +93,6 @@ def get_user_working_dir():
     if _USER_WORKING_DIR is None:
         _USER_WORKING_DIR = os.environ.get('AI_CLI_CWD', os.getcwd())
     return _USER_WORKING_DIR
-
-
-# Constants for repomap functionality
-MAX_FILE_CONTENT_PREVIEW = 2000  # Maximum characters to include from each file
-
-# Source code file extensions to include in repomap
-SOURCE_CODE_EXTENSIONS = {
-    # Python
-    '.py', '.pyw', '.pyi',
-    # JavaScript/TypeScript
-    '.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs',
-    # Web
-    '.html', '.htm', '.css', '.scss', '.sass', '.less',
-    # Java
-    '.java', '.kt', '.kts', '.scala',
-    # C/C++
-    '.c', '.h', '.cpp', '.hpp', '.cc', '.hh', '.cxx', '.hxx',
-    # C#
-    '.cs', '.csx',
-    # Go
-    '.go',
-    # Rust
-    '.rs',
-    # Ruby
-    '.rb', '.rake', '.gemspec',
-    # PHP
-    '.php',
-    # Swift
-    '.swift',
-    # R
-    '.r', '.R',
-    # Shell
-    '.sh', '.bash', '.zsh', '.fish',
-    # Config/Data
-    '.json', '.yaml', '.yml', '.toml', '.ini', '.cfg',
-    # Markdown/Documentation
-    '.md', '.rst', '.txt',
-    # SQL
-    '.sql',
-    # Dockerfile
-    'Dockerfile',
-    # Makefile
-    'Makefile',
-}
-
-# Directories to exclude from repomap scanning
-REPOMAP_EXCLUDE_DIRS = {
-    '.git', '__pycache__', 'node_modules', '.pytest_cache',
-    '.mypy_cache', '.tox', 'venv', '.venv', 'env', '.env',
-    'dist', 'build', '.eggs', '.cache',
-    '.idea', '.vscode', 'target', 'bin', 'obj', 'coverage',
-    'htmlcov', '.coverage', '.nyc_output', 'migrations',
-}
-
-# Directory patterns to exclude (suffix matching)
-REPOMAP_EXCLUDE_SUFFIXES = {'.egg-info'}
-
-
-def collect_source_files(working_dir: str, max_files: int = 500) -> list:
-    """
-    Collect all source code files from the working directory.
-    
-    Args:
-        working_dir: Root directory to scan
-        max_files: Maximum number of files to collect
-        
-    Returns:
-        List of dicts with 'path', 'content', and 'size' keys
-    """
-    files = []
-    working_path = Path(working_dir)
-    
-    for file_path in working_path.rglob('*'):
-        # Check if we've reached the limit before processing more files
-        if len(files) >= max_files:
-            break
-            
-        # Skip directories in exclusion list (only check directory parts, not filename)
-        if any(excluded in file_path.parts[:-1] for excluded in REPOMAP_EXCLUDE_DIRS):
-            continue
-        
-        # Skip directories matching suffix patterns (e.g., *.egg-info)
-        if any(part.endswith(suffix) for part in file_path.parts[:-1] for suffix in REPOMAP_EXCLUDE_SUFFIXES):
-            continue
-            
-        # Skip non-files
-        if not file_path.is_file():
-            continue
-            
-        # Check if file matches source code extensions
-        if file_path.suffix in SOURCE_CODE_EXTENSIONS or file_path.name in SOURCE_CODE_EXTENSIONS:
-            try:
-                relative_path = file_path.relative_to(working_path)
-                file_size = file_path.stat().st_size
-                with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-                    content = f.read()
-                    
-                files.append({
-                    'path': str(relative_path),
-                    'content': content,
-                    'size': file_size
-                })
-                    
-            except (OSError, UnicodeDecodeError):
-                # Skip files that can't be read
-                continue
-                
-    return files
-
-
-def generate_repomap_prompt(files: list, tree_output: str = None) -> str:
-    """
-    Generate an LLM prompt to create a comprehensive repository map.
-
-    Args:
-        files: List of file dicts with 'path', 'content', and 'size' keys
-        tree_output: Optional directory tree string to include (default: None - no tree section added)
-
-    Returns:
-        Prompt string for the LLM
-    """
-    # Build file summaries
-    file_summaries = []
-    for f in files:
-        file_summaries.append(f"### {f['path']} ({f['size']} bytes)")
-        # Truncate content to avoid overwhelming the LLM
-        content = f['content']
-        if len(content) > MAX_FILE_CONTENT_PREVIEW:
-            content_preview = content[:MAX_FILE_CONTENT_PREVIEW]
-        else:
-            content_preview = content
-        file_summaries.append(f"```\n{content_preview}\n```\n")
-    
-    # Build tree section if provided
-    tree_section = ""
-    if tree_output:
-        tree_section = f"""## Directory Tree
-
-```
-{tree_output}
-```
-
-"""
-    
-    # Join file summaries with newlines
-    files_content = "\n".join(file_summaries)
-    
-    prompt = f"""You are a software architect analyzing a codebase. Create a comprehensive repository map (repomap) that will help developers understand the structure and purpose of this codebase.
-
-{tree_section}## Files in the Repository
-
-{files_content}
-
-## CRITICAL Instructions - Read Carefully
-
-**BEFORE writing the repository map:**
-1. Carefully examine the Directory Tree above
-2. List ALL top-level directories and applications you see (e.g., python_app/, r_app/, frontend/, etc.)
-3. Identify if there are multiple programming languages or separate applications
-4. Note which files and directories ACTUALLY exist (don't invent/hallucinate directories not shown in the tree)
-
-**REQUIREMENTS:**
-- Document EVERY top-level directory/application shown in the tree
-- If multiple languages exist (Python, R, JavaScript, etc.), document EACH separately
-- ONLY describe files and directories that appear in the actual tree above
-- DO NOT invent or assume the existence of files/directories not shown (like config/, tests/, docker-compose.yml, etc.)
-- Base your analysis on the actual file contents provided, not assumptions
-
-## Repository Map Structure
-
-Create a detailed repository map with these sections:
-
-1. **Project Overview**:
-   - List ALL applications/components found in the repository
-   - Brief description of what each application does
-   - Note if this is a multi-language or multi-application repository
-
-2. **Applications/Components**:
-   - Create a subsection for EACH top-level directory/application
-   - For each application, describe its purpose and structure
-   - If multiple language implementations exist, document each one
-
-3. **Architecture**:
-   - Describe the overall architecture
-   - If multiple apps, describe how they might relate
-   - Mention design patterns observed in the actual code
-
-4. **Directory Structure**:
-   - Explain the purpose of each major directory THAT EXISTS in the tree
-   - Describe how files are organized in EACH application
-   - Do NOT add directories that don't exist
-
-5. **Key Components**:
-   - List main modules, classes, and functions from ALL applications
-   - Describe their responsibilities based on actual code
-   - Cover components from all programming languages present
-
-6. **Entry Points**:
-   - Identify entry points for EACH application
-   - Base this on actual file names (app.py, app.R, main.*, index.*, etc.)
-
-7. **Dependencies**:
-   - List dependencies observed in the actual code
-   - Only mention what you can verify from the file contents
-
-8. **Data Flow**:
-   - Describe how data flows in EACH application
-   - If multiple apps, describe potential interactions
-
-9. **Configuration**:
-   - Only describe configuration files that ACTUALLY exist in the tree
-   - Do NOT mention config files that aren't shown
-
-10. **Testing**:
-    - Only describe test files/directories that ACTUALLY exist
-    - If no tests are visible, say so
-
-11. **Getting Started**:
-    - Provide instructions for EACH application/language
-    - Only reference files that actually exist
-
-Please provide a clear, well-structured repository map in Markdown format that accurately reflects the COMPLETE codebase including ALL applications and languages."""
-
-    return prompt
-
-
-async def load_repomap_to_context(mcp_client, repomap_path: str, working_dir: str, session_id: str = None) -> dict:
-    """
-    Load a .repomap file into context using the MCP client.
-    
-    Args:
-        mcp_client: MCPClient instance
-        repomap_path: Path to the .repomap file
-        working_dir: Working directory
-        session_id: Optional session ID for persistence
-        
-    Returns:
-        Result dict with status and message
-    """
-    args = {
-        'file_path': repomap_path,
-        'working_dir': working_dir
-    }
-    if session_id:
-        args['session_id'] = session_id
-        
-    result = await mcp_client.call_tool('coder', 'add_file_context', args)
-    
-    try:
-        return json.loads(result) if result else {'status': 'error', 'message': 'MCP tool returned empty result'}
-    except json.JSONDecodeError as parse_error:
-        # Provide more specific error information with type safety
-        result_str = str(result) if result is not None else ''
-        error_preview = (result_str[:100] + '...') if len(result_str) > 100 else result_str
-        return {'status': 'error', 'message': f'Failed to parse response: {parse_error}. Response: {error_preview}'}
 
 
 def run_async(coro):
@@ -373,699 +160,6 @@ def debug_print(message, icon="🔍", style="dim"):
     """Print message only if verbose mode is enabled."""
     if VERBOSE:
         console.print(f"{icon} {message}", style=style)
-
-
-def get_all_ratings():
-    """Get all ratings from the postgres-api."""
-    try:
-        response = requests.get(f"{POSTGRES_API_URL}/ratings", timeout=10)
-        if response.status_code == 200:
-            return response.json().get('ratings', [])
-        return []
-    except Exception as e:
-        print(f"[Warning] Could not fetch ratings: {e}")
-        return []
-
-
-def check_similarity(text1, text2):
-    """Check similarity between two texts using transformer service."""
-    try:
-        params = {
-            'text1': text1,
-            'text2': text2,
-            'metric': 'cosine'
-        }
-        response = requests.get(
-            f"{TRANSFORMER_API_URL}/similarity",
-            params=params,
-            timeout=30
-        )
-        if response.status_code == 200:
-            return response.json().get('similarity', 0)
-        return 0
-    except Exception as e:
-        print(f"[Warning] Could not check similarity: {e}")
-        return 0
-
-
-def extract_keywords(text, top_n=5):
-    """Extract keywords from text using transformer service."""
-    try:
-        params = {
-            'text': text,
-            'top_n': top_n
-        }
-        response = requests.get(
-            f"{TRANSFORMER_API_URL}/keywords",
-            params=params,
-            timeout=30
-        )
-        if response.status_code == 200:
-            keywords_data = response.json().get('keywords', [])
-            return [kw['keyword'] for kw in keywords_data]
-        return []
-    except Exception as e:
-        print(f"[Warning] Could not extract keywords: {e}")
-        return []
-
-
-def create_rating(user_rating, prompt_text, response_text, tags, session_id=None):
-    """Create a new rating in the postgres-api."""
-    try:
-        params = {
-            'user_rating': user_rating,
-            'prompt_text': prompt_text,
-            'response_text': response_text,
-            'tags': json.dumps({'keywords': tags})
-        }
-        if session_id:
-            params['session_id'] = session_id
-        response = requests.get(
-            f"{POSTGRES_API_URL}/ratings/create",
-            params=params,
-            timeout=10
-        )
-        return response.status_code == 201
-    except Exception as e:
-        print(f"[Warning] Could not create rating: {e}")
-        return False
-
-
-def update_rating(rating_id, user_rating, response_text, tags):
-    """Update an existing rating in the postgres-api."""
-    try:
-        payload = {
-            'user_rating': user_rating,
-            'response_text': response_text,
-            'tags': {'keywords': tags}
-        }
-        response = requests.patch(
-            f"{POSTGRES_API_URL}/ratings/{rating_id}/update",
-            json=payload,
-            timeout=10
-        )
-        return response.status_code == 200
-    except Exception as e:
-        print(f"[Warning] Could not update rating: {e}")
-        return False
-
-
-def find_similar_prompt(prompt_text, existing_ratings):
-    """
-    Find the most similar prompt from existing ratings.
-
-    Args:
-        prompt_text: The prompt to compare
-        existing_ratings: List of existing rating records
-
-    Returns:
-        Tuple of (best_match, best_similarity) or (None, 0) if no match found
-    """
-    best_match = None
-    best_similarity = 0
-
-    for rating in existing_ratings:
-        stored_prompt = rating.get('prompt_text', '')
-        if stored_prompt:
-            similarity = check_similarity(prompt_text, stored_prompt)
-            if similarity > best_similarity:
-                best_similarity = similarity
-                best_match = rating
-
-    return best_match, best_similarity
-
-
-def process_rating(user_rating, prompt_text, response_text, session_id=None):
-    """
-    Process the user rating by:
-    1. Getting all existing ratings
-    2. Finding similar prompts
-    3. Updating or creating as needed
-    """
-    # Get all existing ratings
-    existing_ratings = get_all_ratings()
-
-    # Extract keywords from current response
-    keywords = extract_keywords(response_text)
-
-    # Find the most similar prompt (reuse logic)
-    best_match, best_similarity = find_similar_prompt(prompt_text, existing_ratings)
-
-    # Check if we found a similar prompt
-    if best_match and best_similarity >= SIMILARITY_THRESHOLD:
-        stored_rating = best_match.get('user_rating', 0)
-        # Update if current rating is higher or equal
-        if user_rating >= stored_rating:
-            if update_rating(best_match['id'], user_rating, response_text, keywords):
-                debug_print(f"Rating updated - Similar prompt (similarity: {best_similarity:.2f}), {stored_rating} → {user_rating}", icon="✅", style="green")
-                debug_print(f"Keywords: {', '.join(keywords)}", icon="🏷️", style="cyan")
-            else:
-                debug_print("Failed to update existing rating", icon="❌", style="red")
-        else:
-            debug_print(f"Rating skipped - Stored rating higher ({stored_rating} > {user_rating})", icon="⏭️", style="yellow")
-    else:
-        # No similar prompt found, create new entry
-        if create_rating(user_rating, prompt_text, response_text, keywords, session_id):
-            debug_print(f"New prompt stored with rating {user_rating}", icon="💾", style="green")
-            debug_print(f"Keywords: {', '.join(keywords)}", icon="🏷️", style="cyan")
-        else:
-            debug_print("Failed to save new rating", icon="❌", style="red")
-
-
-def get_prompt_guidance(prompt_text):
-    """
-    Get guidance for the LLM based on similar past prompts and their ratings.
-
-    Returns a guidance string to inject into the conversation, or None if no guidance.
-    """
-    # Get all existing ratings
-    existing_ratings = get_all_ratings()
-
-    if not existing_ratings:
-        return None
-
-    # Find the most similar prompt (reuse shared logic)
-    best_match, best_similarity = find_similar_prompt(prompt_text, existing_ratings)
-
-    # Check if we found a similar prompt
-    if best_match and best_similarity >= SIMILARITY_THRESHOLD:
-        stored_rating = best_match.get('user_rating', 0)
-        tags = best_match.get('tags', {})
-        keywords = tags.get('keywords', []) if isinstance(tags, dict) else []
-
-        if not keywords:
-            return None
-
-        keywords_str = ', '.join(keywords)
-
-        if stored_rating >= SATISFACTORY_RATING_THRESHOLD:
-            # Satisfactory response - use these keywords
-            guidance = (
-                f"[Context: A similar question was previously answered satisfactorily. "
-                f"Consider incorporating these relevant concepts: {keywords_str}]"
-            )
-        else:
-            # Unsatisfactory response - avoid these keywords
-            guidance = (
-                f"[Context: A similar question was previously answered unsatisfactorily. "
-                f"Consider avoiding or improving upon these concepts: {keywords_str}]"
-            )
-
-        return guidance
-
-    return None
-
-
-async def handle_code_file_writing(mcp_client: MCPClient, response_text: str, target_file: str):
-    """
-    Detect code from LLM response and write it to a target file.
-
-    Args:
-        mcp_client: MCP client instance
-        response_text: The LLM response text
-        target_file: Path to the target file to write
-
-    Returns:
-        Write result or None
-    """
-    # Detect code in the response
-    detected = mcp_client.detect_code(response_text)
-
-    if not detected:
-        debug_print("No code detected in response to write to file", icon="ℹ️")
-        return None
-
-    language = detected['language']
-    code = detected['code']
-
-    debug_print(f"Detected {language.upper()} code block for file: {target_file}", icon="🔍")
-
-    # Determine if file exists to choose between write and edit
-    file_exists = os.path.exists(target_file)
-
-    # Determine tool based on language and file existence
-    if language == "python":
-        tool_name = "edit_python_code" if file_exists else "write_python_code"
-        mcp_name = "coder"
-    elif language == "r":
-        tool_name = "edit_r_code" if file_exists else "write_r_code"
-        mcp_name = "coder"
-    else:
-        debug_print(f"Unsupported language for file writing: {language}", icon="⚠️")
-        return None
-
-    # Inform user what we're about to do
-    action = "Updating" if file_exists else "Creating"
-    console.print(f"\n[cyan]{action} {target_file} with generated {language.upper()} code...[/cyan]")
-
-    # Write the code to file
-    result = await mcp_client.call_tool(
-        mcp_name=mcp_name,
-        tool_name=tool_name,
-        arguments={
-            "file_path": target_file,
-            "code": code,
-            "working_dir": get_user_working_dir()
-        }
-    )
-
-    # Parse result
-    try:
-        result_data = json.loads(result)
-        if result_data.get('status') == 'success':
-            console.print(f"[green]✓ Successfully wrote code to {target_file}[/green]\n")
-        else:
-            console.print(f"[red]✗ Failed to write to {target_file}: {result_data.get('message')}[/red]\n")
-    except Exception as e:
-        if "Error:" in result:
-            console.print(f"[red]✗ {result}[/red]\n")
-        else:
-            console.print(f"[red]✗ Failed to write to {target_file}: {e}[/red]\n")
-
-    return result
-
-
-async def handle_file_modifications(mcp_client: MCPClient, response_text: str, files_to_modify: list, files_to_create: list):
-    """
-    Parse LLM response for multiple file modifications and apply them.
-
-    Args:
-        mcp_client: MCP client instance
-        response_text: The LLM response text
-        files_to_modify: List of existing files mentioned by user
-        files_to_create: List of files to create mentioned by user
-
-    Returns:
-        Dict with results for each file
-    """
-    results = {
-        'modified': [],
-        'created': [],
-        'errors': []
-    }
-
-    # Pattern to match file paths followed by code blocks
-    # Format 1: file: path/to/file.py\n```python\ncode\n``` (PRIMARY FORMAT)
-    # Format 2: ```python\n# tool - file: path/to/file.py\ncode\n```
-    # Format 3: filename.py\n```python\ncode\n```
-
-    matches = []
-
-    # Try Format 1 first (instructed format): "file:" prefix before code block
-    # This pattern is more flexible and handles any file path
-    pattern1 = r'(?:file|File):\s*([^\n]+\.(?:py|r|R))\s*\n+```(?:python|r)?\n(.*?)\n```'
-    matches = re.findall(pattern1, response_text, re.DOTALL | re.MULTILINE)
-
-    # Try Format 2: filename in comment inside code block
-    if not matches:
-        pattern2 = r'```(?:python|r)?\n#\s*(?:write_python_code|edit_python_code|write_r_code|edit_r_code)\s*-\s*file:\s*([^\n]+)\n(.*?)\n```'
-        matches = re.findall(pattern2, response_text, re.DOTALL | re.MULTILINE)
-
-    # Try Format 3: filename before code block (most lenient, any path structure)
-    if not matches:
-        pattern3 = r'(?:^|\n)([^\s:]+\.(?:py|r|R))\s*\n+```(?:python|r)?\n(.*?)\n```'
-        matches = re.findall(pattern3, response_text, re.DOTALL | re.MULTILINE)
-
-    if not matches:
-        debug_print("No file+code patterns found in response", icon="ℹ️", style="yellow")
-        console.print("\n[yellow]⚠️  No file modifications detected in LLM response.[/yellow]")
-        console.print("[dim]The LLM may not have formatted the response correctly.[/dim]")
-        console.print("[dim]Try rephrasing your request or check the LLM output above.[/dim]\n")
-        return results
-
-    debug_print(f"Found {len(matches)} file+code blocks to process", icon="📝", style="cyan")
-    console.print(f"\n[cyan]📝 Processing {len(matches)} file modification(s)...[/cyan]\n")
-
-    for file_path, code in matches:
-        try:
-            # Clean up file path
-            file_path = file_path.strip()
-            code = code.strip()
-
-            # Remove tool comment line if present (from Format 2)
-            code_lines = code.split('\n')
-            if code_lines and code_lines[0].strip().startswith('#') and ('write_' in code_lines[0] or 'edit_' in code_lines[0]):
-                code = '\n'.join(code_lines[1:]).strip()
-
-            # Determine full path
-            full_path = os.path.join(get_user_working_dir(), file_path)
-            file_exists = os.path.exists(full_path)
-
-            # Determine language and tool
-            if file_path.endswith('.py'):
-                language = "python"
-                tool_name = "edit_python_code" if file_exists else "write_python_code"
-            elif file_path.endswith(('.r', '.R')):
-                language = "r"
-                tool_name = "edit_r_code" if file_exists else "write_r_code"
-            else:
-                debug_print(f"Unsupported file type: {file_path}", icon="⚠️", style="yellow")
-                results['errors'].append(f"{file_path}: Unsupported file type")
-                continue
-
-            # Inform user
-            action = "Updating" if file_exists else "Creating"
-            console.print(f"[cyan]{action} {file_path}...[/cyan]")
-
-            # Call MCP tool
-            result = await mcp_client.call_tool(
-                mcp_name="coder",
-                tool_name=tool_name,
-                arguments={
-                    "file_path": file_path,
-                    "code": code,
-                    "working_dir": get_user_working_dir()
-                }
-            )
-
-            # Parse result
-            try:
-                result_data = json.loads(result)
-                if result_data.get('status') == 'success':
-                    console.print(f"✓ [green]{action} {file_path} successfully[/green]")
-                    if file_exists:
-                        results['modified'].append(file_path)
-                    else:
-                        results['created'].append(file_path)
-                else:
-                    error_msg = result_data.get('message', 'Unknown error')
-                    console.print(f"✗ [red]Failed to {action.lower()} {file_path}: {error_msg}[/red]")
-                    results['errors'].append(f"{file_path}: {error_msg}")
-            except json.JSONDecodeError:
-                # Result might be plain text error
-                if "success" in result.lower():
-                    console.print(f"✓ [green]{action} {file_path} successfully[/green]")
-                    if file_exists:
-                        results['modified'].append(file_path)
-                    else:
-                        results['created'].append(file_path)
-                else:
-                    console.print(f"✗ [red]Failed to {action.lower()} {file_path}[/red]")
-                    results['errors'].append(f"{file_path}: {result}")
-
-        except Exception as e:
-            error_msg = str(e)
-            console.print(f"✗ [red]Error processing {file_path}: {error_msg}[/red]")
-            results['errors'].append(f"{file_path}: {error_msg}")
-            debug_print(f"Error processing {file_path}: {e}", icon="❌", style="red")
-
-    # Summary
-    if results['created'] or results['modified']:
-        console.print(f"\n[bold green]✓ File Operations Complete[/bold green]")
-        if results['created']:
-            console.print(f"  Created: {', '.join(results['created'])}")
-        if results['modified']:
-            console.print(f"  Modified: {', '.join(results['modified'])}")
-        if results['errors']:
-            console.print(f"  [yellow]Errors: {len(results['errors'])}[/yellow]")
-
-        # Add affected files to results for verification
-        results['affected_files'] = results['created'] + results['modified']
-
-    return results
-
-
-async def handle_code_execution(mcp_client: MCPClient, response_text: str):
-    """
-    Detect and execute code from LLM response.
-
-    Args:
-        mcp_client: MCP client instance
-        response_text: The LLM response text
-
-    Returns:
-        Execution result or None
-    """
-    # Detect code in the response
-    detected = mcp_client.detect_code(response_text)
-
-    if not detected:
-        debug_print("No code detected in response", icon="ℹ️")
-        return None
-
-    language = detected['language']
-    code = detected['code']
-
-    debug_print(f"Detected {language.upper()} code block", icon="🔍")
-
-    # Determine tool based on language
-    if language == "python":
-        tool_name = "run_python_code"
-        mcp_name = "coder"
-    elif language == "r":
-        tool_name = "run_r_code"
-        mcp_name = "coder"
-    else:
-        debug_print(f"Unsupported language: {language}", icon="⚠️")
-        return None
-
-    # Ask user for confirmation using InteractiveSelector
-    console.print()
-    try:
-        selector = InteractiveSelector(
-            title=f"⚡ Execute {language.upper()} code?",
-            choices=["Yes", "No"],
-            current="No"
-        )
-        choice = selector.show()
-
-        if choice != "Yes":
-            console.print("\n[dim]Code execution cancelled[/dim]\n")
-            return None
-    except (EOFError, KeyboardInterrupt):
-        console.print("\n[dim]Code execution cancelled[/dim]\n")
-        return None
-
-    # Execute the code
-    debug_print(f"Executing {language} code...", icon="⚙️")
-    console.print("[yellow]Executing code...[/yellow]\n")
-
-    result = await mcp_client.call_tool(
-        mcp_name=mcp_name,
-        tool_name=tool_name,
-        arguments={"code": code}
-    )
-
-    return result
-
-
-def display_execution_result(result: str):
-    """
-    Display code execution result in a nice format.
-
-    Args:
-        result: JSON string from MCP tool execution
-    """
-    try:
-        result_data = json.loads(result)
-
-        # Check if it's an error
-        if result.startswith("Error:"):
-            console.print(f"\n❌ [bold red]Execution Error[/bold red]")
-            console.print(f"[red]{result}[/red]\n")
-            return
-
-        # Display execution complete message
-        console.print("\n✓ [bold]Execution Complete[/bold]\n")
-
-        # Show stdout if present
-        if result_data.get("stdout"):
-            console.print("📄 [bold]Output:[/bold]")
-            console.print(result_data["stdout"].strip())
-            console.print()
-
-        # Show stderr if present
-        if result_data.get("stderr"):
-            console.print("⚠️  [bold yellow]Warnings/Errors:[/bold yellow]")
-            console.print(f"[yellow]{result_data['stderr'].strip()}[/yellow]")
-            console.print()
-
-        # Show exit code
-        exit_code = result_data.get("exit_code", -1)
-        if exit_code == 0:
-            console.print(f"[dim]Exit Code: {exit_code}[/dim]")
-        else:
-            console.print(f"[red]Exit Code: {exit_code}[/red]")
-
-        console.print()
-
-    except json.JSONDecodeError:
-        # Not JSON, display as-is
-        console.print(f"\n📄 [bold]Result:[/bold]")
-        console.print(result)
-        console.print()
-    except Exception as e:
-        debug_print(f"Error displaying result: {e}", icon="❌")
-        console.print(f"[dim]Result: {result}[/dim]\n")
-
-
-def list_system_mcps():
-    """List all available system MCPs."""
-    system_mcps_dir = Path(__file__).parent / "system_mcps"
-
-    if not system_mcps_dir.exists():
-        console.print("❌ [red]No system_mcps directory found[/red]\n")
-        return
-
-    # Find all directories in system_mcps that contain a server.py file
-    mcps = []
-    for item in system_mcps_dir.iterdir():
-        if item.is_dir():
-            server_file = item / "server.py"
-            readme_file = item / "README.md"
-            if server_file.exists():
-                # Try to read description from README
-                description = "No description available"
-                if readme_file.exists():
-                    try:
-                        content = readme_file.read_text()
-                        # Get first non-empty line after the title
-                        lines = [l.strip() for l in content.split('\n') if l.strip() and not l.strip().startswith('#')]
-                        if lines:
-                            description = lines[0]  # No character limit
-                    except Exception:
-                        # Ignore errors reading README, fallback to default description
-                        pass
-                mcps.append((item.name, description))
-
-    if not mcps:
-        console.print("ℹ️  [yellow]No system MCPs found[/yellow]\n")
-        return
-
-    # Display as simple list
-    console.print("\n📦 [bold]System MCPs:[/bold]")
-    for name, description in sorted(mcps):
-        console.print(f"  • [bold cyan]{name}[/bold cyan] - [dim]{description}[/dim]")
-    console.print()
-
-
-async def get_mcp_tools(mcp_name):
-    """Get tools from a specific MCP server."""
-    system_mcps_dir = Path(__file__).parent / "system_mcps"
-    mcp_dir = system_mcps_dir / mcp_name
-    server_file = mcp_dir / "server.py"
-
-    if not server_file.exists():
-        console.print(f"❌ [red]MCP '{mcp_name}' not found[/red]\n")
-        return
-
-    try:
-        # Start the MCP server process
-        process = await asyncio.create_subprocess_exec(
-            sys.executable, str(server_file),
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-
-        # Send initialize request
-        init_request = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-                "clientInfo": {
-                    "name": "ai-cli",
-                    "version": "1.0.0"
-                }
-            }
-        }
-
-        process.stdin.write((json.dumps(init_request) + "\n").encode())
-        await process.stdin.drain()
-
-        # Read initialization response
-        init_response = await asyncio.wait_for(process.stdout.readline(), timeout=5.0)
-
-        # Send tools/list request
-        tools_request = {
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/list",
-            "params": {}
-        }
-
-        process.stdin.write((json.dumps(tools_request) + "\n").encode())
-        await process.stdin.drain()
-
-        # Read tools response
-        tools_response = await asyncio.wait_for(process.stdout.readline(), timeout=5.0)
-        tools_data = json.loads(tools_response.decode())
-
-        # Cleanup
-        process.terminate()
-        await process.wait()
-
-        # Display tools
-        if "result" in tools_data and "tools" in tools_data["result"]:
-            tools = tools_data["result"]["tools"]
-
-            if not tools:
-                console.print(f"ℹ️  [yellow]No tools found in MCP '{mcp_name}'[/yellow]\n")
-                return
-
-            # Display as simple list
-            console.print(f"\n🔧 [bold]Tools in '{mcp_name}' MCP:[/bold]")
-            for tool in tools:
-                name = tool.get("name", "Unknown")
-                description = tool.get("description", "No description")
-                console.print(f"  • [bold cyan]{name}[/bold cyan]")
-                console.print(f"    [dim]{description}[/dim]")
-            console.print()
-        else:
-            console.print(f"❌ [red]Failed to get tools from MCP '{mcp_name}'[/red]\n")
-
-    except asyncio.TimeoutError:
-        console.print(f"❌ [red]Timeout while communicating with MCP '{mcp_name}'[/red]\n")
-    except Exception as e:
-        console.print(f"❌ [red]Error getting tools from MCP '{mcp_name}': {e}[/red]\n")
-
-
-def load_banner():
-    """Load banner from file."""
-    banner_file = Path(__file__).parent / "assets" / "banner.txt"
-    try:
-        if banner_file.exists():
-            return banner_file.read_text()
-        else:
-            # Fallback banner if file doesn't exist
-            return """
-           ╦  ╦╦ ╦╦ ╦╦╔╦╗╦═╗╔═╗  ╔═╗╦  ╦
-           ╚╗╔╝║ ║╠═╣║ ║ ╠╦╝╠═╣  ║  ║  ║
-            ╚╝ ╚═╝╩ ╩╩ ╩ ╩╚═╩ ╩  ╚═╝╩═╝╩
-
-           Powered by Ollama
-"""
-    except Exception:
-        return "VUHITRA CLI - Powered by Ollama"
-
-
-def print_banner():
-    """Print CLI banner."""
-    # Load and display the ASCII art banner
-    banner_text = load_banner()
-    console.print(banner_text, style="bold cyan")
-
-    # Print command help
-    console.print("\n[bold cyan]Commands:[/bold cyan]")
-    console.print("  [bold]'/exit'[/bold] or [bold]'/quit'[/bold] - Exit the CLI")
-    console.print("  [bold]'/clear'[/bold] - Clear chat history")
-    console.print("  [bold]'/models'[/bold] - List available models")
-    console.print("  [bold]'/switch'[/bold] - Switch to a different model")
-    console.print("  [bold]'/mcps'[/bold] - List system MCPs")
-    console.print("  [bold]'/mcp-tools <name>'[/bold] - List tools in an MCP")
-    console.print("  [bold]'/session start'[/bold] - Start a context session")
-    console.print("  [bold]'/session end'[/bold] - End the current session")
-    console.print("  [bold]'/session info'[/bold] - View current session info")
-    console.print("  [bold]'/session restore <id>'[/bold] - Restore a saved session")
-    console.print("  [bold]'/session list'[/bold] - List all saved sessions")
-    console.print("  [bold]'/session clear'[/bold] - Clear all saved sessions")
-    console.print("  [bold]'/repomap create'[/bold] - Create a repository map from working directory")
-    console.print("  [bold]'/repomap load'[/bold] - Load existing .repomap file into context")
-    console.print("  [bold]'/code <prompt>'[/bold] - Analyze and execute code tasks (requires session)")
-    console.print()
 
 
 def main(verbose=False):
@@ -1437,6 +531,489 @@ def main(verbose=False):
                             console.print(f"[dim]{traceback.format_exc()}[/dim]")
                     continue
 
+                # Handle /repomap update command
+                if user_input_normalized.lower() == 'repomap update':
+                    repomap_path = os.path.join(get_user_working_dir(), '.repomap')
+                    
+                    if not os.path.exists(repomap_path):
+                        console.print(f"\n❌ [red]No .repomap file found at: {repomap_path}[/red]")
+                        console.print("[dim]Use '/repomap create' to generate a repository map first.[/dim]\n")
+                        continue
+                    
+                    console.print("\n📦 [bold cyan]Updating repository map...[/bold cyan]")
+                    console.print(f"[dim]Scanning working directory for new files: {get_user_working_dir()}[/dim]\n")
+
+                    try:
+                        # Read existing repomap content
+                        with open(repomap_path, 'r', encoding='utf-8') as f:
+                            existing_repomap = f.read()
+                        
+                        # Extract existing file paths from the repomap
+                        # Look for patterns like "### path/to/file.py" in the existing content
+                        existing_paths = set()
+                        for match in re.finditer(r'^### ([^\s(]+)', existing_repomap, re.MULTILINE):
+                            existing_paths.add(match.group(1))
+                        
+                        # Collect all current source files
+                        console.print("[yellow]📂 Collecting source code files...[/yellow]")
+                        all_source_files = collect_source_files(get_user_working_dir())
+                        
+                        # Filter to only new files
+                        new_files = [f for f in all_source_files if f['path'] not in existing_paths]
+                        
+                        if not new_files:
+                            console.print("\n[green]✓ No new files found. Repository map is up to date![/green]\n")
+                            continue
+                            
+                        console.print(f"[green]✓ Found {len(new_files)} new source files to add[/green]")
+                        for f in new_files[:10]:  # Show first 10
+                            console.print(f"[dim]  + {f['path']}[/dim]")
+                        if len(new_files) > 10:
+                            console.print(f"[dim]  ... and {len(new_files) - 10} more[/dim]")
+                        console.print()
+                        
+                        # Generate updated directory tree
+                        console.print("[yellow]🌳 Generating directory tree...[/yellow]")
+                        tree_output = generate_tree(get_user_working_dir(), max_depth=5)
+                        console.print(f"[green]✓ Directory tree generated[/green]\n")
+                        
+                        # Generate the update prompt
+                        console.print("[yellow]🤖 Updating repository map with LLM...[/yellow]")
+                        update_prompt = generate_repomap_update_prompt(new_files, existing_repomap, tree_output=tree_output)
+
+                        # Use a separate chat manager
+                        update_chat_manager = ChatManager(system_prompt=config.get_system_prompt())
+                        update_chat_manager.add_user_message(update_prompt)
+                        messages = update_chat_manager.get_messages()
+                        
+                        spinner = Spinner("dots", text="[dim]Updating repository map...[/dim]", style="cyan")
+                        
+                        with Live(spinner, console=console, refresh_per_second=10):
+                            if stream:
+                                full_response = ""
+                                for chunk in ollama_client.chat(
+                                    messages=messages,
+                                    stream=True,
+                                    temperature=temperature
+                                ):
+                                    full_response += chunk
+                            else:
+                                response = ollama_client.chat(
+                                    messages=messages,
+                                    stream=False,
+                                    temperature=temperature
+                                )
+                                full_response = response.get('message', {}).get('content', '')
+                        
+                        # Prepend the updated tree to the repomap output
+                        updated_repomap_content = f"""# Repository Map
+
+## Directory Tree
+
+```
+{tree_output}
+```
+
+{full_response}
+"""
+
+                        # Write the updated repomap to file
+                        with open(repomap_path, 'w', encoding='utf-8') as f:
+                            f.write(updated_repomap_content)
+                        
+                        console.print(f"\n[bold green]✓ Repository map updated successfully![/bold green]")
+                        console.print(f"[cyan]📄 Updated: {repomap_path}[/cyan]")
+                        console.print(f"[dim]Added {len(new_files)} new file(s)[/dim]\n")
+                        
+                        # Show preview
+                        preview_lines = updated_repomap_content.split('\n')[:20]
+                        console.print("[dim]Preview:[/dim]")
+                        console.print(CustomMarkdown('\n'.join(preview_lines) + '\n...', code_theme="monokai"))
+                        console.print()
+                        
+                    except Exception as e:
+                        console.print(f"\n❌ [red]Error updating repository map: {e}[/red]\n")
+                        if verbose:
+                            import traceback
+                            console.print(f"[dim]{traceback.format_exc()}[/dim]")
+                    continue
+
+                # Handle /datamap create command
+                if user_input_normalized.lower().startswith('datamap create'):
+                    # Parse command arguments
+                    args_str = user_input_normalized[14:].strip()  # Everything after "datamap create"
+                    
+                    # Parse flags
+                    with_files = '--with-files' in args_str or '--files-only' in args_str
+                    with_pg = '--with-pg' in args_str
+                    files_only = '--files-only' in args_str
+                    
+                    # Extract PostgreSQL connection string if provided
+                    pg_connection = None
+                    if with_pg:
+                        # Look for the connection string after --with-pg
+                        pg_match = re.search(r'--with-pg\s+([^\s]+)', args_str)
+                        if pg_match:
+                            pg_connection = pg_match.group(1)
+                        else:
+                            console.print("\n❌ [red]--with-pg requires a connection string: --with-pg username:password@host:port/database[/red]\n")
+                            continue
+                    
+                    # If no flags provided, default to files only
+                    if not with_files and not with_pg and not files_only:
+                        files_only = True
+                        with_files = True
+                    
+                    console.print("\n📊 [bold cyan]Creating data map...[/bold cyan]")
+                    console.print(f"[dim]Scanning working directory: {get_user_working_dir()}[/dim]")
+                    if with_files or files_only:
+                        console.print("[dim]  - Scanning for data files (CSV, JSON, Excel)[/dim]")
+                    if with_pg and pg_connection:
+                        console.print(f"[dim]  - Connecting to PostgreSQL[/dim]")
+                    console.print()
+
+                    try:
+                        data_sources = []
+                        pg_signature = None
+                        code_files = []
+                        
+                        # Collect data files if requested
+                        if with_files or files_only:
+                            console.print("[yellow]📂 Collecting data files...[/yellow]")
+                            data_sources = collect_data_files(get_user_working_dir())
+                            
+                            if data_sources:
+                                console.print(f"[green]✓ Found {len(data_sources)} data files[/green]")
+                                # Show summary of file types
+                                extensions = {}
+                                for source in data_sources:
+                                    ext = source.get('extension', 'unknown')
+                                    extensions[ext] = extensions.get(ext, 0) + 1
+                                for ext, count in extensions.items():
+                                    console.print(f"[dim]  - {ext}: {count} file(s)[/dim]")
+                            else:
+                                console.print("[yellow]⚠️  No data files found in working directory[/yellow]")
+                        
+                        # Connect to PostgreSQL if requested
+                        if with_pg and pg_connection:
+                            console.print("\n[yellow]🐘 Connecting to PostgreSQL database...[/yellow]")
+                            pg_signature = get_postgresql_signature(pg_connection)
+                            
+                            if 'error' in pg_signature:
+                                console.print(f"[yellow]⚠️  PostgreSQL error: {pg_signature['error']}[/yellow]")
+                            else:
+                                tables_count = len(pg_signature.get('tables', []))
+                                if 'database_signatures' in pg_signature:
+                                    total_tables = sum(len(db.get('tables', [])) for db in pg_signature.get('database_signatures', []))
+                                    console.print(f"[green]✓ Connected to PostgreSQL ({len(pg_signature.get('databases', []))} databases, {total_tables} tables)[/green]")
+                                else:
+                                    console.print(f"[green]✓ Connected to PostgreSQL ({tables_count} tables)[/green]")
+                        
+                        # Check if we have any data to process
+                        if not data_sources and (not pg_signature or 'error' in pg_signature):
+                            console.print("\n❌ [red]No data sources found to create data map.[/red]\n")
+                            continue
+                        
+                        # Collect code files for cross-reference
+                        console.print("\n[yellow]📝 Collecting code files for cross-reference...[/yellow]")
+                        code_files = collect_source_files(get_user_working_dir(), max_files=50)
+                        console.print(f"[green]✓ Found {len(code_files)} code files[/green]")
+                        
+                        # Generate directory tree
+                        console.print("\n[yellow]🌳 Generating directory tree...[/yellow]")
+                        tree_output = generate_tree(get_user_working_dir(), max_depth=5)
+                        console.print(f"[green]✓ Directory tree generated[/green]\n")
+                        
+                        # Generate the LLM prompt
+                        console.print("[yellow]🤖 Generating data map with LLM...[/yellow]")
+                        datamap_prompt = generate_datamap_prompt(
+                            data_sources,
+                            pg_signature=pg_signature,
+                            code_files=code_files,
+                            tree_output=tree_output
+                        )
+
+                        # Check prompt size and warn if it's very large
+                        prompt_size = len(datamap_prompt)
+                        estimated_tokens = prompt_size // 4
+                        if prompt_size > 500_000:
+                            console.print(f"[yellow]⚠️  Warning: Large prompt size ({prompt_size:,} chars, ~{estimated_tokens:,} tokens)[/yellow]")
+                            console.print(f"[yellow]   This may exceed token limits for some LLMs or cause slower processing.[/yellow]\n")
+
+                        # Use a separate chat manager for datamap generation
+                        datamap_chat_manager = ChatManager(system_prompt=config.get_system_prompt())
+                        datamap_chat_manager.add_user_message(datamap_prompt)
+                        messages = datamap_chat_manager.get_messages()
+                        
+                        spinner = Spinner("dots", text="[dim]Analyzing data sources...[/dim]", style="cyan")
+                        
+                        with Live(spinner, console=console, refresh_per_second=10):
+                            if stream:
+                                full_response = ""
+                                for chunk in ollama_client.chat(
+                                    messages=messages,
+                                    stream=True,
+                                    temperature=temperature
+                                ):
+                                    full_response += chunk
+                            else:
+                                response = ollama_client.chat(
+                                    messages=messages,
+                                    stream=False,
+                                    temperature=temperature
+                                )
+                                full_response = response.get('message', {}).get('content', '')
+                        
+                        # Prepend the tree to the datamap output
+                        datamap_content = f"""# Data Map
+
+## Directory Tree
+
+```
+{tree_output}
+```
+
+{full_response}
+"""
+
+                        # Write the datamap to file
+                        datamap_path = os.path.join(get_user_working_dir(), '.datamap')
+                        with open(datamap_path, 'w', encoding='utf-8') as f:
+                            f.write(datamap_content)
+                        
+                        console.print(f"\n[bold green]✓ Data map created successfully![/bold green]")
+                        console.print(f"[cyan]📄 Saved to: {datamap_path}[/cyan]\n")
+                        
+                        # Show preview
+                        preview_lines = datamap_content.split('\n')[:20]
+                        console.print("[dim]Preview:[/dim]")
+                        console.print(CustomMarkdown('\n'.join(preview_lines) + '\n...', code_theme="monokai"))
+                        console.print()
+                        
+                    except Exception as e:
+                        console.print(f"\n❌ [red]Error creating data map: {e}[/red]\n")
+                        if verbose:
+                            import traceback
+                            console.print(f"[dim]{traceback.format_exc()}[/dim]")
+                    continue
+
+                # Handle /datamap load command
+                if user_input_normalized.lower() == 'datamap load':
+                    datamap_path = os.path.join(get_user_working_dir(), '.datamap')
+                    
+                    if not os.path.exists(datamap_path):
+                        console.print(f"\n❌ [red]No .datamap file found at: {datamap_path}[/red]")
+                        console.print("[dim]Use '/datamap create' to generate a data map first.[/dim]\n")
+                        continue
+                    
+                    console.print(f"\n📂 [cyan]Loading data map: {datamap_path}[/cyan]")
+                    
+                    try:
+                        # Get session ID if active
+                        session_id = session_manager.get_session_id() if session_manager.is_active() else None
+                        
+                        # Load the datamap into context
+                        result = run_async(load_datamap_to_context(
+                            mcp_client,
+                            '.datamap',
+                            get_user_working_dir(),
+                            session_id
+                        ))
+                        
+                        if result.get('status') == 'success':
+                            content_size = result.get('content_size', 0)
+                            console.print(f"[bold green]✓ Data map loaded into context![/bold green]")
+                            console.print(f"[dim]  Size: {content_size:,} bytes[/dim]")
+                            if session_id:
+                                console.print(f"[dim]  Session: {session_id[:16]}...[/dim]")
+                            else:
+                                console.print(f"[dim]  Session: temporary (start a session for persistence)[/dim]")
+                            console.print()
+                        else:
+                            error_msg = result.get('message', 'Unknown error')
+                            console.print(f"[yellow]⚠️  Warning: {error_msg}[/yellow]")
+                            console.print("[dim]The datamap file may still be usable.[/dim]\n")
+                            
+                    except Exception as e:
+                        console.print(f"\n❌ [red]Error loading data map: {e}[/red]\n")
+                        if verbose:
+                            import traceback
+                            console.print(f"[dim]{traceback.format_exc()}[/dim]")
+                    continue
+
+                # Handle /datamap update command
+                if user_input_normalized.lower().startswith('datamap update'):
+                    datamap_path = os.path.join(get_user_working_dir(), '.datamap')
+                    
+                    if not os.path.exists(datamap_path):
+                        console.print(f"\n❌ [red]No .datamap file found at: {datamap_path}[/red]")
+                        console.print("[dim]Use '/datamap create' to generate a data map first.[/dim]\n")
+                        continue
+                    
+                    # Parse command arguments
+                    args_str = user_input_normalized[14:].strip()  # Everything after "datamap update"
+                    
+                    # Parse flags
+                    with_files = '--with-files' in args_str
+                    with_pg = '--with-pg' in args_str
+                    
+                    # If no flags provided, default to files only
+                    if not with_files and not with_pg:
+                        with_files = True
+                    
+                    # Extract PostgreSQL connection string if provided
+                    pg_connection = None
+                    if with_pg:
+                        pg_match = re.search(r'--with-pg\s+([^\s]+)', args_str)
+                        if pg_match:
+                            pg_connection = pg_match.group(1)
+                        else:
+                            console.print("\n❌ [red]--with-pg requires a connection string: --with-pg username:password@host:port/database[/red]\n")
+                            continue
+                    
+                    console.print("\n📊 [bold cyan]Updating data map...[/bold cyan]")
+                    console.print(f"[dim]Scanning working directory for new data sources: {get_user_working_dir()}[/dim]")
+                    if with_files:
+                        console.print("[dim]  - Scanning for new data files (CSV, JSON, Excel)[/dim]")
+                    if with_pg and pg_connection:
+                        console.print(f"[dim]  - Connecting to PostgreSQL for new tables[/dim]")
+                    console.print()
+
+                    try:
+                        # Read existing datamap content
+                        with open(datamap_path, 'r', encoding='utf-8') as f:
+                            existing_datamap = f.read()
+                        
+                        # Extract existing file paths from the datamap
+                        existing_paths = set()
+                        for match in re.finditer(r'^### ([^\s(]+)', existing_datamap, re.MULTILINE):
+                            existing_paths.add(match.group(1))
+                        
+                        new_data_sources = []
+                        new_pg_signature = None
+                        code_files = []
+                        
+                        # Collect new data files if requested
+                        if with_files:
+                            console.print("[yellow]📂 Collecting data files...[/yellow]")
+                            all_data_files = collect_data_files(get_user_working_dir())
+                            
+                            # Filter to only new files
+                            new_data_sources = [f for f in all_data_files if f.get('path') not in existing_paths]
+                            
+                            if new_data_sources:
+                                console.print(f"[green]✓ Found {len(new_data_sources)} new data files[/green]")
+                                for source in new_data_sources[:5]:
+                                    console.print(f"[dim]  + {source.get('path', 'unknown')}[/dim]")
+                                if len(new_data_sources) > 5:
+                                    console.print(f"[dim]  ... and {len(new_data_sources) - 5} more[/dim]")
+                            else:
+                                console.print("[dim]  No new data files found[/dim]")
+                        
+                        # Connect to PostgreSQL if requested
+                        if with_pg and pg_connection:
+                            console.print("\n[yellow]🐘 Connecting to PostgreSQL database...[/yellow]")
+                            new_pg_signature = get_postgresql_signature(pg_connection)
+                            
+                            if 'error' in new_pg_signature:
+                                console.print(f"[yellow]⚠️  PostgreSQL error: {new_pg_signature['error']}[/yellow]")
+                            else:
+                                tables_count = len(new_pg_signature.get('tables', []))
+                                if 'database_signatures' in new_pg_signature:
+                                    total_tables = sum(len(db.get('tables', [])) for db in new_pg_signature.get('database_signatures', []))
+                                    console.print(f"[green]✓ Connected to PostgreSQL ({len(new_pg_signature.get('databases', []))} databases, {total_tables} tables)[/green]")
+                                else:
+                                    console.print(f"[green]✓ Connected to PostgreSQL ({tables_count} tables)[/green]")
+                        
+                        # Check if we have any new data to process
+                        if not new_data_sources and (not new_pg_signature or 'error' in new_pg_signature):
+                            console.print("\n[green]✓ No new data sources found. Data map is up to date![/green]\n")
+                            continue
+                        
+                        # Collect code files for cross-reference
+                        console.print("\n[yellow]📝 Collecting code files for cross-reference...[/yellow]")
+                        code_files = collect_source_files(get_user_working_dir(), max_files=50)
+                        console.print(f"[green]✓ Found {len(code_files)} code files[/green]")
+                        
+                        # Generate updated directory tree
+                        console.print("\n[yellow]🌳 Generating directory tree...[/yellow]")
+                        tree_output = generate_tree(get_user_working_dir(), max_depth=5)
+                        console.print(f"[green]✓ Directory tree generated[/green]\n")
+                        
+                        # Generate the update prompt
+                        console.print("[yellow]🤖 Updating data map with LLM...[/yellow]")
+                        update_prompt = generate_datamap_update_prompt(
+                            new_data_sources,
+                            new_pg_signature=new_pg_signature,
+                            existing_datamap=existing_datamap,
+                            code_files=code_files,
+                            tree_output=tree_output
+                        )
+
+                        # Use a separate chat manager
+                        update_chat_manager = ChatManager(system_prompt=config.get_system_prompt())
+                        update_chat_manager.add_user_message(update_prompt)
+                        messages = update_chat_manager.get_messages()
+                        
+                        spinner = Spinner("dots", text="[dim]Updating data map...[/dim]", style="cyan")
+                        
+                        with Live(spinner, console=console, refresh_per_second=10):
+                            if stream:
+                                full_response = ""
+                                for chunk in ollama_client.chat(
+                                    messages=messages,
+                                    stream=True,
+                                    temperature=temperature
+                                ):
+                                    full_response += chunk
+                            else:
+                                response = ollama_client.chat(
+                                    messages=messages,
+                                    stream=False,
+                                    temperature=temperature
+                                )
+                                full_response = response.get('message', {}).get('content', '')
+                        
+                        # Prepend the updated tree to the datamap output
+                        updated_datamap_content = f"""# Data Map
+
+## Directory Tree
+
+```
+{tree_output}
+```
+
+{full_response}
+"""
+
+                        # Write the updated datamap to file
+                        with open(datamap_path, 'w', encoding='utf-8') as f:
+                            f.write(updated_datamap_content)
+                        
+                        new_count = len(new_data_sources)
+                        if new_pg_signature and 'error' not in new_pg_signature:
+                            tables_count = len(new_pg_signature.get('tables', []))
+                            if 'database_signatures' in new_pg_signature:
+                                tables_count = sum(len(db.get('tables', [])) for db in new_pg_signature.get('database_signatures', []))
+                            new_count += tables_count
+                        
+                        console.print(f"\n[bold green]✓ Data map updated successfully![/bold green]")
+                        console.print(f"[cyan]📄 Updated: {datamap_path}[/cyan]")
+                        console.print(f"[dim]Added {new_count} new data source(s)[/dim]\n")
+                        
+                        # Show preview
+                        preview_lines = updated_datamap_content.split('\n')[:20]
+                        console.print("[dim]Preview:[/dim]")
+                        console.print(CustomMarkdown('\n'.join(preview_lines) + '\n...', code_theme="monokai"))
+                        console.print()
+                        
+                    except Exception as e:
+                        console.print(f"\n❌ [red]Error updating data map: {e}[/red]\n")
+                        if verbose:
+                            import traceback
+                            console.print(f"[dim]{traceback.format_exc()}[/dim]")
+                    continue
+
                 # Handle /code command - simplified version
                 if user_input_normalized.lower().startswith('code '):
                     prompt_text = user_input_normalized[5:].strip()  # Extract text after "code "
@@ -1477,6 +1054,27 @@ def main(verbose=False):
                                 debug_print(f"Repomap load warning: {repomap_result.get('message')}", icon="⚠️")
                         except Exception as e:
                             debug_print(f"Failed to load repomap: {e}", icon="⚠️")
+
+                    # Load .datamap file into context if it exists and not already loaded in this session
+                    datamap_path = os.path.join(get_user_working_dir(), '.datamap')
+                    datamap_loaded_key = f'datamap_loaded_{datamap_path}'
+                    if os.path.exists(datamap_path) and not session_manager.session_metadata.get(datamap_loaded_key):
+                        console.print("[cyan]📊 Loading data map into context...[/cyan]")
+                        try:
+                            datamap_result = run_async(load_datamap_to_context(
+                                mcp_client,
+                                '.datamap',
+                                get_user_working_dir(),
+                                session_id
+                            ))
+                            if datamap_result.get('status') == 'success':
+                                console.print("[green]✓ Data map loaded[/green]")
+                                # Mark datamap as loaded for this session
+                                session_manager.session_metadata[datamap_loaded_key] = True
+                            else:
+                                debug_print(f"Datamap load warning: {datamap_result.get('message')}", icon="⚠️")
+                        except Exception as e:
+                            debug_print(f"Failed to load datamap: {e}", icon="⚠️")
 
                     # Store @ references in session metadata for access by all tools
                     if at_references:

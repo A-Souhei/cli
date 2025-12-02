@@ -1,0 +1,6 @@
+id,name,email,created_at,status
+1,John Doe,john@example.com,2024-01-15,active
+2,Jane Smith,jane@example.com,2024-02-20,active
+3,Bob Wilson,bob@example.com,2024-03-10,inactive
+4,Alice Brown,alice@example.com,2024-04-05,active
+5,Charlie Davis,charlie@example.com,2024-05-12,pending
