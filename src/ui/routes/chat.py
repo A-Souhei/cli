@@ -19,6 +19,38 @@ from src.sentry_config import capture_exception
 chat_bp = Blueprint('chat', __name__)
 
 
+@chat_bp.route('/models', methods=['GET'])
+def get_available_models():
+    """
+    Get list of available models from the Ollama API.
+    """
+    try:
+        from src.config.manager import ConfigManager
+        import httpx
+        
+        config = ConfigManager()
+        ollama_url = config.get_ollama_url()
+        
+        # Call Ollama API to get models
+        response = httpx.get(f"{ollama_url}/api/tags", timeout=10)
+        response.raise_for_status()
+        
+        data = response.json()
+        models = [model['name'] for model in data.get('models', [])]
+        
+        return jsonify({
+            'status': 'success',
+            'models': models
+        })
+    except Exception as e:
+        capture_exception(e)
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to fetch models: {str(e)}',
+            'models': []
+        }), 500
+
+
 def get_ollama_client():
     """Get or create an Ollama client instance."""
     from src.ollama_client.client import OllamaClient
@@ -267,13 +299,17 @@ def handle_session_end():
             'session_active': False
         })
     
-    summary = session_manager.end_session()
+    # Check if session has interactions before ending
+    num_interactions = len(session_manager.session_history)
     
-    # Try to save
-    try:
-        session_manager.save_to_redis()
-    except:
-        pass
+    # Save before ending if there are interactions
+    if num_interactions > 0:
+        try:
+            session_manager.save_to_redis()
+        except:
+            pass
+    
+    summary = session_manager.end_session()
     
     return jsonify({
         'status': 'success',
@@ -485,3 +521,50 @@ def handle_code_command(prompt):
             'status': 'error',
             'message': f'❌ Error: {str(e)}'
         })
+
+
+@chat_bp.route('/auto-session', methods=['POST'])
+def auto_create_session():
+    """
+    Automatically create or restart a session for UI access.
+    Ends any existing session and starts a new one.
+    Only saves the previous session if it has interactions.
+    """
+    try:
+        from src.session.manager import SessionManager
+        import os
+        
+        session_manager = SessionManager()
+        
+        # End existing session if active
+        if session_manager.is_active():
+            try:
+                # Check if session has interactions before ending
+                num_interactions = len(session_manager.session_history)
+                
+                # Save before ending if there are interactions
+                if num_interactions > 0:
+                    session_manager.save_to_redis()
+                
+                session_manager.end_session()
+            except Exception as e:
+                capture_exception(e)
+        
+        # Start new session
+        working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
+        session_manager.start_session(working_dir=working_dir)
+        session_id = session_manager.get_session_id()
+        
+        return jsonify({
+            'status': 'success',
+            'session_active': True,
+            'session_id': session_id,
+            'message': 'Session auto-created'
+        })
+    except Exception as e:
+        capture_exception(e)
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to create session: {str(e)}',
+            'session_active': False
+        }), 500

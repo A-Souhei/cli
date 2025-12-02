@@ -125,9 +125,7 @@
             <!-- Right: Model Selector and Clear -->
             <div class="flex items-center gap-2 flex-shrink-0">
                 <select id="model-select" class="input text-xs py-1 px-2 pr-6 min-w-[100px]">
-                    <option value="tinyllama">tinyllama</option>
-                    <option value="llama3.1:8b">llama3.1:8b</option>
-                    <option value="qwen2.5-coder:7b">qwen2.5-coder:7b</option>
+                    <!-- Models loaded dynamically from API -->
                 </select>
                 <button id="clear-chat" class="btn btn-ghost btn-sm gap-1 whitespace-nowrap">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -973,6 +971,50 @@
     // Focus input on load
     chatInput.focus();
     updateChatPlaceholder();
+    
+    // Auto-create session on page load
+    async function autoCreateSession() {
+        try {
+            const response = await fetch('/api/chat/auto-session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const data = await response.json();
+            
+            if (response.ok && data.status === 'success') {
+                updateSessionStatus(data.session_active, data.session_id);
+            }
+        } catch (error) {
+            console.error('Failed to auto-create session:', error);
+        }
+    }
+    
+    // Load available models from Ollama API
+    async function loadModels() {
+        try {
+            const response = await fetch('/api/chat/models');
+            const data = await response.json();
+            
+            if (data.status === 'success' && data.models.length > 0) {
+                // Clear existing options
+                modelSelect.innerHTML = '';
+                
+                // Add models from API
+                data.models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model;
+                    option.textContent = model;
+                    modelSelect.appendChild(option);
+                });
+            }
+        } catch (error) {
+            console.error('Failed to load models:', error);
+        }
+    }
+    
+    // Initialize session and models on load
+    loadModels();
+    autoCreateSession();
     
     // Close modals on escape
     document.addEventListener('keydown', (e) => {

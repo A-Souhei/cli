@@ -112,7 +112,7 @@ def text_to_sequence():
             f"{postgres_api_url}/mcp-tools/text-to-sequence",
             json={
                 'text': text,
-                'model': data.get('model', 'tinyllama'),
+                'model': data.get('model', 'tinyllama:latest'),
                 'max_iterations': data.get('max_iterations', 3)
             },
             timeout=180
