@@ -9,6 +9,8 @@ Provides endpoints for:
 import os
 import sys
 from pathlib import Path
+from datetime import datetime
+from typing import Dict, List, Any, Optional
 from flask import Blueprint, jsonify, request, current_app
 
 # Add parent to path for imports
@@ -19,6 +21,37 @@ from src.session.manager import SessionManager
 from src.session.title_generator import SessionTitleGenerator
 
 chat_bp = Blueprint('chat', __name__)
+
+# In-memory session store for UI sessions (fallback when Redis is unavailable)
+# This stores completed/saved sessions that can be listed in the UI
+_ui_sessions_store: Dict[str, Dict[str, Any]] = {}
+
+
+def get_ui_sessions() -> List[Dict[str, Any]]:
+    """Get all UI sessions from the in-memory store."""
+    return list(_ui_sessions_store.values())
+
+
+def save_ui_session(session_data: Dict[str, Any]) -> None:
+    """Save a session to the in-memory UI store."""
+    session_id = session_data.get('session_id')
+    if session_id:
+        _ui_sessions_store[session_id] = session_data
+
+
+def delete_ui_session(session_id: str) -> bool:
+    """Delete a session from the in-memory UI store."""
+    if session_id in _ui_sessions_store:
+        del _ui_sessions_store[session_id]
+        return True
+    return False
+
+
+def clear_ui_sessions() -> int:
+    """Clear all sessions from the in-memory UI store."""
+    count = len(_ui_sessions_store)
+    _ui_sessions_store.clear()
+    return count
 
 
 def _create_session_manager() -> SessionManager:
@@ -48,6 +81,24 @@ _session_manager = _create_session_manager()
 def get_session_manager() -> SessionManager:
     """Return the shared SessionManager instance."""
     return _session_manager
+
+
+def _save_current_session_to_ui_store() -> None:
+    """Save the current session to the UI in-memory store."""
+    session_manager = get_session_manager()
+    if not session_manager.is_active():
+        return
+    
+    session_data = {
+        'session_id': session_manager.get_session_id(),
+        'title': session_manager.get_title() or 'Untitled Session',
+        'working_dir': session_manager.get_working_dir(),
+        'start_time': session_manager.session_start_time.isoformat() if session_manager.session_start_time else datetime.now().isoformat(),
+        'num_interactions': len(session_manager.session_history),
+        'history': session_manager.session_history.copy(),
+        'saved_at': datetime.now().isoformat()
+    }
+    save_ui_session(session_data)
 
 
 @chat_bp.route('/models', methods=['GET'])
@@ -175,7 +226,15 @@ def send_message():
                 'model': model,
                 'source': 'ui'
             })
-            session_manager.save_to_redis()
+            
+            # Try to save to Redis, but always save to UI store as fallback
+            try:
+                session_manager.save_to_redis()
+            except Exception:
+                pass  # Redis save failed, but we have the UI store
+            
+            # Always save to UI in-memory store for display
+            _save_current_session_to_ui_store()
             
             return jsonify({
                 'status': 'success',

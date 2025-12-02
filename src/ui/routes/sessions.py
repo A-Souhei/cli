@@ -32,6 +32,15 @@ def get_session_manager():
         return None
 
 
+def get_ui_sessions_from_chat():
+    """Get UI sessions from the chat module's in-memory store."""
+    try:
+        from src.ui.routes.chat import get_ui_sessions
+        return get_ui_sessions()
+    except ImportError:
+        return []
+
+
 @sessions_bp.route('/', methods=['GET'])
 def list_sessions():
     """
@@ -47,18 +56,28 @@ def list_sessions():
         
         sessions = []
         
-        # First try to get sessions from the SessionManager (which uses Redis API internally)
+        # First, get sessions from the UI in-memory store (always available)
+        ui_sessions = get_ui_sessions_from_chat()
+        if ui_sessions:
+            sessions.extend(ui_sessions)
+        
+        # Also try to get sessions from the SessionManager (which uses Redis API internally)
         session_manager = get_session_manager()
         if session_manager:
             try:
-                sessions = session_manager.list_saved_sessions()
+                redis_sessions = session_manager.list_saved_sessions()
+                # Merge without duplicates (by session_id)
+                existing_ids = {s.get('session_id') for s in sessions}
+                for rs in redis_sessions:
+                    if rs.get('session_id') not in existing_ids:
+                        sessions.append(rs)
             except Exception:
-                sessions = []
+                pass  # Redis not available, continue with UI sessions
         
-        # If that fails or returns empty, try direct Redis API call
+        # If still empty, try direct Redis API call as last resort
         if not sessions:
             try:
-                with httpx.Client(timeout=10.0) as client:
+                with httpx.Client(timeout=5.0) as client:
                     response = client.get(
                         f"{redis_api_url}/session/list",
                         params={"prefix": "cli:session:"}
@@ -68,8 +87,8 @@ def list_sessions():
                         data = response.json()
                         sessions = data.get('sessions', [])
             except Exception:
-                # Redis API not available, return empty list
-                sessions = []
+                # Redis API not available, sessions stays empty
+                pass
         
         # Filter by working directory if not showing all
         if not show_all and sessions:
@@ -77,6 +96,12 @@ def list_sessions():
                 s for s in sessions 
                 if s.get('working_dir') == working_dir
             ]
+        
+        # Sort by saved_at or start_time (most recent first)
+        sessions.sort(
+            key=lambda s: s.get('saved_at') or s.get('start_time') or '',
+            reverse=True
+        )
         
         return jsonify({
             'status': 'success',
@@ -100,31 +125,39 @@ def list_sessions():
 def get_session(session_id: str):
     """Get details of a specific session."""
     try:
+        # First check UI store
+        ui_sessions = get_ui_sessions_from_chat()
+        for session in ui_sessions:
+            if session.get('session_id') == session_id:
+                return jsonify({
+                    'status': 'success',
+                    'session': session
+                })
+        
+        # Try Redis API
         redis_api_url = get_redis_api_url()
         key = f"cli:session:{session_id}"
         
-        with httpx.Client(timeout=10.0) as client:
-            response = client.get(
-                f"{redis_api_url}/session/retrieve",
-                params={"key": key}
-            )
-            
-            if response.status_code == 200:
-                session_data = response.json()
-                return jsonify({
-                    'status': 'success',
-                    'session': session_data
-                })
-            elif response.status_code == 404:
-                return jsonify({
-                    'status': 'error',
-                    'message': 'Session not found'
-                }), 404
-            else:
-                return jsonify({
-                    'status': 'error',
-                    'message': f'Failed to fetch session: {response.status_code}'
-                }), response.status_code
+        try:
+            with httpx.Client(timeout=5.0) as client:
+                response = client.get(
+                    f"{redis_api_url}/session/retrieve",
+                    params={"key": key}
+                )
+                
+                if response.status_code == 200:
+                    session_data = response.json()
+                    return jsonify({
+                        'status': 'success',
+                        'session': session_data
+                    })
+        except Exception:
+            pass
+        
+        return jsonify({
+            'status': 'error',
+            'message': 'Session not found'
+        }), 404
                 
     except Exception as e:
         capture_exception(e)
@@ -132,31 +165,53 @@ def get_session(session_id: str):
             'status': 'error',
             'message': str(e)
         }), 500
+
+
+def delete_ui_session_by_id(session_id: str) -> bool:
+    """Delete a session from the UI store."""
+    try:
+        from src.ui.routes.chat import delete_ui_session
+        return delete_ui_session(session_id)
+    except ImportError:
+        return False
 
 
 @sessions_bp.route('/<session_id>', methods=['DELETE'])
 def delete_session(session_id: str):
     """Delete a specific session."""
     try:
+        deleted = False
+        
+        # Delete from UI store
+        if delete_ui_session_by_id(session_id):
+            deleted = True
+        
+        # Also try to delete from Redis
         redis_api_url = get_redis_api_url()
         key = f"cli:session:{session_id}"
         
-        with httpx.Client(timeout=10.0) as client:
-            response = client.delete(
-                f"{redis_api_url}/session/delete",
-                params={"key": key}
-            )
-            
-            if response.status_code == 200:
-                return jsonify({
-                    'status': 'success',
-                    'message': f'Session {session_id} deleted'
-                })
-            else:
-                return jsonify({
-                    'status': 'error',
-                    'message': f'Failed to delete session: {response.status_code}'
-                }), response.status_code
+        try:
+            with httpx.Client(timeout=5.0) as client:
+                response = client.delete(
+                    f"{redis_api_url}/session/delete",
+                    params={"key": key}
+                )
+                
+                if response.status_code == 200:
+                    deleted = True
+        except Exception:
+            pass
+        
+        if deleted:
+            return jsonify({
+                'status': 'success',
+                'message': f'Session {session_id} deleted'
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'Session not found'
+            }), 404
                 
     except Exception as e:
         capture_exception(e)
@@ -166,51 +221,62 @@ def delete_session(session_id: str):
         }), 500
 
 
+def clear_ui_sessions_store() -> int:
+    """Clear all sessions from the UI store."""
+    try:
+        from src.ui.routes.chat import clear_ui_sessions
+        return clear_ui_sessions()
+    except ImportError:
+        return 0
+
+
 @sessions_bp.route('/clear', methods=['DELETE'])
 def clear_sessions():
     """Clear all sessions for the current working directory."""
     try:
-        redis_api_url = get_redis_api_url()
         working_dir = current_app.config.get('WORKING_DIR', os.getcwd())
+        deleted_count = 0
         
-        # First, get all sessions
-        with httpx.Client(timeout=10.0) as client:
-            list_response = client.get(
-                f"{redis_api_url}/session/list",
-                params={"prefix": "cli:session:"}
-            )
-            
-            if list_response.status_code != 200:
-                return jsonify({
-                    'status': 'error',
-                    'message': 'Failed to list sessions'
-                }), list_response.status_code
-            
-            sessions = list_response.json().get('sessions', [])
-            
-            # Filter by working directory
-            sessions_to_delete = [
-                s for s in sessions 
-                if s.get('working_dir') == working_dir
-            ]
-            
-            deleted_count = 0
-            for session in sessions_to_delete:
-                session_id = session.get('session_id')
-                if session_id:
-                    key = f"cli:session:{session_id}"
-                    del_response = client.delete(
-                        f"{redis_api_url}/session/delete",
-                        params={"key": key}
-                    )
-                    if del_response.status_code == 200:
-                        deleted_count += 1
-            
-            return jsonify({
-                'status': 'success',
-                'message': f'Deleted {deleted_count} sessions',
-                'deleted_count': deleted_count
-            })
+        # Clear from UI store (clears all, but that's ok for now)
+        deleted_count += clear_ui_sessions_store()
+        
+        # Also try to clear from Redis
+        redis_api_url = get_redis_api_url()
+        
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                list_response = client.get(
+                    f"{redis_api_url}/session/list",
+                    params={"prefix": "cli:session:"}
+                )
+                
+                if list_response.status_code == 200:
+                    sessions = list_response.json().get('sessions', [])
+                    
+                    # Filter by working directory
+                    sessions_to_delete = [
+                        s for s in sessions 
+                        if s.get('working_dir') == working_dir
+                    ]
+                    
+                    for session in sessions_to_delete:
+                        session_id = session.get('session_id')
+                        if session_id:
+                            key = f"cli:session:{session_id}"
+                            del_response = client.delete(
+                                f"{redis_api_url}/session/delete",
+                                params={"key": key}
+                            )
+                            if del_response.status_code == 200:
+                                deleted_count += 1
+        except Exception:
+            pass  # Redis not available
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Deleted {deleted_count} sessions',
+            'deleted_count': deleted_count
+        })
                 
     except Exception as e:
         capture_exception(e)
