@@ -8,9 +8,14 @@ history-based context injection and Redis-based persistence.
 
 import uuid
 import os
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, TYPE_CHECKING
 from datetime import datetime
 import httpx
+
+from src.sentry_config import capture_exception
+
+if TYPE_CHECKING:
+    from src.session.title_generator import SessionTitleGenerator
 
 
 class SessionManager:
@@ -24,21 +29,36 @@ class SessionManager:
     Sessions can be saved to Redis for persistence and restored later.
     """
 
-    def __init__(self, redis_api_url: Optional[str] = None):
+    def __init__(self, redis_api_url: Optional[str] = None, title_generator: Optional["SessionTitleGenerator"] = None):
         """
         Initialize the session manager.
 
         Args:
             redis_api_url: URL for Redis API service. If None, uses environment variable.
+            title_generator: Optional SessionTitleGenerator instance for auto-generating titles.
         """
         self.active_session: Optional[str] = None
         self.session_history: List[Dict[str, Any]] = []
         self.session_start_time: Optional[datetime] = None
         self.session_metadata: Dict[str, Any] = {}
+        self.session_title: Optional[str] = None
+        self._title_generated: bool = False
+
+        # Title generator for automatic title generation
+        self._title_generator = title_generator
 
         # Redis API URL for persistence (no TTL)
         self.redis_api_url = redis_api_url or os.getenv("REDIS_API_URL", "http://localhost:17000")
         self._session_key_prefix = "cli:session:"
+
+    def set_title_generator(self, title_generator: "SessionTitleGenerator") -> None:
+        """
+        Set the title generator for automatic title generation.
+
+        Args:
+            title_generator: SessionTitleGenerator instance
+        """
+        self._title_generator = title_generator
 
     def start_session(self, metadata: Optional[Dict[str, Any]] = None) -> str:
         """
@@ -54,6 +74,8 @@ class SessionManager:
         self.session_history = []
         self.session_start_time = datetime.now()
         self.session_metadata = metadata or {}
+        self.session_title = None
+        self._title_generated = False
 
         start_time_str = self.session_start_time.strftime("%H:%M:%S")
         print(f"📝 Session started at {start_time_str}")
@@ -77,6 +99,7 @@ class SessionManager:
 
         summary = {
             "session_id": session_id,
+            "title": self.session_title,
             "start_time": self.session_start_time.isoformat(),
             "duration_seconds": duration,
             "num_interactions": num_interactions,
@@ -88,6 +111,8 @@ class SessionManager:
         self.session_history = []
         self.session_start_time = None
         self.session_metadata = {}
+        self.session_title = None
+        self._title_generated = False
 
         print(f"✅ Session ended (started at {start_time_str}, {num_interactions} interactions)")
         return summary
@@ -100,6 +125,9 @@ class SessionManager:
                        metadata: Optional[Dict[str, Any]] = None) -> None:
         """
         Add a prompt-response interaction to the session history.
+
+        After the first interaction, automatically generates a session title
+        using tinyollama if a title generator is configured.
 
         Args:
             prompt: The user's prompt
@@ -117,6 +145,47 @@ class SessionManager:
         }
 
         self.session_history.append(interaction)
+
+        # Generate title after first interaction if not already generated
+        if len(self.session_history) == 1 and not self._title_generated:
+            self._generate_title(prompt)
+
+    def _generate_title(self, first_prompt: str) -> None:
+        """
+        Generate a title for the session based on the first prompt.
+
+        This is called automatically after the first interaction.
+
+        Args:
+            first_prompt: The first user prompt
+        """
+        if self._title_generator is None:
+            return
+
+        try:
+            title = self._title_generator.generate_title(first_prompt)
+            if title:
+                self.session_title = title
+                self._title_generated = True
+                print(f"📝 Session title: {title}")
+        except Exception as e:
+            # Title generation is non-critical, don't fail the interaction
+            capture_exception(e)
+
+    def set_title(self, title: str) -> None:
+        """
+        Manually set the session title.
+
+        Args:
+            title: The session title
+        """
+        if self.active_session:
+            self.session_title = title
+            self._title_generated = True
+
+    def get_title(self) -> Optional[str]:
+        """Get the current session title."""
+        return self.session_title
 
     def get_session_context(self, max_interactions: Optional[int] = None) -> str:
         """
@@ -177,6 +246,7 @@ class SessionManager:
 
         return {
             "session_id": self.active_session,
+            "title": self.session_title,
             "active": True,
             "start_time": self.session_start_time.isoformat(),
             "duration_seconds": duration,
@@ -202,6 +272,7 @@ class SessionManager:
         try:
             session_data = {
                 "session_id": self.active_session,
+                "title": self.session_title,
                 "history": self.session_history,
                 "start_time": self.session_start_time.isoformat() if self.session_start_time else None,
                 "metadata": self.session_metadata,
@@ -261,8 +332,10 @@ class SessionManager:
 
                     # Restore session state
                     self.active_session = session_data["session_id"]
+                    self.session_title = session_data.get("title")
                     self.session_history = session_data["history"]
                     self.session_metadata = session_data.get("metadata", {})
+                    self._title_generated = self.session_title is not None
 
                     # Parse start time
                     start_time_str = session_data.get("start_time")
@@ -272,7 +345,8 @@ class SessionManager:
                         self.session_start_time = datetime.now()
 
                     num_interactions = len(self.session_history)
-                    print(f"✅ Session restored: {session_id} ({num_interactions} interactions)")
+                    title_info = f" - {self.session_title}" if self.session_title else ""
+                    print(f"✅ Session restored: {session_id}{title_info} ({num_interactions} interactions)")
                     return True
                 else:
                     print(f"⚠️  Session not found: {session_id}")
