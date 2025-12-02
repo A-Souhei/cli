@@ -80,10 +80,6 @@ class ConfigManager:
         """Get the tinyollama request timeout."""
         return self.config.get('tinyollama', {}).get('timeout', 60)
 
-    def is_tinyollama_code_mode_disabled(self) -> bool:
-        """Check if code mode is disabled for tinyollama."""
-        return self.config.get('tinyollama', {}).get('disable_code_mode', True)
-
     def get_tinyollama_disabled_features(self) -> List[str]:
         """Get list of features disabled for tinyollama."""
         return self.config.get('tinyollama', {}).get('disabled_features', [

@@ -82,7 +82,7 @@ def test_session_title():
     sm = SessionManager()
 
     # Test 11: Title is None initially
-    session_id = sm.start_session()
+    sm.start_session()
     assert sm.get_title() is None, "❌ Title should be None initially"
     print("✓ Test 11: Title is None initially")
 

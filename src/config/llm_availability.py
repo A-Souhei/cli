@@ -1,8 +1,8 @@
 """LLM availability checker and fallback logic for the AI CLI."""
 
 import httpx
-from typing import Optional, Dict, Any
-from dataclasses import dataclass
+from typing import Optional, Dict, Any, List
+from dataclasses import dataclass, field
 
 from src.sentry_config import capture_exception
 
@@ -14,11 +14,7 @@ class LLMConfig:
     model: str
     timeout: int
     is_tinyollama: bool = False
-    disabled_features: list = None
-
-    def __post_init__(self):
-        if self.disabled_features is None:
-            self.disabled_features = []
+    disabled_features: List[str] = field(default_factory=list)
 
 
 class LLMAvailabilityChecker:

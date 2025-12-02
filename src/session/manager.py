@@ -8,11 +8,14 @@ history-based context injection and Redis-based persistence.
 
 import uuid
 import os
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, TYPE_CHECKING
 from datetime import datetime
 import httpx
 
 from src.sentry_config import capture_exception
+
+if TYPE_CHECKING:
+    from src.session.title_generator import SessionTitleGenerator
 
 
 class SessionManager:
@@ -26,7 +29,7 @@ class SessionManager:
     Sessions can be saved to Redis for persistence and restored later.
     """
 
-    def __init__(self, redis_api_url: Optional[str] = None, title_generator=None):
+    def __init__(self, redis_api_url: Optional[str] = None, title_generator: Optional["SessionTitleGenerator"] = None):
         """
         Initialize the session manager.
 
@@ -48,7 +51,7 @@ class SessionManager:
         self.redis_api_url = redis_api_url or os.getenv("REDIS_API_URL", "http://localhost:17000")
         self._session_key_prefix = "cli:session:"
 
-    def set_title_generator(self, title_generator) -> None:
+    def set_title_generator(self, title_generator: "SessionTitleGenerator") -> None:
         """
         Set the title generator for automatic title generation.
 
@@ -145,9 +148,9 @@ class SessionManager:
 
         # Generate title after first interaction if not already generated
         if len(self.session_history) == 1 and not self._title_generated:
-            self._generate_title_async(prompt)
+            self._generate_title(prompt)
 
-    def _generate_title_async(self, first_prompt: str) -> None:
+    def _generate_title(self, first_prompt: str) -> None:
         """
         Generate a title for the session based on the first prompt.
 

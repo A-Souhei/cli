@@ -26,11 +26,8 @@ tinyollama:
   # Optional: Request timeout in seconds
   timeout: 60
   
-  # Heavy features disabled for tinyollama (lightweight model limitations)
-  # Code mode uses advanced code generation which requires larger models
-  disable_code_mode: true
-  
-  # Features that are disabled when using tinyollama
+  # Features that are disabled when using tinyollama (lightweight model limitations)
+  # These features require larger models for reliable operation
   disabled_features:
     - code_mode        # /code command - requires larger models for code generation
     - coder_model      # Code editing - requires specialized coder models
