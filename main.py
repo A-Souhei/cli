@@ -33,10 +33,6 @@ from src.utils.tree import generate_tree
 
 # Import repomap functionality from separate module
 from src.utils.repomap import (
-    MAX_FILE_CONTENT_PREVIEW,
-    SOURCE_CODE_EXTENSIONS,
-    REPOMAP_EXCLUDE_DIRS,
-    REPOMAP_EXCLUDE_SUFFIXES,
     collect_source_files,
     generate_repomap_prompt,
     generate_repomap_update_prompt,
@@ -45,11 +41,6 @@ from src.utils.repomap import (
 
 # Import datamap functionality from separate module
 from src.utils.datamap import (
-    MAX_DATA_SAMPLE_ROWS,
-    TYPE_INFERENCE_EXTRA_ROWS,
-    DATA_FILE_EXTENSIONS,
-    DATAMAP_EXCLUDE_DIRS,
-    get_data_source_signature,
     get_postgresql_signature,
     collect_data_files,
     generate_datamap_prompt,
@@ -59,16 +50,8 @@ from src.utils.datamap import (
 
 # Import ratings functionality from separate module
 from src.utils.ratings import (
-    get_all_ratings,
-    check_similarity,
-    extract_keywords,
-    create_rating,
-    update_rating,
-    find_similar_prompt,
     process_rating,
     get_prompt_guidance,
-    SIMILARITY_THRESHOLD,
-    SATISFACTORY_RATING_THRESHOLD,
 )
 
 # Import code handlers from separate module
@@ -87,7 +70,6 @@ from src.utils.mcp_discovery import (
 
 # Import banner functionality from separate module
 from src.utils.banner import (
-    load_banner,
     print_banner,
 )
 

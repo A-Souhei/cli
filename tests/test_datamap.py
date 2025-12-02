@@ -2,7 +2,6 @@
 
 import pytest
 import tempfile
-import os
 import json
 from pathlib import Path
 import sys
@@ -81,7 +80,7 @@ class TestTypeInferenceExtraRows:
     def test_constant_value(self):
         """Test that the constant has an appropriate value."""
         assert TYPE_INFERENCE_EXTRA_ROWS == 100
-        assert isinstance(MAX_DATA_SAMPLE_ROWS, int)
+        assert isinstance(TYPE_INFERENCE_EXTRA_ROWS, int)
 
 
 @pytest.mark.unit

@@ -80,17 +80,17 @@ def extract_keywords(text, top_n=5):
 def create_rating(user_rating, prompt_text, response_text, tags, session_id=None):
     """Create a new rating in the postgres-api."""
     try:
-        params = {
+        data = {
             'user_rating': user_rating,
             'prompt_text': prompt_text,
             'response_text': response_text,
             'tags': json.dumps({'keywords': tags})
         }
         if session_id:
-            params['session_id'] = session_id
-        response = requests.get(
+            data['session_id'] = session_id
+        response = requests.post(
             f"{POSTGRES_API_URL}/ratings/create",
-            params=params,
+            data=data,
             timeout=10
         )
         return response.status_code == 201

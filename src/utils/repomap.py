@@ -1,7 +1,6 @@
 """Repository mapping functionality for the AI CLI."""
 
 import json
-import os
 from pathlib import Path
 
 
