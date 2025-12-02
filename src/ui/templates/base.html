@@ -487,8 +487,121 @@
         </main>
     </div>
     
+    <!-- Global Modal Component -->
+    <div id="global-modal" class="hidden fixed inset-0 z-50 overflow-y-auto">
+        <div class="flex min-h-screen items-center justify-center p-4">
+            <!-- Backdrop -->
+            <div class="fixed inset-0 bg-black/50 dark:bg-black/70 transition-opacity" onclick="closeGlobalModal()"></div>
+            
+            <!-- Modal -->
+            <div class="relative bg-white dark:bg-surface-800 rounded-xl shadow-2xl max-w-md w-full p-6 transform transition-all">
+                <!-- Icon -->
+                <div id="modal-icon" class="mx-auto flex h-12 w-12 items-center justify-center rounded-full mb-4">
+                    <!-- Icon will be inserted here -->
+                </div>
+                
+                <!-- Title -->
+                <h3 id="modal-title" class="text-lg font-semibold dark:text-white text-surface-900 text-center mb-2"></h3>
+                
+                <!-- Message -->
+                <p id="modal-message" class="text-sm dark:text-surface-300 text-surface-600 text-center mb-6"></p>
+                
+                <!-- Actions -->
+                <div id="modal-actions" class="flex gap-3">
+                    <!-- Buttons will be inserted here -->
+                </div>
+            </div>
+        </div>
+    </div>
+    
     <!-- Global script to load sidebar sessions -->
     <script>
+        // Global modal functions
+        function showModal(options) {
+            const modal = document.getElementById('global-modal');
+            const iconContainer = document.getElementById('modal-icon');
+            const title = document.getElementById('modal-title');
+            const message = document.getElementById('modal-message');
+            const actions = document.getElementById('modal-actions');
+            
+            // Set icon
+            const iconClass = options.type === 'error' ? 'bg-red-100 dark:bg-red-900/20' : 
+                             options.type === 'warning' ? 'bg-amber-100 dark:bg-amber-900/20' :
+                             options.type === 'success' ? 'bg-emerald-100 dark:bg-emerald-900/20' :
+                             'bg-primary-100 dark:bg-primary-900/20';
+            const iconColor = options.type === 'error' ? 'text-red-600 dark:text-red-400' :
+                             options.type === 'warning' ? 'text-amber-600 dark:text-amber-400' :
+                             options.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' :
+                             'text-primary-600 dark:text-primary-400';
+            const icon = options.type === 'error' ? 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z' :
+                        options.type === 'success' ? 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' :
+                        'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z';
+            
+            iconContainer.className = `mx-auto flex h-12 w-12 items-center justify-center rounded-full mb-4 ${iconClass}`;
+            iconContainer.innerHTML = `<svg class="w-6 h-6 ${iconColor}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${icon}"/></svg>`;
+            
+            // Set content
+            title.textContent = options.title || '';
+            message.textContent = options.message || '';
+            
+            // Set actions
+            actions.innerHTML = '';
+            if (options.confirm) {
+                const confirmBtn = document.createElement('button');
+                confirmBtn.className = 'btn btn-primary flex-1';
+                confirmBtn.textContent = options.confirmText || 'Confirm';
+                confirmBtn.onclick = () => {
+                    closeGlobalModal();
+                    if (options.onConfirm) options.onConfirm();
+                };
+                actions.appendChild(confirmBtn);
+            }
+            if (options.cancel) {
+                const cancelBtn = document.createElement('button');
+                cancelBtn.className = 'btn btn-secondary flex-1';
+                cancelBtn.textContent = options.cancelText || 'Cancel';
+                cancelBtn.onclick = () => {
+                    closeGlobalModal();
+                    if (options.onCancel) options.onCancel();
+                };
+                actions.appendChild(cancelBtn);
+            }
+            if (!options.confirm && !options.cancel) {
+                const okBtn = document.createElement('button');
+                okBtn.className = 'btn btn-primary w-full';
+                okBtn.textContent = 'OK';
+                okBtn.onclick = closeGlobalModal;
+                actions.appendChild(okBtn);
+            }
+            
+            modal.classList.remove('hidden');
+        }
+        
+        function closeGlobalModal() {
+            document.getElementById('global-modal').classList.add('hidden');
+        }
+        
+        // Helper functions
+        function showAlert(message, type = 'info') {
+            showModal({
+                type: type,
+                title: type === 'error' ? 'Error' : type === 'warning' ? 'Warning' : type === 'success' ? 'Success' : 'Information',
+                message: message
+            });
+        }
+        
+        function showConfirm(message, onConfirm, onCancel) {
+            showModal({
+                type: 'warning',
+                title: 'Confirm Action',
+                message: message,
+                confirm: true,
+                cancel: true,
+                onConfirm: onConfirm,
+                onCancel: onCancel
+            });
+        }
+        
         // Load sessions for sidebar (only for current working directory)
         async function loadSidebarSessions() {
             const container = document.getElementById('sidebar-sessions');

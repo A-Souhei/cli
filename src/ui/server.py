@@ -49,8 +49,12 @@ def create_app(verbose: bool = False) -> Flask:
     app.config['VERBOSE'] = verbose
     app.config['SECRET_KEY'] = os.urandom(24)
     
-    # Working directory for session filtering
+    # Working directory for session filtering and chat context
     app.config['WORKING_DIR'] = os.environ.get('AI_CLI_CWD', os.getcwd())
+    
+    # Original directory where CLI was opened (for explorer root - never changes)
+    # This is set in main.py at startup to capture the true original directory
+    app.config['EXPLORER_ROOT'] = os.environ.get('AI_CLI_ORIGINAL_DIR', os.getcwd())
     
     # Register blueprints
     app.register_blueprint(sessions_bp, url_prefix='/api/sessions')

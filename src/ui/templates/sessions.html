@@ -249,38 +249,44 @@
     
     // Delete session
     async function deleteSession(sessionId) {
-        if (!confirm('Are you sure you want to delete this session?')) return;
-        
-        try {
-            const response = await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
-            const data = await response.json();
-            
-            if (data.status === 'success') {
-                loadSessions();
-            } else {
-                alert('Failed to delete session: ' + data.message);
+        showConfirm(
+            'Are you sure you want to delete this session?',
+            async () => {
+                try {
+                    const response = await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+                    const data = await response.json();
+                    
+                    if (data.status === 'success') {
+                        loadSessions();
+                    } else {
+                        showAlert('Failed to delete session: ' + data.message, 'error');
+                    }
+                } catch (error) {
+                    showAlert('Error deleting session: ' + error.message, 'error');
+                }
             }
-        } catch (error) {
-            alert('Error deleting session: ' + error.message);
-        }
+        );
     }
     
     // Clear all sessions
     async function clearSessions() {
-        if (!confirm('Are you sure you want to delete all sessions for this directory?')) return;
-        
-        try {
-            const response = await fetch('/api/sessions/clear', { method: 'DELETE' });
-            const data = await response.json();
-            
-            if (data.status === 'success') {
-                loadSessions();
-            } else {
-                alert('Failed to clear sessions: ' + data.message);
+        showConfirm(
+            'Are you sure you want to delete all sessions for this directory?',
+            async () => {
+                try {
+                    const response = await fetch('/api/sessions/clear', { method: 'DELETE' });
+                    const data = await response.json();
+                    
+                    if (data.status === 'success') {
+                        loadSessions();
+                    } else {
+                        showAlert('Failed to clear sessions: ' + data.message, 'error');
+                    }
+                } catch (error) {
+                    showAlert('Error clearing sessions: ' + error.message, 'error');
+                }
             }
-        } catch (error) {
-            alert('Error clearing sessions: ' + error.message);
-        }
+        );
     }
     
     // Close modal

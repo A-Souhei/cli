@@ -234,6 +234,7 @@
             <div 
                 class="file-item flex items-center p-2.5 rounded-lg hover:dark:bg-surface-800 hover:bg-surface-100 cursor-pointer transition-colors group ${selectedFile === item.path ? 'dark:bg-surface-800 bg-surface-100 ring-1 ring-primary-500' : ''}"
                 data-path="${item.path}"
+                data-full-path="${item.full_path}"
                 data-is-dir="${item.is_dir}"
                 onclick="handleItemClick(event, '${item.path}', ${item.is_dir})"
                 ondblclick="handleItemDblClick('${item.path}', ${item.is_dir})"
@@ -244,9 +245,22 @@
                 <div class="flex-1 min-w-0">
                     <p class="dark:text-white text-surface-900 text-sm truncate ${item.is_dir ? 'font-medium' : ''}">${item.name}</p>
                 </div>
-                <div class="flex-shrink-0 text-right text-xs dark:text-surface-500 text-surface-400 gap-3 opacity-0 group-hover:opacity-100 transition-opacity flex">
-                    ${item.size_formatted ? `<span>${item.size_formatted}</span>` : ''}
-                    <span>${item.modified_formatted}</span>
+                <div class="flex-shrink-0 flex items-center gap-3">
+                    ${item.is_dir ? `
+                        <button 
+                            onclick="setWorkingDirectory(event, '${item.full_path}')"
+                            class="opacity-0 group-hover:opacity-100 transition-opacity btn btn-ghost btn-icon text-xs px-2 py-1"
+                            title="Set as working directory"
+                        >
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                        </button>
+                    ` : ''}
+                    <div class="text-right text-xs dark:text-surface-500 text-surface-400 opacity-0 group-hover:opacity-100 transition-opacity flex gap-3">
+                        ${item.size_formatted ? `<span>${item.size_formatted}</span>` : ''}
+                        <span>${item.modified_formatted}</span>
+                    </div>
                 </div>
             </div>
         `).join('');
@@ -379,6 +393,34 @@
     });
     
     closePreview.addEventListener('click', hidePreview);
+    
+    // Set working directory function
+    async function setWorkingDirectory(event, path) {
+        event.stopPropagation();
+        
+        showConfirm(
+            `Set working directory to:\n${path}\n\nThis will change the context for the AI assistant (chat commands will execute relative to this directory).\n\nThe file explorer will continue to show the original directory tree.`,
+            async () => {
+                try {
+                    const response = await fetch('/api/files/set-working-dir', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ path: path })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok && data.status === 'success') {
+                        showAlert('Working directory updated for chat context. Explorer root remains unchanged.', 'success');
+                    } else {
+                        showAlert('Failed to set working directory: ' + (data.message || 'Unknown error'), 'error');
+                    }
+                } catch (error) {
+                    showAlert('Failed to set working directory: ' + error.message, 'error');
+                }
+            }
+        );
+    }
     
     // Keyboard navigation
     document.addEventListener('keydown', (e) => {

@@ -97,7 +97,7 @@ def format_time(timestamp: float) -> str:
         return dt.strftime("%Y-%m-%d %H:%M")
 
 
-@files_bp.route('/list', methods=['GET'])
+@files_bp.route('/list')
 def list_directory():
     """
     List contents of a directory.
@@ -107,7 +107,8 @@ def list_directory():
         show_hidden: Show hidden files (default: false)
     """
     try:
-        working_dir = current_app.config.get('WORKING_DIR', os.getcwd())
+        # Get explorer root (original directory where CLI was opened)
+        working_dir = current_app.config.get('EXPLORER_ROOT', os.getcwd())
         rel_path = request.args.get('path', '')
         show_hidden = request.args.get('show_hidden', 'false').lower() == 'true'
         
@@ -147,7 +148,7 @@ def list_directory():
         
         for name in entries:
             # Skip hidden files if not requested
-            if not show_hidden and name.startswith('.'):
+            if not show_hidden and name.startswith('.'): 
                 continue
             
             item_path = os.path.join(full_path, name)
@@ -159,6 +160,7 @@ def list_directory():
                 items.append({
                     'name': name,
                     'path': os.path.join(rel_path, name) if rel_path else name,
+                    'full_path': item_path,  # Add absolute path for operations
                     'is_dir': is_dir,
                     'size': stat.st_size if not is_dir else None,
                     'size_formatted': format_size(stat.st_size) if not is_dir else None,
@@ -369,6 +371,51 @@ def file_info():
                 info['item_count'] = None
         
         return jsonify(info)
+        
+    except Exception as e:
+        capture_exception(e)
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+
+@files_bp.route('/set-working-dir', methods=['POST'])
+def set_working_directory():
+    """Set the working directory for the UI."""
+    try:
+        data = request.get_json()
+        new_path = data.get('path')
+        
+        if not new_path:
+            return jsonify({
+                'status': 'error',
+                'message': 'Path is required'
+            }), 400
+        
+        # Validate path exists and is a directory
+        if not os.path.exists(new_path):
+            return jsonify({
+                'status': 'error',
+                'message': 'Path does not exist'
+            }), 400
+        
+        if not os.path.isdir(new_path):
+            return jsonify({
+                'status': 'error',
+                'message': 'Path is not a directory'
+            }), 400
+        
+        # Update the environment variable and app config for chat context
+        # Note: This does NOT change the explorer root, only the working directory for LLM
+        os.environ['AI_CLI_CWD'] = new_path
+        current_app.config['WORKING_DIR'] = new_path
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Working directory updated for chat context',
+            'working_dir': new_path
+        })
         
     except Exception as e:
         capture_exception(e)
