@@ -15,8 +15,18 @@ from flask import Blueprint, jsonify, request, current_app
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from src.sentry_config import capture_exception
+from src.session.manager import SessionManager
 
 chat_bp = Blueprint('chat', __name__)
+
+# Reuse a single session manager instance for the UI server so
+# session state persists across requests.
+_session_manager = SessionManager()
+
+
+def get_session_manager() -> SessionManager:
+    """Return the shared SessionManager instance."""
+    return _session_manager
 
 
 @chat_bp.route('/models', methods=['GET'])
@@ -80,6 +90,8 @@ def send_message():
             'message': 'This endpoint requires a POST request with a JSON body containing a "message" field.'
         }), 405
     
+    session_manager = get_session_manager()
+
     try:
         data = request.get_json()
         if not data:
@@ -97,6 +109,11 @@ def send_message():
         
         model = data.get('model')
         file_contents = data.get('file_contents', {})
+        working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
+        
+        # Ensure there is an active session before sending the message
+        if not session_manager.is_active():
+            session_manager.start_session(working_dir=working_dir)
         
         # Get client and config
         client, config = get_ollama_client()
@@ -133,10 +150,18 @@ def send_message():
                 # Handle ollama library response object
                 content = response.message.content if hasattr(response, 'message') else str(response)
             
+            session_manager.add_interaction(message, content, {
+                'model': model,
+                'source': 'ui'
+            })
+            session_manager.save_to_redis()
+            
             return jsonify({
                 'status': 'success',
                 'response': content,
-                'model': model
+                'model': model,
+                'session_active': session_manager.is_active(),
+                'session_id': session_manager.get_session_id()
             })
             
         except Exception as e:
@@ -239,10 +264,7 @@ def execute_command():
 
 def handle_session_start():
     """Start a new session."""
-    from src.session.manager import SessionManager
-    import os
-    
-    session_manager = SessionManager()
+    session_manager = get_session_manager()
     
     if session_manager.is_active():
         return jsonify({
@@ -266,9 +288,7 @@ def handle_session_start():
 
 def handle_session_end():
     """End current session."""
-    from src.session.manager import SessionManager
-    
-    session_manager = SessionManager()
+    session_manager = get_session_manager()
     
     if not session_manager.is_active():
         return jsonify({
@@ -298,9 +318,7 @@ def handle_session_end():
 
 def handle_session_info():
     """Get session info."""
-    from src.session.manager import SessionManager
-    
-    session_manager = SessionManager()
+    session_manager = get_session_manager()
     info = session_manager.get_session_info()
     
     if not info:
@@ -324,9 +342,7 @@ def handle_session_info():
 
 def handle_session_list():
     """List saved sessions."""
-    from src.session.manager import SessionManager
-    
-    session_manager = SessionManager()
+    session_manager = get_session_manager()
     sessions = session_manager.list_saved_sessions()
     
     if not sessions:
@@ -347,10 +363,7 @@ def handle_session_list():
 
 def handle_session_restore(session_id):
     """Restore a session."""
-    from src.session.manager import SessionManager
-    import os
-    
-    session_manager = SessionManager()
+    session_manager = get_session_manager()
     
     if session_manager.is_active():
         return jsonify({
@@ -384,9 +397,7 @@ def handle_session_restore(session_id):
 
 def handle_session_delete(session_id):
     """Delete a session."""
-    from src.session.manager import SessionManager
-    
-    session_manager = SessionManager()
+    session_manager = get_session_manager()
     success = session_manager.delete_session(session_id)
     
     if success:
@@ -509,10 +520,7 @@ def auto_create_session():
     Only saves the previous session if it has interactions.
     """
     try:
-        from src.session.manager import SessionManager
-        import os
-        
-        session_manager = SessionManager()
+        session_manager = get_session_manager()
         
         # End existing session if active
         if session_manager.is_active():
