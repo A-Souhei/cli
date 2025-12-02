@@ -16,12 +16,33 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from src.sentry_config import capture_exception
 from src.session.manager import SessionManager
+from src.session.title_generator import SessionTitleGenerator
 
 chat_bp = Blueprint('chat', __name__)
 
+
+def _create_session_manager() -> SessionManager:
+    """Create a SessionManager with title generation enabled."""
+    from src.config.manager import ConfigManager
+    
+    config = ConfigManager()
+    ollama_url = config.get_ollama_url()
+    
+    # Create title generator using tinyllama (lightweight model for title generation)
+    title_generator = SessionTitleGenerator(
+        ollama_url=ollama_url,
+        model="tinyllama",  # Use tinyllama for fast title generation
+        timeout=15  # Short timeout since title gen is non-critical
+    )
+    
+    # Create session manager with title generator
+    session_manager = SessionManager(title_generator=title_generator)
+    return session_manager
+
+
 # Reuse a single session manager instance for the UI server so
 # session state persists across requests.
-_session_manager = SessionManager()
+_session_manager = _create_session_manager()
 
 
 def get_session_manager() -> SessionManager:

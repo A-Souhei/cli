@@ -23,6 +23,15 @@ def get_redis_api_url() -> str:
     return os.getenv('REDIS_API_URL', 'http://localhost:17000')
 
 
+def get_session_manager():
+    """Get the shared SessionManager instance from chat module."""
+    try:
+        from src.ui.routes.chat import get_session_manager as get_chat_session_manager
+        return get_chat_session_manager()
+    except ImportError:
+        return None
+
+
 @sessions_bp.route('/', methods=['GET'])
 def list_sessions():
     """
@@ -36,41 +45,54 @@ def list_sessions():
         working_dir = current_app.config.get('WORKING_DIR', os.getcwd())
         show_all = request.args.get('all', 'false').lower() == 'true'
         
-        with httpx.Client(timeout=10.0) as client:
-            response = client.get(
-                f"{redis_api_url}/session/list",
-                params={"prefix": "cli:session:"}
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                sessions = data.get('sessions', [])
-                
-                # Filter by working directory if not showing all
-                if not show_all:
-                    sessions = [
-                        s for s in sessions 
-                        if s.get('working_dir') == working_dir
-                    ]
-                
-                return jsonify({
-                    'status': 'success',
-                    'count': len(sessions),
-                    'sessions': sessions,
-                    'working_dir': working_dir,
-                    'filtered': not show_all
-                })
-            else:
-                return jsonify({
-                    'status': 'error',
-                    'message': f'Failed to fetch sessions: {response.status_code}'
-                }), response.status_code
+        sessions = []
+        
+        # First try to get sessions from the SessionManager (which uses Redis API internally)
+        session_manager = get_session_manager()
+        if session_manager:
+            try:
+                sessions = session_manager.list_saved_sessions()
+            except Exception:
+                sessions = []
+        
+        # If that fails or returns empty, try direct Redis API call
+        if not sessions:
+            try:
+                with httpx.Client(timeout=10.0) as client:
+                    response = client.get(
+                        f"{redis_api_url}/session/list",
+                        params={"prefix": "cli:session:"}
+                    )
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        sessions = data.get('sessions', [])
+            except Exception:
+                # Redis API not available, return empty list
+                sessions = []
+        
+        # Filter by working directory if not showing all
+        if not show_all and sessions:
+            sessions = [
+                s for s in sessions 
+                if s.get('working_dir') == working_dir
+            ]
+        
+        return jsonify({
+            'status': 'success',
+            'count': len(sessions),
+            'sessions': sessions,
+            'working_dir': working_dir,
+            'filtered': not show_all
+        })
                 
     except Exception as e:
         capture_exception(e)
         return jsonify({
             'status': 'error',
-            'message': str(e)
+            'message': str(e),
+            'sessions': [],
+            'count': 0
         }), 500
 
 
