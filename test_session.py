@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 """Test script for the session feature."""
 
-from src.session import SessionManager
+import os
+from src.session import SessionManager, WorkingDirectoryMismatchError
 
 
 def test_session_manager():
@@ -110,6 +111,71 @@ def test_session_title():
     print("\n✅ All title tests passed!")
 
 
+def test_working_directory():
+    """Test SessionManager working directory functionality."""
+    print("\nTesting Working Directory functionality...")
+
+    sm = SessionManager()
+
+    # Test 16: Working directory is set on start_session
+    current_dir = os.getcwd()
+    sm.start_session()
+    assert sm.get_working_dir() == current_dir, "❌ Working dir should default to current dir"
+    sm.end_session()
+    print("✓ Test 16: Working directory defaults to current directory")
+
+    # Test 17: Working directory can be explicitly set
+    custom_dir = "/tmp/test_dir"
+    sm.start_session(working_dir=custom_dir)
+    assert sm.get_working_dir() == custom_dir, "❌ Working dir should be set to custom value"
+    print("✓ Test 17: Working directory can be explicitly set")
+
+    # Test 18: Working directory included in session info
+    info = sm.get_session_info()
+    assert info["working_dir"] == custom_dir, "❌ Working dir should be in session info"
+    print("✓ Test 18: Working directory included in session info")
+
+    # Test 19: Working directory included in end session summary
+    summary = sm.end_session()
+    assert summary["working_dir"] == custom_dir, "❌ Working dir should be in summary"
+    print("✓ Test 19: Working directory included in end session summary")
+
+    # Test 20: Working directory reset on new session
+    sm.start_session()
+    assert sm.get_working_dir() is not None, "❌ Working dir should be set for new session"
+    sm.end_session()
+    print("✓ Test 20: Working directory reset on new session")
+
+    # Test 21: Working directory is None after session ends
+    assert sm.get_working_dir() is None, "❌ Working dir should be None after session ends"
+    print("✓ Test 21: Working directory is None after session ends")
+
+    print("\n✅ All working directory tests passed!")
+
+
+def test_working_directory_mismatch_error():
+    """Test WorkingDirectoryMismatchError exception."""
+    print("\nTesting WorkingDirectoryMismatchError...")
+
+    # Test 22: Exception stores correct directories
+    stored_dir = "/path/to/stored"
+    current_dir = "/path/to/current"
+    error = WorkingDirectoryMismatchError(stored_dir, current_dir)
+    assert error.stored_dir == stored_dir, "❌ stored_dir should be set"
+    assert error.current_dir == current_dir, "❌ current_dir should be set"
+    print("✓ Test 22: Exception stores correct directories")
+
+    # Test 23: Exception message contains both directories
+    error_msg = str(error)
+    assert stored_dir in error_msg, "❌ Error message should contain stored_dir"
+    assert current_dir in error_msg, "❌ Error message should contain current_dir"
+    print("✓ Test 23: Exception message contains both directories")
+
+    print("\n✅ All WorkingDirectoryMismatchError tests passed!")
+
+
 if __name__ == "__main__":
     test_session_manager()
     test_session_title()
+    test_working_directory()
+    test_working_directory_mismatch_error()
