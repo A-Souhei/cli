@@ -1,0 +1,226 @@
+"""Model availability checker for dynamic models and fallback logic."""
+
+import httpx
+from typing import Optional, Dict, Any, List
+from dataclasses import dataclass, field
+
+from src.sentry_config import capture_exception
+from src.model_registry.manager import ModelRegistry, ModelConfig
+
+
+@dataclass
+class LLMConfig:
+    """Configuration for an LLM service (compatibility with existing code)."""
+    url: str
+    model: str
+    timeout: int
+    is_tinyollama: bool = False
+    disabled_features: List[str] = field(default_factory=list)
+
+
+class ModelAvailabilityChecker:
+    """
+    Checks model availability and provides fallback logic.
+
+    This class integrates with ModelRegistry for dynamic models
+    and falls back to tinyollama if needed.
+    """
+
+    def __init__(self, config_manager, model_registry: ModelRegistry = None):
+        """
+        Initialize the model availability checker.
+
+        Args:
+            config_manager: ConfigManager instance with loaded configuration
+            model_registry: Optional ModelRegistry instance
+        """
+        self.config = config_manager
+        self.model_registry = model_registry or ModelRegistry()
+        self._active_llm: Optional[LLMConfig] = None
+
+    def check_ollama_available(self, url: str, timeout: int = 5) -> bool:
+        """
+        Check if an Ollama service is reachable.
+
+        Args:
+            url: Ollama service URL
+            timeout: Connection timeout in seconds
+
+        Returns:
+            True if service is reachable, False otherwise
+        """
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                response = client.get(f"{url}/api/tags")
+                return response.status_code == 200
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.RequestError):
+            return False
+        except Exception as e:
+            capture_exception(e)
+            return False
+
+    def check_model_availability(self, model_id: str) -> bool:
+        """
+        Check if a specific model is available and update its status.
+
+        Args:
+            model_id: ID of the model to check
+
+        Returns:
+            True if model is available, False otherwise
+        """
+        model = self.model_registry.get_model(model_id)
+        if not model:
+            return False
+
+        is_available = self.check_ollama_available(model.url, timeout=5)
+        self.model_registry.update_availability(model_id, is_available)
+        return is_available
+
+    def get_available_model(self, model_type: str, force_recheck: bool = False) -> Optional[ModelConfig]:
+        """
+        Get the active model for a type if it's available.
+
+        Args:
+            model_type: Type of model ('general' or 'coder')
+            force_recheck: Force availability recheck
+
+        Returns:
+            ModelConfig if available, None otherwise
+        """
+        active_model = self.model_registry.get_active_model(model_type)
+        if not active_model:
+            return None
+
+        # Check availability if forced or not previously checked
+        if force_recheck or active_model.is_available is None:
+            is_available = self.check_model_availability(active_model.model_id)
+            if not is_available:
+                return None
+            # Get updated model with availability status
+            active_model = self.model_registry.get_model(active_model.model_id)
+            if not active_model:
+                return None
+
+        # Return if available (or if we just checked and it's available)
+        if active_model.is_available is True:
+            return active_model
+        elif active_model.is_available is None:
+            # Not checked yet, check now
+            is_available = self.check_model_availability(active_model.model_id)
+            if is_available:
+                # Get updated model
+                return self.model_registry.get_model(active_model.model_id)
+
+        return None
+
+    def get_available_llm(self, force_recheck: bool = False) -> LLMConfig:
+        """
+        Get the best available LLM configuration (backward compatibility).
+
+        Tries dynamic general model first, falls back to tinyollama if not reachable.
+
+        Args:
+            force_recheck: Force recheck even if already cached
+
+        Returns:
+            LLMConfig for the available LLM
+        """
+        if self._active_llm is not None and not force_recheck:
+            return self._active_llm
+
+        # Try dynamic general model first
+        general_model = self.get_available_model('general', force_recheck=force_recheck)
+        if general_model:
+            self._active_llm = LLMConfig(
+                url=general_model.url,
+                model=general_model.model_name,
+                timeout=general_model.timeout,
+                is_tinyollama=False,
+                disabled_features=[]
+            )
+            return self._active_llm
+
+        # Fall back to tinyollama if configured
+        if self.config.has_tinyollama_config():
+            tinyollama_url = self.config.get_tinyollama_url()
+            if self.check_ollama_available(tinyollama_url):
+                self._active_llm = LLMConfig(
+                    url=tinyollama_url,
+                    model=self.config.get_tinyollama_model(),
+                    timeout=self.config.get_tinyollama_timeout(),
+                    is_tinyollama=True,
+                    disabled_features=self.config.get_tinyollama_disabled_features()
+                )
+                return self._active_llm
+
+        # If nothing is available, return None config
+        # (graceful degradation - CLI won't exit)
+        self._active_llm = LLMConfig(
+            url='',
+            model='',
+            timeout=120,
+            is_tinyollama=False,
+            disabled_features=['all']  # Disable everything
+        )
+        return self._active_llm
+
+    def is_using_tinyollama(self) -> bool:
+        """Check if currently using tinyollama fallback."""
+        if self._active_llm is None:
+            self.get_available_llm()
+        return self._active_llm.is_tinyollama if self._active_llm else False
+
+    def is_feature_disabled(self, feature: str) -> bool:
+        """
+        Check if a feature is disabled for the current LLM.
+
+        Args:
+            feature: Feature name to check (e.g., 'code_mode', 'coder_model')
+
+        Returns:
+            True if feature is disabled, False otherwise
+        """
+        if self._active_llm is None:
+            self.get_available_llm()
+        return feature in self._active_llm.disabled_features if self._active_llm else True
+
+    def has_general_model(self) -> bool:
+        """Check if a general model is available."""
+        return self.get_available_model('general') is not None
+
+    def has_coder_model(self) -> bool:
+        """Check if a coder model is available."""
+        return self.get_available_model('coder') is not None
+
+    def get_status(self) -> Dict[str, Any]:
+        """
+        Get status information about current model configuration.
+
+        Returns:
+            Dictionary with status information
+        """
+        general_model = self.get_available_model('general')
+        coder_model = self.get_available_model('coder')
+
+        status = {
+            'general_model': general_model.to_dict() if general_model else None,
+            'coder_model': coder_model.to_dict() if coder_model else None,
+            'tinyollama_available': False,
+            'registry_status': self.model_registry.get_status()
+        }
+
+        # Check tinyollama availability
+        if self.config.has_tinyollama_config():
+            tinyollama_url = self.config.get_tinyollama_url()
+            status['tinyollama_available'] = self.check_ollama_available(tinyollama_url)
+            status['tinyollama_config'] = {
+                'url': tinyollama_url,
+                'model': self.config.get_tinyollama_model()
+            }
+
+        return status
+
+    def reset(self):
+        """Reset cached LLM configuration, forcing recheck on next use."""
+        self._active_llm = None

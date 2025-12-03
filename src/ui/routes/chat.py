@@ -105,45 +105,56 @@ def _save_current_session_to_ui_store() -> None:
 @chat_bp.route('/models', methods=['GET'])
 def get_available_models():
     """
-    Get list of available models from the Ollama API.
+    Get list of registered models from ModelRegistry.
+    Only returns models that have been added via /model commands.
     """
     try:
-        from src.config.manager import ConfigManager
-        import httpx
-        
-        config = ConfigManager()
-        ollama_url = config.get_ollama_url()
-        # Call Ollama API to get models
-        response = httpx.get(f"{ollama_url}/api/tags", timeout=10)
-        response.raise_for_status()
-        
-        data = response.json()
-        models = [model['name'] for model in data.get('models', [])]
-        
+        from src.model_registry import ModelRegistry
+
+        registry = ModelRegistry()
+
+        # Get all registered models (both general and coder)
+        all_models = registry.list_models()
+
+        # Extract unique model names
+        model_names = list(set(m.model_name for m in all_models))
+
         return jsonify({
             'status': 'success',
-            'models': models
+            'models': model_names
         })
     except Exception as e:
         capture_exception(e)
-        # Return empty list with 200 status so frontend doesn't break
         return jsonify({
             'status': 'error',
             'message': f'Failed to fetch models: {str(e)}',
             'models': []
-        })
+        }), 500
 
 
 def get_ollama_client():
-    """Get or create an Ollama client instance."""
+    """Get or create an Ollama client instance using active general model."""
     from src.ollama_client.client import OllamaClient
     from src.config.manager import ConfigManager
-    
+    from src.model_registry import ModelRegistry
+
     config = ConfigManager()
-    host = config.get_ollama_url()
-    model = config.get_ollama_model()
-    timeout = config.get_ollama_timeout()
-    
+    registry = ModelRegistry()
+
+    # Try to get active general model from registry
+    general_model = registry.get_active_model('general')
+
+    if general_model:
+        # Use registered general model
+        host = general_model.url
+        model = general_model.model_name
+        timeout = general_model.timeout
+    else:
+        # Fallback to config (for backward compatibility)
+        host = config.get_ollama_url()
+        model = config.get_ollama_model()
+        timeout = config.get_ollama_timeout()
+
     return OllamaClient(host=host, model=model, timeout=timeout), config
 
 
@@ -496,21 +507,40 @@ def handle_session_delete(session_id):
 
 
 def handle_models():
-    """List available models."""
+    """List registered models from ModelRegistry."""
     try:
-        client, _ = get_ollama_client()
-        models = client.list_models()
-        
-        if models:
-            model_list = "\n".join([f"• `{m}`" for m in models])
+        from src.model_registry import ModelRegistry
+
+        registry = ModelRegistry()
+        all_models = registry.list_models()
+
+        if all_models:
+            # Group models by type
+            general_models = [m for m in all_models if m.model_type == 'general']
+            coder_models = [m for m in all_models if m.model_type == 'coder']
+
+            response_parts = ["📋 **Registered Models:**\n"]
+
+            if general_models:
+                response_parts.append("**General Models:**")
+                for m in general_models:
+                    active_marker = " ✓" if m.is_active else ""
+                    response_parts.append(f"• `{m.model_name}`{active_marker}")
+
+            if coder_models:
+                response_parts.append("\n**Coder Models:**")
+                for m in coder_models:
+                    active_marker = " ✓" if m.is_active else ""
+                    response_parts.append(f"• `{m.model_name}`{active_marker}")
+
             return jsonify({
                 'status': 'success',
-                'response': f"📋 **Available Models:**\n\n{model_list}"
+                'response': "\n".join(response_parts)
             })
         else:
             return jsonify({
                 'status': 'success',
-                'response': "📋 **Available Models:**\n\n_No models found._"
+                'response': "📋 **Registered Models:**\n\n_No models registered. Use `/model add` to register models._"
             })
     except Exception as e:
         capture_exception(e)

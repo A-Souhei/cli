@@ -1,20 +1,24 @@
 # Example configuration for AI CLI
 # This shows different configuration options you can use
 
-# Example 1: Default Docker Compose setup
-ollama:
-  url: "http://localhost:11434"
-  model: "tinyllama"
-  timeout: 120
+# NOTE: Models are now managed dynamically via the ModelRegistry (stored in Redis)
+# Use CLI commands to manage models:
+#   /model general add <url> <model_name>  - Add a general chat model
+#   /model coder add <url> <model_name>    - Add a code-specialized model
+#   /model list                            - List all registered models
+#   /model status                          - Check model availability
+#   /model remove <model_id>               - Remove a model
+#
+# Or use the Web UI at /models to manage models visually
 
-# Local tinyollama configuration (Docker container fallback)
-# This is used when remote ollama is not reachable or as a lightweight alternative
+# Local tinyollama configuration (lightweight fallback model)
+# This is the only model that remains in config - it's used as a fallback
+# when the primary models are unavailable
 tinyollama:
   url: "http://localhost:11434"
   model: "tinyllama"
   timeout: 60
-  # Heavy features disabled for tinyollama (lightweight model limitations)
-  disable_code_mode: true
+  # Features disabled for tinyollama (lightweight model limitations)
   disabled_features:
     - code_mode        # /code command - requires larger models for code generation
     - coder_model      # Code editing - requires specialized coder models
@@ -23,6 +27,7 @@ tinyollama:
     - datamap_create   # Data mapping - requires large context understanding
     - datamap_update   # Data map update - requires large context understanding
 
+# Chat configuration
 chat:
   system_prompt: "You are a helpful AI assistant."
   max_context_length: 10
@@ -31,64 +36,38 @@ chat:
 
 ---
 
-# Example 2: Remote Ollama server with tinyollama fallback
-# ollama:
-#   url: "http://192.168.1.100:11434"  # Remote server IP
-#   model: "mistral"
-#   timeout: 180
-#
-# tinyollama:
-#   url: "http://localhost:11434"      # Local Docker container
-#   model: "tinyllama"
-#   timeout: 60
-#   disable_code_mode: true
-#   disabled_features:
-#     - code_mode
-#     - coder_model
-#     - repomap_create
-#     - repomap_update
-#     - datamap_create
-#     - datamap_update
+# Migration note:
+# If you're upgrading from an older version with ollama.model and ollama.coder_model
+# in config.yaml, those models will be automatically migrated to the ModelRegistry
+# on first startup. After migration, you can remove those fields from your config.
 
 ---
 
-# Example 3: Code-focused assistant
-# ollama:
-#   url: "http://localhost:11434"
-#   model: "codellama"
-#   timeout: 120
-# 
-# chat:
-#   system_prompt: "You are an expert programming assistant. Provide clear, concise code examples and explanations."
-#   max_context_length: 15
-#   temperature: 0.5
-#   stream: true
+# Example: Adding models via CLI
 
----
+# Add a general chat model:
+# /model general add http://192.168.1.100:11434 llama3.1:8b
 
-# Example 4: Creative writing assistant
-# ollama:
-#   url: "http://localhost:11434"
-#   model: "llama2"
-#   timeout: 120
-# 
-# chat:
-#   system_prompt: "You are a creative writing assistant. Help with storytelling, character development, and plot ideas."
-#   max_context_length: 20
-#   temperature: 0.9
-#   stream: true
+# Add a coder model:
+# /model coder add http://192.168.1.100:11434 qwen2.5-coder:7b
+
+# Check model status:
+# /model status
+
+# List all models:
+# /model list
 
 ---
 
 # Available Ollama models (examples):
-# - tinyllama: Lightweight model (~1GB, CPU-friendly) - Default in Docker setup
-# - llama2: General-purpose model
+# - tinyllama: Lightweight model (~1GB, CPU-friendly) - Fallback model
+# - llama2/llama3: General-purpose models
 # - mistral: Fast and efficient model
 # - codellama: Specialized for code
+# - qwen2.5-coder: Advanced code generation model
 # - phi: Smaller, faster model
 # - neural-chat: Conversational model
-# - starling-lm: Instruction-following model
-# 
-# Docker Compose: docker compose exec ollama ollama pull <model-name>
-# Local installation: ollama pull <model-name>
-# CLI command: use 'models' to list available models
+#
+# Pull models:
+# Docker: docker compose exec ollama ollama pull <model-name>
+# Local: ollama pull <model-name>
