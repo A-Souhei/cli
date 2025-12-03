@@ -720,25 +720,28 @@
     // ========== Command Execution ==========
     async function executeCommand(command) {
         if (isProcessing) return;
-        
+
         addUserMessage(command);
         isProcessing = true;
         sendButton.disabled = true;
         addLoadingIndicator();
-        
+
         try {
             const response = await fetch('/api/chat/command', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ command: command })
             });
-            
+
             removeLoadingIndicator();
             const data = await response.json();
-            
-            if (response.ok && data.status === 'success') {
+
+            if (response.ok && data.status === 'awaiting_confirmation') {
+                // Show steps with confirmation buttons (pass at_references and session_id for execution)
+                addStepsConfirmation(data.steps, data.prompt, data.metadata, data.at_references || [], data.session_id || '');
+            } else if (response.ok && data.status === 'success') {
                 addAssistantMessage(data.response || data.message);
-                
+
                 if (data.session_active !== undefined) {
                     updateSessionStatus(data.session_active, data.session_id);
                 }
@@ -749,9 +752,106 @@
             removeLoadingIndicator();
             addAssistantMessage('Failed to execute command: ' + error.message, true);
         }
-        
+
         isProcessing = false;
         sendButton.disabled = false;
+    }
+
+    // ========== Steps Confirmation ==========
+    function addStepsConfirmation(steps, prompt, metadata, atReferences = [], sessionId = '') {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'flex items-start gap-3 max-w-3xl';
+
+        // Build steps list
+        const stepsHtml = steps.map((step, i) =>
+            `<div class="flex gap-2 text-sm">
+                <span class="text-primary-500 font-semibold flex-shrink-0">${i + 1}.</span>
+                <span class="dark:text-surface-200 text-surface-700">${escapeHtml(step)}</span>
+            </div>`
+        ).join('');
+
+        messageDiv.innerHTML = `
+            <div class="w-7 h-7 bg-gradient-to-br from-primary-500 to-primary-600 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm">
+                <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+                </svg>
+            </div>
+            <div class="card p-4 flex-1">
+                <div class="flex items-center gap-2 mb-3">
+                    <svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+                    </svg>
+                    <p class="dark:text-white text-surface-900 font-semibold text-sm">Code Execution Plan</p>
+                </div>
+                <p class="dark:text-surface-400 text-surface-500 text-xs mb-3">The following ${steps.length} step${steps.length > 1 ? 's' : ''} will be executed:</p>
+                <div class="space-y-2 mb-4 p-3 dark:bg-surface-800 bg-surface-100 rounded-lg">
+                    ${stepsHtml}
+                </div>
+                <div class="flex gap-2 justify-end">
+                    <button class="btn-confirm-no btn btn-secondary btn-sm">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                        No
+                    </button>
+                    <button class="btn-confirm-yes btn btn-primary btn-sm">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                        </svg>
+                        Yes, Execute
+                    </button>
+                </div>
+            </div>
+        `;
+
+        chatMessages.appendChild(messageDiv);
+        scrollToBottom();
+
+        // Add event listeners
+        const yesBtn = messageDiv.querySelector('.btn-confirm-yes');
+        const noBtn = messageDiv.querySelector('.btn-confirm-no');
+
+        yesBtn.addEventListener('click', async () => {
+            // Disable buttons
+            yesBtn.disabled = true;
+            noBtn.disabled = true;
+            yesBtn.innerHTML = '<span class="text-xs">Executing...</span>';
+
+            // Execute the steps
+            try {
+                addLoadingIndicator();
+                const response = await fetch('/api/chat/execute-code-steps', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        prompt: prompt, 
+                        steps: steps,
+                        at_references: atReferences,
+                        session_id: sessionId
+                    })
+                });
+
+                removeLoadingIndicator();
+                const data = await response.json();
+
+                if (response.ok && data.status === 'success') {
+                    addAssistantMessage(data.response || 'Execution completed');
+                } else {
+                    addAssistantMessage(data.message || 'Execution failed', true);
+                }
+            } catch (error) {
+                removeLoadingIndicator();
+                addAssistantMessage('Failed to execute steps: ' + error.message, true);
+            }
+        });
+
+        noBtn.addEventListener('click', () => {
+            // Disable buttons and show cancellation
+            yesBtn.disabled = true;
+            noBtn.disabled = true;
+            noBtn.innerHTML = '<span class="text-xs">Cancelled</span>';
+            addAssistantMessage('Code execution cancelled by user.');
+        });
     }
     
     // ========== Session Status ==========
