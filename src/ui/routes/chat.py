@@ -125,12 +125,11 @@ def get_available_models():
         })
     except Exception as e:
         capture_exception(e)
-        # Return empty list with 200 status so frontend doesn't break
         return jsonify({
             'status': 'error',
             'message': f'Failed to fetch models: {str(e)}',
             'models': []
-        })
+        }), 500
 
 
 def get_ollama_client():

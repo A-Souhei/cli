@@ -6,9 +6,8 @@ from src.model_registry.manager import ModelRegistry, ModelConfig
 
 @pytest.fixture
 def registry():
-    """Create a ModelRegistry instance for testing (in-memory mode)."""
-    # Force in-memory mode by using invalid Redis connection
-    reg = ModelRegistry(redis_host='invalid_host', redis_port=9999)
+    """Create a ModelRegistry instance for testing (explicit in-memory mode)."""
+    reg = ModelRegistry(use_memory=True)
     return reg
 
 

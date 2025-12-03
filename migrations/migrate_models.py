@@ -22,10 +22,13 @@ def migrate_models_to_redis(config_manager: ConfigManager, model_registry: Model
     Returns:
         Dictionary with migration results
     """
+    from src.model_registry.availability import ModelAvailabilityChecker
+
     results = {
         'general_migrated': False,
         'coder_migrated': False,
-        'errors': []
+        'errors': [],
+        'warnings': []
     }
 
     try:
@@ -37,12 +40,20 @@ def migrate_models_to_redis(config_manager: ConfigManager, model_registry: Model
             # Already migrated
             return results
 
+        # Create availability checker
+        checker = ModelAvailabilityChecker(config_manager, model_registry)
+
         # Migrate general model if not exists
         if not existing_general:
             try:
                 url = config_manager.get_ollama_url()
                 model_name = config_manager.get_ollama_model()
                 timeout = config_manager.get_ollama_timeout()
+
+                # Check if Ollama service is available
+                if not checker.check_ollama_available(url):
+                    warning_msg = f"Warning: Ollama service at {url} is not reachable. Model will be added but marked as unavailable."
+                    results['warnings'].append(warning_msg)
 
                 model_registry.add_model(
                     model_type='general',
@@ -63,6 +74,12 @@ def migrate_models_to_redis(config_manager: ConfigManager, model_registry: Model
                 url = config_manager.get_ollama_url()  # Coder uses same URL as general
                 model_name = config_manager.get_coder_model()
                 timeout = config_manager.get_ollama_timeout()
+
+                # Check if Ollama service is available (skip if already checked for general)
+                if not existing_general and not checker.check_ollama_available(url):
+                    warning_msg = f"Warning: Ollama service at {url} is not reachable. Model will be added but marked as unavailable."
+                    if warning_msg not in results['warnings']:
+                        results['warnings'].append(warning_msg)
 
                 model_registry.add_model(
                     model_type='coder',
@@ -116,8 +133,12 @@ def run_migration_if_needed(config_manager: ConfigManager, model_registry: Model
             print("✓ Migrated general model to Redis")
         if results['coder_migrated']:
             print("✓ Migrated coder model to Redis")
+        if results['warnings']:
+            for warning in results['warnings']:
+                print(f"⚠️  {warning}")
         if results['errors']:
-            print(f"⚠️  Migration warnings: {', '.join(results['errors'])}")
+            for error in results['errors']:
+                print(f"❌ {error}")
 
 
 if __name__ == '__main__':

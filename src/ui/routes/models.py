@@ -97,10 +97,45 @@ def add_model():
         timeout = data.get('timeout', 120)
         set_active = data.get('set_active', True)
 
+        # Validate required fields
         if not model_type or not url or not model_name:
             return jsonify({
                 'status': 'error',
                 'message': 'model_type, url, and model_name are required'
+            }), 400
+
+        # Validate URL format and scheme
+        from urllib.parse import urlparse
+        try:
+            parsed_url = urlparse(url)
+            if parsed_url.scheme not in ['http', 'https']:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'URL must use http or https scheme'
+                }), 400
+            if not parsed_url.netloc:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Invalid URL format'
+                }), 400
+        except Exception:
+            return jsonify({
+                'status': 'error',
+                'message': 'Invalid URL format'
+            }), 400
+
+        # Validate timeout range (10-600 seconds)
+        try:
+            timeout = int(timeout)
+            if timeout < 10 or timeout > 600:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Timeout must be between 10 and 600 seconds'
+                }), 400
+        except (ValueError, TypeError):
+            return jsonify({
+                'status': 'error',
+                'message': 'Timeout must be a valid integer'
             }), 400
 
         # Check availability first

@@ -39,16 +39,26 @@ class ModelRegistry:
 
     VALID_MODEL_TYPES = ['general', 'coder']
 
-    def __init__(self, redis_host: str = None, redis_port: int = None):
+    def __init__(self, redis_host: str = None, redis_port: int = None, use_memory: bool = False):
         """
         Initialize the ModelRegistry.
 
         Args:
             redis_host: Redis host (defaults to env var or localhost)
             redis_port: Redis port (defaults to env var or 26379)
+            use_memory: If True, use in-memory storage instead of Redis (useful for testing)
         """
         self.redis_host = redis_host or os.getenv('REDIS_HOST', 'localhost')
         self.redis_port = redis_port or int(os.getenv('REDIS_HOST_PORT', '26379'))
+
+        # Initialize in-memory storage
+        self._memory_storage: Dict[str, Dict[str, Any]] = {}
+        self._memory_active: Dict[str, str] = {}
+
+        # Use explicit in-memory mode if requested
+        if use_memory:
+            self._redis_available = False
+            return
 
         try:
             self.redis_client = redis.Redis(
@@ -63,9 +73,6 @@ class ModelRegistry:
             self._redis_available = True
         except (redis.ConnectionError, redis.TimeoutError) as e:
             self._redis_available = False
-            # Fallback to in-memory storage
-            self._memory_storage: Dict[str, Dict[str, Any]] = {}
-            self._memory_active: Dict[str, str] = {}
 
     def _generate_model_id(self) -> str:
         """Generate a unique model ID."""
@@ -166,18 +173,24 @@ class ModelRegistry:
             raise
 
     def _set_active_internal(self, model_id: str, model_type: str) -> None:
-        """Internal method to set active model (updates is_active flags)."""
+        """Internal method to set active model (updates is_active flags atomically)."""
         if self._redis_available:
+            # Use Redis pipeline for atomic operations to prevent race conditions
+            pipe = self.redis_client.pipeline()
+
             # Get all models of this type
             model_ids = self.redis_client.smembers(self._get_index_key(model_type))
 
             # Deactivate all models of this type
             for mid in model_ids:
-                self.redis_client.hset(self._get_model_key(mid), 'is_active', 'False')
+                pipe.hset(self._get_model_key(mid), 'is_active', 'False')
 
             # Activate the specified model
-            self.redis_client.hset(self._get_model_key(model_id), 'is_active', 'True')
-            self.redis_client.set(self._get_active_key(model_type), model_id)
+            pipe.hset(self._get_model_key(model_id), 'is_active', 'True')
+            pipe.set(self._get_active_key(model_type), model_id)
+
+            # Execute all commands atomically
+            pipe.execute()
         else:
             # In-memory fallback
             for mid, data in self._memory_storage.items():
