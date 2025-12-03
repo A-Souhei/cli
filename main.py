@@ -19,6 +19,7 @@ from src.config import ConfigManager
 from src.config.llm_availability import LLMAvailabilityChecker
 from src.model_registry import ModelRegistry
 from src.model_registry.availability import ModelAvailabilityChecker
+from src.embedding_client import EmbeddingClient
 from src.ollama_client import OllamaClient
 from src.chat import ChatManager
 from src.selector import InteractiveSelector
@@ -61,6 +62,7 @@ from src.utils.datamap import (
 from src.utils.ratings import (
     process_rating,
     get_prompt_guidance,
+    set_embedding_client,
 )
 
 # Import code handlers from separate module
@@ -183,6 +185,16 @@ def main(verbose=False):
         # Initialize ModelRegistry
         model_registry = ModelRegistry()
 
+        # Initialize EmbeddingClient with fallback to local transformer
+        transformer_url = os.getenv('TRANSFORMER_API_URL', 'http://localhost:16050')
+        embedding_client = EmbeddingClient(
+            model_registry=model_registry,
+            fallback_url=transformer_url
+        )
+        
+        # Set embedding client for ratings module
+        set_embedding_client(embedding_client)
+
         # Run migration from config.yaml to Redis if needed
         run_migration_if_needed(config, model_registry, verbose=verbose)
 
@@ -293,6 +305,11 @@ def main(verbose=False):
                     chat_manager.clear_history()
                     console.print("\n🗑️ [yellow]Chat history cleared[/yellow]\n")
                     continue
+
+                # Handle /models as alias for /model (support both)
+                if user_input_normalized.lower().startswith('models '):
+                    # Convert /models <cmd> to /model <cmd>
+                    user_input_normalized = 'model ' + user_input_normalized[7:]
 
                 if user_input_normalized.lower() == 'models':
                     console.print("\n📋 [bold]Available models:[/bold]")
@@ -489,6 +506,24 @@ def main(verbose=False):
 
                         console.print()
 
+                        # Embedding model
+                        embedding = model_registry.get_active_embedding_model()
+                        if embedding:
+                            console.print(f"[bold cyan]Embedding Model:[/bold cyan]")
+                            if embedding.model_name:
+                                console.print(f"  ✓ [cyan]{embedding.model_name}[/cyan] @ {embedding.url}")
+                            else:
+                                console.print(f"  ✓ [cyan]Generic service[/cyan] @ {embedding.url}")
+                            if embedding.embedding_dimensions:
+                                console.print(f"  Dimensions: [cyan]{embedding.embedding_dimensions}[/cyan]")
+                            console.print(f"  ID: [dim]{embedding.model_id}[/dim]")
+                        else:
+                            console.print("[bold cyan]Embedding Model:[/bold cyan] [yellow]Using fallback (local transformer)[/yellow]")
+                            console.print(f"  Fallback URL: [dim]{transformer_url}[/dim]")
+                            console.print("  Use: [dim]/model embedding add <url> [model_name][/dim]")
+
+                        console.print()
+
                         # Fallback
                         if config.has_tinyollama_config():
                             tinyollama_url = config.get_tinyollama_url()
@@ -505,13 +540,18 @@ def main(verbose=False):
                     if len(parts) == 1 and parts[0] == 'list':
                         # List all models
                         console.print("\n📋 [bold]All Models:[/bold]\n")
-                        for model_type in ['general', 'coder']:
+                        for model_type in ['general', 'coder', 'embedding']:
                             models = model_registry.list_models(model_type)
                             console.print(f"[bold cyan]{model_type.capitalize()} Models:[/bold cyan]")
                             if models:
                                 for m in models:
                                     active_marker = "→" if m.is_active else " "
-                                    console.print(f"  {active_marker} [cyan]{m.model_name}[/cyan] @ {m.url}")
+                                    if model_type == 'embedding':
+                                        console.print(f"  {active_marker} [cyan]External service[/cyan] @ {m.url}")
+                                        if m.embedding_dimensions:
+                                            console.print(f"    Dimensions: [cyan]{m.embedding_dimensions}[/cyan]")
+                                    else:
+                                        console.print(f"  {active_marker} [cyan]{m.model_name}[/cyan] @ {m.url}")
                                     console.print(f"    ID: [dim]{m.model_id}[/dim]")
                             else:
                                 console.print("  [dim]No models configured[/dim]")
@@ -521,9 +561,9 @@ def main(verbose=False):
                     # /model <type> list
                     if len(parts) == 2 and parts[1] == 'list':
                         model_type = parts[0]
-                        if model_type not in ['general', 'coder']:
+                        if model_type not in ['general', 'coder', 'embedding']:
                             console.print(f"\n❌ [red]Invalid model type: {model_type}[/red]")
-                            console.print("[dim]Valid types: general, coder[/dim]\n")
+                            console.print("[dim]Valid types: general, coder, embedding[/dim]\n")
                             continue
 
                         models = model_registry.list_models(model_type)
@@ -531,11 +571,127 @@ def main(verbose=False):
                         if models:
                             for m in models:
                                 active_marker = "→" if m.is_active else " "
-                                console.print(f"  {active_marker} [cyan]{m.model_name}[/cyan] @ {m.url}")
+                                if model_type == 'embedding':
+                                    console.print(f"  {active_marker} [cyan]External service[/cyan] @ {m.url}")
+                                    if m.embedding_dimensions:
+                                        console.print(f"    Dimensions: [cyan]{m.embedding_dimensions}[/cyan]")
+                                else:
+                                    console.print(f"  {active_marker} [cyan]{m.model_name}[/cyan] @ {m.url}")
                                 console.print(f"    ID: [dim]{m.model_id}[/dim]")
                         else:
                             console.print("  [dim]No models configured[/dim]")
                         console.print()
+                        continue
+
+                    # /model embedding add <url> [model_name] [timeout]
+                    # For generic services: /model embedding add http://localhost:16050
+                    # For Ollama: /model embedding add http://host:11434 nomic-embed-text:v1.5
+                    if len(parts) >= 3 and parts[0] == 'embedding' and parts[1] == 'add':
+                        url = parts[2]
+                        model_name = ''
+                        timeout = 60
+                        
+                        # Check if model_name is provided (for Ollama)
+                        if len(parts) > 3:
+                            # Check if it's a timeout (number) or model name
+                            if parts[3].isdigit():
+                                timeout = int(parts[3])
+                            else:
+                                model_name = parts[3]
+                                if len(parts) > 4 and parts[4].isdigit():
+                                    timeout = int(parts[4])
+
+                        console.print(f"\n🔍 [yellow]Testing embedding service at {url}...[/yellow]")
+                        if model_name:
+                            console.print(f"   [dim]Model: {model_name}[/dim]")
+                        
+                        # Test the embedding service with a sample text
+                        try:
+                            test_data = None
+                            service_type = None
+                            
+                            # If model_name is provided, try Ollama API first
+                            if model_name:
+                                try:
+                                    test_response = requests.post(
+                                        f"{url}/api/embed",
+                                        json={"model": model_name, "input": "test"},
+                                        timeout=15
+                                    )
+                                    if test_response.status_code == 200:
+                                        test_data = test_response.json()
+                                        service_type = 'ollama'
+                                except requests.exceptions.RequestException:
+                                    pass
+                            
+                            # Try GET first (local transformer service format)
+                            if test_data is None:
+                                try:
+                                    test_response = requests.get(
+                                        f"{url}/embed",
+                                        params={"text": "test"},
+                                        timeout=10
+                                    )
+                                    if test_response.status_code == 200:
+                                        test_data = test_response.json()
+                                        service_type = 'transformer'
+                                except requests.exceptions.RequestException:
+                                    pass
+                            
+                            # If GET failed, try POST /embed (generic external services format)
+                            if test_data is None or ('embedding' not in test_data and 'embeddings' not in test_data):
+                                try:
+                                    test_response = requests.post(
+                                        f"{url}/embed",
+                                        json={"text": "test"},
+                                        timeout=10
+                                    )
+                                    if test_response.status_code == 200:
+                                        test_data = test_response.json()
+                                        service_type = 'generic'
+                                except requests.exceptions.RequestException:
+                                    pass
+                            
+                            if test_data is None or ('embedding' not in test_data and 'embeddings' not in test_data):
+                                console.print(f"❌ [red]Could not get embeddings from service[/red]")
+                                console.print(f"[dim]Tried: Ollama API, GET /embed, POST /embed[/dim]\n")
+                                continue
+                            
+                            # Auto-detect dimensions
+                            embedding = None
+                            if 'embedding' in test_data:
+                                embedding = test_data['embedding']
+                            elif 'embeddings' in test_data and test_data['embeddings']:
+                                embedding = test_data['embeddings'][0]
+                            
+                            if embedding and isinstance(embedding, list) and len(embedding) > 0:
+                                dimensions = len(embedding)
+                            else:
+                                dimensions = None
+                            
+                            model = model_registry.add_model(
+                                model_type='embedding',
+                                url=url,
+                                model_name=model_name,  # Store model name for Ollama
+                                timeout=timeout,
+                                set_active=True,
+                                embedding_dimensions=dimensions
+                            )
+                            console.print(f"\n✅ [green]Embedding model registered successfully![/green]")
+                            console.print(f"  ID: [cyan]{model.model_id}[/cyan]")
+                            console.print(f"  URL: [cyan]{model.url}[/cyan]")
+                            if model_name:
+                                console.print(f"  Model: [cyan]{model_name}[/cyan]")
+                            console.print(f"  Service Type: [cyan]{service_type}[/cyan]")
+                            if dimensions:
+                                console.print(f"  Dimensions: [cyan]{dimensions}[/cyan] (auto-detected)")
+                            console.print(f"  Timeout: [cyan]{timeout}s[/cyan]")
+                            console.print(f"  Status: [green]Active[/green]\n")
+                        except requests.exceptions.RequestException as e:
+                            console.print(f"❌ [red]Cannot reach embedding service at {url}[/red]")
+                            console.print(f"[dim]Error: {str(e)}[/dim]\n")
+                        except Exception as e:
+                            console.print(f"\n❌ [red]Failed to add embedding model: {e}[/red]\n")
                         continue
 
                     # /model <type> add <url> <model_name>
@@ -581,9 +737,9 @@ def main(verbose=False):
                         model_type = parts[0]
                         model_id = parts[2]
 
-                        if model_type not in ['general', 'coder']:
+                        if model_type not in ['general', 'coder', 'embedding']:
                             console.print(f"\n❌ [red]Invalid model type: {model_type}[/red]")
-                            console.print("[dim]Valid types: general, coder[/dim]\n")
+                            console.print("[dim]Valid types: general, coder, embedding[/dim]\n")
                             continue
 
                         try:
@@ -591,7 +747,13 @@ def main(verbose=False):
                             if success:
                                 model = model_registry.get_model(model_id)
                                 console.print(f"\n✅ [green]Active {model_type} model set to:[/green]")
-                                console.print(f"  [cyan]{model.model_name}[/cyan] @ {model.url}\n")
+                                if model_type == 'embedding':
+                                    console.print(f"  [cyan]External service[/cyan] @ {model.url}")
+                                    if model.embedding_dimensions:
+                                        console.print(f"  Dimensions: [cyan]{model.embedding_dimensions}[/cyan]")
+                                else:
+                                    console.print(f"  [cyan]{model.model_name}[/cyan] @ {model.url}")
+                                console.print()
 
                                 # Refresh llm_checker cache
                                 llm_checker.reset()
@@ -606,9 +768,9 @@ def main(verbose=False):
                         model_type = parts[0]
                         model_id = parts[2]
 
-                        if model_type not in ['general', 'coder']:
+                        if model_type not in ['general', 'coder', 'embedding']:
                             console.print(f"\n❌ [red]Invalid model type: {model_type}[/red]")
-                            console.print("[dim]Valid types: general, coder[/dim]\n")
+                            console.print("[dim]Valid types: general, coder, embedding[/dim]\n")
                             continue
 
                         try:
@@ -620,7 +782,10 @@ def main(verbose=False):
                             success = model_registry.remove_model(model_id)
                             if success:
                                 console.print(f"\n✅ [green]Removed model:[/green]")
-                                console.print(f"  [cyan]{model.model_name}[/cyan] @ {model.url}\n")
+                                if model_type == 'embedding':
+                                    console.print(f"  [cyan]External service[/cyan] @ {model.url}\n")
+                                else:
+                                    console.print(f"  [cyan]{model.model_name}[/cyan] @ {model.url}\n")
 
                                 # Refresh llm_checker cache
                                 llm_checker.reset()
@@ -676,10 +841,11 @@ def main(verbose=False):
                     console.print("  /model list")
                     console.print("  /model <type> list")
                     console.print("  /model <type> add <url> <model_name>")
+                    console.print("  /model embedding add <url> [model_name] [timeout]  (model_name for Ollama)")
                     console.print("  /model <type> use <model_id>")
                     console.print("  /model <type> remove <model_id>")
                     console.print("  /model check [model_id]")
-                    console.print("\n[dim]Where <type> is: general or coder[/dim]\n")
+                    console.print("\n[dim]Where <type> is: general, coder, or embedding[/dim]\n")
                     continue
 
                 # Handle /repomap create command

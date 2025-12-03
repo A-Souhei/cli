@@ -51,7 +51,7 @@ def list_models():
     List all registered models.
 
     Query params:
-        type: Optional filter by model type ('general' or 'coder')
+        type: Optional filter by model type ('general', 'coder', or 'embedding')
     """
     try:
         registry = ModelRegistry()
@@ -77,10 +77,10 @@ def add_model():
     Add a new model to the registry.
 
     Request body:
-        model_type: Type of model ('general' or 'coder')
-        url: Ollama service URL
-        model_name: Name of the model
-        timeout: Optional timeout in seconds (default: 120)
+        model_type: Type of model ('general', 'coder', or 'embedding')
+        url: Ollama service URL (or embedding service URL for embedding type)
+        model_name: Name of the model (not required for embedding type)
+        timeout: Optional timeout in seconds (default: 120 for general/coder, 60 for embedding)
         set_active: Optional whether to set as active (default: true)
     """
     try:
@@ -93,15 +93,29 @@ def add_model():
 
         model_type = data.get('model_type')
         url = data.get('url')
-        model_name = data.get('model_name')
-        timeout = data.get('timeout', 120)
+        model_name = data.get('model_name', '')
+        timeout = data.get('timeout')
         set_active = data.get('set_active', True)
 
+        # Initialize registry early
+        registry = ModelRegistry()
+
+        # Set default timeout based on model type
+        if timeout is None:
+            timeout = 60 if model_type == 'embedding' else 120
+
         # Validate required fields
-        if not model_type or not url or not model_name:
+        if not model_type or not url:
             return jsonify({
                 'status': 'error',
-                'message': 'model_type, url, and model_name are required'
+                'message': 'model_type and url are required'
+            }), 400
+
+        # For non-embedding models, model_name is required
+        if model_type in ['general', 'coder'] and not model_name:
+            return jsonify({
+                'status': 'error',
+                'message': 'model_name is required for general and coder models'
             }), 400
 
         # Validate URL format and scheme
@@ -138,31 +152,83 @@ def add_model():
                 'message': 'Timeout must be a valid integer'
             }), 400
 
-        # Check availability first
-        config = ConfigManager()
-        registry = ModelRegistry()
-        checker = ModelAvailabilityChecker(config, registry)
+        # For embedding models, test the service
+        if model_type == 'embedding':
+            import requests as req
+            try:
+                test_response = req.post(
+                    f"{url}/embed",
+                    json={"text": "test"},
+                    timeout=10
+                )
+                if test_response.status_code != 200:
+                    return jsonify({
+                        'status': 'error',
+                        'message': f'Embedding service returned status {test_response.status_code}'
+                    }), 400
+                
+                test_data = test_response.json()
+                if 'embedding' not in test_data and 'embeddings' not in test_data:
+                    return jsonify({
+                        'status': 'error',
+                        'message': 'Invalid response format from embedding service'
+                    }), 400
+                
+                # Auto-detect dimensions
+                embedding = None
+                if 'embedding' in test_data:
+                    embedding = test_data['embedding']
+                elif 'embeddings' in test_data and test_data['embeddings']:
+                    embedding = test_data['embeddings'][0]
+                
+                dimensions = len(embedding) if (embedding and isinstance(embedding, list) and len(embedding) > 0) else None
+                
+                # Add embedding model with dimensions
+                model = registry.add_model(
+                    model_type=model_type,
+                    url=url,
+                    model_name='',  # Empty for embedding models
+                    timeout=timeout,
+                    set_active=set_active,
+                    embedding_dimensions=dimensions
+                )
+                
+                return jsonify({
+                    'status': 'success',
+                    'model': model.to_dict(),
+                    'message': f'Embedding service added successfully (dimensions: {dimensions})'
+                })
+                
+            except req.exceptions.RequestException as e:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Cannot reach embedding service at {url}'
+                }), 400
+        else:
+            # Check availability for general/coder models
+            config = ConfigManager()
+            checker = ModelAvailabilityChecker(config, registry)
 
-        if not checker.check_ollama_available(url):
+            if not checker.check_ollama_available(url):
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Cannot reach Ollama service at {url}'
+                }), 400
+
+            # Add model
+            model = registry.add_model(
+                model_type=model_type,
+                url=url,
+                model_name=model_name,
+                timeout=timeout,
+                set_active=set_active
+            )
+
             return jsonify({
-                'status': 'error',
-                'message': f'Cannot reach Ollama service at {url}'
-            }), 400
-
-        # Add model
-        model = registry.add_model(
-            model_type=model_type,
-            url=url,
-            model_name=model_name,
-            timeout=timeout,
-            set_active=set_active
-        )
-
-        return jsonify({
-            'status': 'success',
-            'model': model.to_dict(),
-            'message': f'Model {model_name} added successfully'
-        })
+                'status': 'success',
+                'model': model.to_dict(),
+                'message': f'Model {model_name} added successfully'
+            })
     except ValueError as e:
         return jsonify({
             'status': 'error',

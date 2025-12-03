@@ -9,6 +9,15 @@ TRANSFORMER_API_URL = "http://localhost:16050"
 SIMILARITY_THRESHOLD = 0.7  # Cosine similarity threshold for considering prompts similar
 SATISFACTORY_RATING_THRESHOLD = 7  # Rating >= 7 is considered satisfactory
 
+# EmbeddingClient instance (set by caller)
+_embedding_client = None
+
+
+def set_embedding_client(client):
+    """Set the EmbeddingClient instance to use for similarity calculations."""
+    global _embedding_client
+    _embedding_client = client
+
 
 def configure(postgres_url=None, transformer_url=None, similarity_threshold=None, satisfactory_threshold=None):
     """Configure the rating module with custom URLs and thresholds."""
@@ -36,8 +45,13 @@ def get_all_ratings():
 
 
 def check_similarity(text1, text2):
-    """Check similarity between two texts using transformer service."""
+    """Check similarity between two texts using embedding service."""
     try:
+        # Try to use EmbeddingClient if available
+        if _embedding_client:
+            return _embedding_client.get_similarity(text1, text2, metric='cosine')
+        
+        # Fallback to direct transformer service call
         params = {
             'text1': text1,
             'text2': text2,

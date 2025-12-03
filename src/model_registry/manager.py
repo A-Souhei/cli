@@ -14,14 +14,15 @@ from src.sentry_config import capture_exception
 class ModelConfig:
     """Configuration for a dynamically registered model."""
     model_id: str          # Unique identifier
-    model_type: str        # 'general' or 'coder'
-    url: str               # Ollama service URL
-    model_name: str        # Model name (e.g., 'llama3.1:8b')
+    model_type: str        # 'general', 'coder', or 'embedding'
+    url: str               # Ollama service URL (or embedding service URL)
+    model_name: str        # Model name (e.g., 'llama3.1:8b'), empty string for embedding
     timeout: int           # Request timeout
     is_active: bool        # Whether this is the active model for its type
     added_at: str          # When the model was registered (ISO format)
     last_checked: Optional[str] = None  # Last availability check (ISO format)
     is_available: Optional[bool] = None  # Current availability status
+    embedding_dimensions: Optional[int] = None  # For embedding models only
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for Redis storage."""
@@ -36,7 +37,7 @@ class ModelConfig:
 class ModelRegistry:
     """Manages dynamic model registration with Redis persistence."""
 
-    VALID_MODEL_TYPES = ['general', 'coder']
+    VALID_MODEL_TYPES = ['general', 'coder', 'embedding']
 
     def __init__(self, redis_host: str = None, redis_port: int = None, use_memory: bool = False):
         """
@@ -119,25 +120,33 @@ class ModelRegistry:
         # Convert timeout to int
         model_data['timeout'] = int(model_data['timeout'])
         
+        # Handle embedding_dimensions (empty string = None)
+        if model_data.get('embedding_dimensions') == '':
+            model_data['embedding_dimensions'] = None
+        elif model_data.get('embedding_dimensions') is not None:
+            model_data['embedding_dimensions'] = int(model_data['embedding_dimensions'])
+        
         return model_data
 
     def add_model(
         self,
         model_type: str,
         url: str,
-        model_name: str,
+        model_name: str = "",
         timeout: int = 120,
-        set_active: bool = True
+        set_active: bool = True,
+        embedding_dimensions: Optional[int] = None
     ) -> ModelConfig:
         """
         Add a new model to the registry.
 
         Args:
-            model_type: Type of model ('general' or 'coder')
-            url: Ollama service URL
-            model_name: Name of the model
+            model_type: Type of model ('general', 'coder', or 'embedding')
+            url: Ollama service URL (or embedding service URL)
+            model_name: Name of the model (empty string for embedding type)
             timeout: Request timeout in seconds
             set_active: Whether to set this as the active model for its type
+            embedding_dimensions: For embedding models only (auto-detected if None)
 
         Returns:
             The created ModelConfig
@@ -160,7 +169,8 @@ class ModelRegistry:
             is_active=set_active,
             added_at=now,
             last_checked=None,
-            is_available=None
+            is_available=None,
+            embedding_dimensions=embedding_dimensions
         )
 
         try:
@@ -481,3 +491,49 @@ class ModelRegistry:
             }
 
         return status
+
+    def get_active_embedding_model(self) -> Optional[ModelConfig]:
+        """
+        Get the active embedding model (convenience method).
+
+        Returns:
+            ModelConfig if an active embedding model exists, None otherwise
+        """
+        return self.get_active_model('embedding')
+
+    def set_embedding_dimensions(self, model_id: str, dimensions: int) -> bool:
+        """
+        Update the embedding dimensions for an embedding model.
+
+        Args:
+            model_id: ID of the embedding model
+            dimensions: Number of dimensions in the embedding
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            if self._redis_available:
+                # Check if model exists and is embedding type
+                model_data = self.redis_client.hgetall(self._get_model_key(model_id))
+                if not model_data or model_data.get('model_type') != 'embedding':
+                    return False
+
+                self.redis_client.hset(
+                    self._get_model_key(model_id),
+                    'embedding_dimensions',
+                    str(dimensions)
+                )
+                return True
+            else:
+                # In-memory fallback
+                if model_id not in self._memory_storage:
+                    return False
+                if self._memory_storage[model_id]['model_type'] != 'embedding':
+                    return False
+
+                self._memory_storage[model_id]['embedding_dimensions'] = dimensions
+                return True
+        except Exception as e:
+            capture_exception(e)
+            return False

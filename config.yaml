@@ -12,13 +12,6 @@
 #
 # Or use the Web UI at /models
 
-# Legacy model configuration (will be auto-migrated to ModelRegistry)
-ollama:
-  url: "http://192.168.31.23:11434"
-  model: "llama3.1:8b"
-  coder_model: "qwen2.5-coder:7b"
-  timeout: 120
-
 # Local tinyollama configuration (lightweight fallback)
 # This is the only model that stays in config - used when primary models unavailable
 tinyollama:

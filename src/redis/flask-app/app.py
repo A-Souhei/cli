@@ -13,6 +13,15 @@ sys.path.insert(0, '/app/src_shared')
 
 from sentry_config import configure_sentry, capture_exception
 
+# Import EmbeddingClient and ModelRegistry
+try:
+    from embedding_client import EmbeddingClient
+    from model_registry.manager import ModelRegistry
+    EMBEDDING_CLIENT_AVAILABLE = True
+except ImportError:
+    EMBEDDING_CLIENT_AVAILABLE = False
+    print("Warning: EmbeddingClient not available, will use direct transformer calls")
+
 # Configure Sentry
 configure_sentry(service_name="redis-flask")
 
@@ -33,6 +42,27 @@ redis_client = redis.Redis(
     socket_connect_timeout=5
 )
 
+# Initialize EmbeddingClient
+embedding_client = None
+if EMBEDDING_CLIENT_AVAILABLE:
+    try:
+        # Initialize ModelRegistry and EmbeddingClient
+        model_registry = ModelRegistry(redis_host=redis_host, redis_port=redis_port)
+        embedding_client = EmbeddingClient(
+            model_registry=model_registry,
+            fallback_url=TRANSFORMER_API_URL
+        )
+        print(f"✓ EmbeddingClient initialized with fallback to {TRANSFORMER_API_URL}")
+        if embedding_client.is_using_fallback():
+            print("  → Using local transformer service (no external embedding model configured)")
+        else:
+            active_model = model_registry.get_active_embedding_model()
+            if active_model:
+                print(f"  → Using external embedding service: {active_model.url}")
+    except Exception as e:
+        print(f"Warning: Could not initialize EmbeddingClient: {e}")
+        embedding_client = None
+
 
 def handle_error(e, status_code=500):
     """Centralized error handler that logs to Sentry."""
@@ -44,22 +74,28 @@ def handle_error(e, status_code=500):
 
 
 def get_embedding(text):
-    """Get embedding from transformer service."""
+    """Get embedding from embedding service."""
     # Validate input
     if not text or not text.strip():
         print("Warning: Empty or whitespace-only text provided for embedding")
         return None
 
     try:
-        response = requests.get(
-            f"{TRANSFORMER_API_URL}/embed",
-            params={"text": text},
-            timeout=30
-        )
-        if response.status_code == 200:
-            return response.json().get('embedding')
-        return None
+        if embedding_client:
+            # Use EmbeddingClient (supports external services + fallback)
+            return embedding_client.embed(text)
+        else:
+            # Fallback to direct transformer service call
+            response = requests.get(
+                f"{TRANSFORMER_API_URL}/embed",
+                params={"text": text},
+                timeout=30
+            )
+            if response.status_code == 200:
+                return response.json().get('embedding')
+            return None
     except Exception as e:
+        capture_exception(e)
         print(f"Error getting embedding: {e}")
         return None
 

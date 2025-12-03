@@ -146,6 +146,11 @@ src/
 ├── config/              # Configuration management
 │   ├── manager.py       # ConfigManager - loads config.yaml
 │   └── llm_availability.py  # LLM service availability checking
+├── model_registry/      # Dynamic model configuration
+│   ├── manager.py       # ModelRegistry - Redis-backed model storage
+│   └── availability.py  # Model availability checking
+├── embedding_client/    # Embedding service abstraction
+│   └── client.py        # EmbeddingClient - external services + fallback
 ├── ollama_client/       # Ollama API client
 │   └── client.py        # OllamaClient - communicates with Ollama service
 ├── chat/                # Chat context management
@@ -210,15 +215,22 @@ src/
 ### RAG & Similarity Search
 
 **Flow**:
-1. User input → Transformer service generates embedding
+1. User input → Embedding service generates embedding
 2. Compare with stored tool/prompt embeddings using cosine similarity
 3. If similarity ≥ 0.7: provide prompt guidance based on past ratings
 4. Extract keywords from responses for future guidance
 
-**Embedding Model**: Sentence-Transformers `all-MiniLM-L6-v2`
-- Lightweight (80MB)
-- CPU-friendly
-- 384-dimensional vectors
+**Embedding Model**: Dynamic with fallback
+- **Default**: Local Sentence-Transformers `all-MiniLM-L6-v2` (384 dimensions)
+- **Configurable**: External embedding services via `/model embedding add <url>`
+- **Auto-detection**: Embedding dimensions detected automatically
+- **Fallback**: Seamless fallback to local transformer service
+
+**EmbeddingClient**:
+- Abstraction layer for embedding generation
+- Supports external services with automatic fallback
+- Auto-detects dimensions on first call
+- Used by PostgreSQL API, Redis API, and ratings system
 
 ### Session Management
 
@@ -235,6 +247,23 @@ src/
 - `/session list` - List saved sessions
 - `/session restore <id>` - Restore previous session
 - `/session clear` - Clear all sessions
+
+### Model Management
+
+**Commands**:
+- `/model status` - Show all configured models
+- `/model list` - List all models
+- `/model <type> list` - List models of specific type
+- `/model <type> add <url> <model_name>` - Add general/coder model
+- `/model embedding add <url> [timeout]` - Add external embedding service
+- `/model <type> use <model_id>` - Set active model
+- `/model <type> remove <model_id>` - Remove model
+- `/model check [model_id]` - Check model availability
+
+**Model Types**:
+- `general` - General purpose chat models
+- `coder` - Code-specific models
+- `embedding` - External embedding services (no model_name required)
 
 ## Important Patterns
 

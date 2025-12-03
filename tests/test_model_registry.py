@@ -29,6 +29,26 @@ def test_add_model(registry):
     assert model.model_id.startswith('model_')
 
 
+def test_add_embedding_model(registry):
+    """Test adding an embedding model to the registry."""
+    model = registry.add_model(
+        model_type='embedding',
+        url='http://localhost:8000',
+        model_name='',  # Empty for embedding
+        timeout=60,
+        set_active=True,
+        embedding_dimensions=384
+    )
+
+    assert model.model_type == 'embedding'
+    assert model.url == 'http://localhost:8000'
+    assert model.model_name == ''
+    assert model.timeout == 60
+    assert model.is_active is True
+    assert model.embedding_dimensions == 384
+    assert model.model_id.startswith('model_')
+
+
 def test_add_invalid_model_type(registry):
     """Test adding a model with invalid type."""
     with pytest.raises(ValueError):
@@ -183,3 +203,88 @@ def test_model_config_serialization(registry):
     assert restored.model_id == model.model_id
     assert restored.model_name == model.model_name
     assert restored.url == model.url
+
+
+def test_get_active_embedding_model(registry):
+    """Test getting the active embedding model."""
+    model = registry.add_model(
+        model_type='embedding',
+        url='http://localhost:8000',
+        model_name='',
+        timeout=60,
+        set_active=True,
+        embedding_dimensions=384
+    )
+
+    active = registry.get_active_embedding_model()
+    assert active is not None
+    assert active.model_id == model.model_id
+    assert active.model_type == 'embedding'
+    assert active.embedding_dimensions == 384
+
+
+def test_set_embedding_dimensions(registry):
+    """Test setting embedding dimensions."""
+    model = registry.add_model(
+        model_type='embedding',
+        url='http://localhost:8000',
+        model_name='',
+        timeout=60,
+        set_active=True
+    )
+
+    # Initially no dimensions
+    assert model.embedding_dimensions is None
+
+    # Set dimensions
+    result = registry.set_embedding_dimensions(model.model_id, 768)
+    assert result is True
+
+    # Verify dimensions were set
+    updated_model = registry.get_model(model.model_id)
+    assert updated_model.embedding_dimensions == 768
+
+
+def test_set_embedding_dimensions_non_embedding_model(registry):
+    """Test that setting dimensions on non-embedding model fails."""
+    model = registry.add_model(
+        model_type='general',
+        url='http://localhost:11434',
+        model_name='llama3',
+        timeout=120
+    )
+
+    # Should fail for non-embedding model
+    result = registry.set_embedding_dimensions(model.model_id, 384)
+    assert result is False
+
+
+def test_list_embedding_models(registry):
+    """Test listing embedding models."""
+    # Add embedding models
+    registry.add_model('embedding', 'http://localhost:8000', '', 60, embedding_dimensions=384)
+    registry.add_model('embedding', 'http://localhost:8001', '', 60, embedding_dimensions=768)
+    
+    # Add non-embedding models
+    registry.add_model('general', 'http://localhost:11434', 'llama3', 120)
+
+    # List only embedding models
+    embedding_models = registry.list_models('embedding')
+    assert len(embedding_models) == 2
+    assert all(m.model_type == 'embedding' for m in embedding_models)
+
+    # List all models
+    all_models = registry.list_models()
+    assert len(all_models) == 3
+
+
+def test_embedding_model_status(registry):
+    """Test that embedding models appear in status."""
+    registry.add_model('embedding', 'http://localhost:8000', '', 60, embedding_dimensions=384)
+    registry.add_model('general', 'http://localhost:11434', 'llama3', 120)
+
+    status = registry.get_status()
+    
+    assert 'embedding' in status['models']
+    assert status['models']['embedding']['count'] == 1
+    assert status['models']['general']['count'] == 1
