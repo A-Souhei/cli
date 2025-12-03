@@ -599,7 +599,12 @@ def main(verbose=False):
                                 continue
                             
                             # Auto-detect dimensions
-                            embedding = test_data.get('embedding') or test_data.get('embeddings', [[]])[0]
+                            embedding = None
+                            if 'embedding' in test_data:
+                                embedding = test_data['embedding']
+                            elif 'embeddings' in test_data and test_data['embeddings']:
+                                embedding = test_data['embeddings'][0]
+                            
                             dimensions = len(embedding) if embedding else None
                             
                             model = model_registry.add_model(

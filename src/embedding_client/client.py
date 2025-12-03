@@ -2,8 +2,9 @@
 
 import os
 import requests
-from typing import List, Optional, Dict, Any
 import warnings
+import numpy as np
+from typing import List, Optional, Dict, Any
 
 from src.sentry_config import capture_exception
 from src.model_registry.manager import ModelRegistry
@@ -211,7 +212,7 @@ class EmbeddingClient:
                 
             except Exception as e:
                 # Log the error and fall through to fallback
-                warnings.warn(f"External embedding service failed: {e}. Falling back to local service.")
+                warnings.warn("External embedding service failed. Falling back to local service.")
                 capture_exception(e)
 
         # Fallback to local transformer service
@@ -253,7 +254,6 @@ class EmbeddingClient:
         # Calculate similarity based on metric
         if metric == "cosine":
             # Cosine similarity
-            import numpy as np
             emb1_arr = np.array(emb1)
             emb2_arr = np.array(emb2)
             
@@ -265,7 +265,6 @@ class EmbeddingClient:
             
         elif metric == "euclidean":
             # Euclidean distance (inverted for similarity)
-            import numpy as np
             emb1_arr = np.array(emb1)
             emb2_arr = np.array(emb2)
             distance = np.linalg.norm(emb1_arr - emb2_arr)
@@ -274,7 +273,6 @@ class EmbeddingClient:
             
         elif metric == "dot":
             # Dot product
-            import numpy as np
             return float(np.dot(emb1, emb2))
             
         else:
