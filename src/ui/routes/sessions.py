@@ -151,8 +151,8 @@ def get_session(session_id: str):
                         'status': 'success',
                         'session': session_data
                     })
-        except Exception:
-            pass
+        except Exception as e:
+            capture_exception(e)
         
         return jsonify({
             'status': 'error',
@@ -199,8 +199,8 @@ def delete_session(session_id: str):
                 
                 if response.status_code == 200:
                     deleted = True
-        except Exception:
-            pass
+        except Exception as e:
+            capture_exception(e)
         
         if deleted:
             return jsonify({

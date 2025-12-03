@@ -6,9 +6,8 @@ Provides endpoints for:
 - Getting documentation content
 """
 
-import os
 from pathlib import Path
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify
 
 from src.sentry_config import capture_exception
 
@@ -53,8 +52,8 @@ def list_docs():
                             if stripped and not stripped.startswith('#'):
                                 doc_info['preview'] = stripped[:150]
                                 break
-                except Exception:
-                    pass
+                except Exception as e:
+                    capture_exception(e)
                 
                 docs.append(doc_info)
         

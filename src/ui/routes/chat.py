@@ -10,8 +10,8 @@ import os
 import sys
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Any, Optional
-from flask import Blueprint, jsonify, request, current_app
+from typing import Dict, List, Any
+from flask import Blueprint, jsonify, request
 
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))

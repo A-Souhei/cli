@@ -8,10 +8,8 @@ Provides endpoints for:
 """
 
 import os
-import sys
 from pathlib import Path
-from flask import Blueprint, jsonify, request
-import asyncio
+from flask import Blueprint, jsonify
 import requests
 
 from src.sentry_config import capture_exception
@@ -113,8 +111,8 @@ def get_mcp_details(mcp_name: str):
             try:
                 with open(readme_path, 'r', encoding='utf-8') as f:
                     mcp_info['readme'] = f.read()
-            except Exception:
-                pass
+            except Exception as e:
+                capture_exception(e)
         
         # Read requirements if exists
         req_path = mcp_path / "requirements.txt"
@@ -122,8 +120,9 @@ def get_mcp_details(mcp_name: str):
             try:
                 with open(req_path, 'r', encoding='utf-8') as f:
                     mcp_info['requirements'] = f.read()
-            except Exception:
-                pass
+            except Exception as e:
+                # Log the exception but continue, as requirements.txt is optional
+                capture_exception(e)
         
         return jsonify({
             'status': 'success',

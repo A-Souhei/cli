@@ -15,7 +15,7 @@ import sys
 import webbrowser
 import threading
 from pathlib import Path
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify
 
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
