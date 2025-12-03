@@ -1059,7 +1059,7 @@
         }
     }
     
-    // Load available models from Ollama API
+    // Load available models from ModelRegistry (general and coder only)
     async function loadModels() {
         try {
             const response = await fetch('/api/chat/models');
@@ -1074,6 +1074,10 @@
                     const option = document.createElement('option');
                     option.value = model;
                     option.textContent = model;
+                    // Set active model as selected
+                    if (data.active_model && model === data.active_model) {
+                        option.selected = true;
+                    }
                     modelSelect.appendChild(option);
                 });
             }

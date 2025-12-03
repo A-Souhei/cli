@@ -105,30 +105,39 @@ def _save_current_session_to_ui_store() -> None:
 @chat_bp.route('/models', methods=['GET'])
 def get_available_models():
     """
-    Get list of registered models from ModelRegistry.
-    Only returns models that have been added via /model commands.
+    Get list of registered models from ModelRegistry for chat.
+    Only returns general and coder models (not embedding models).
+    Also returns the currently active model.
     """
     try:
         from src.model_registry import ModelRegistry
 
         registry = ModelRegistry()
 
-        # Get all registered models (both general and coder)
-        all_models = registry.list_models()
+        # Get general and coder models only (not embedding)
+        general_models = registry.list_models('general')
+        coder_models = registry.list_models('coder')
 
-        # Extract unique model names
-        model_names = list(set(m.model_name for m in all_models))
+        # Combine and extract unique model names
+        all_models = general_models + coder_models
+        model_names = list(set(m.model_name for m in all_models if m.model_name))
+
+        # Get active general model to set as default
+        active_model = registry.get_active_model('general')
+        active_model_name = active_model.model_name if active_model else None
 
         return jsonify({
             'status': 'success',
-            'models': model_names
+            'models': model_names,
+            'active_model': active_model_name
         })
     except Exception as e:
         capture_exception(e)
         return jsonify({
             'status': 'error',
             'message': f'Failed to fetch models: {str(e)}',
-            'models': []
+            'models': [],
+            'active_model': None
         }), 500
 
 

@@ -229,8 +229,9 @@
             embeddingBadge.className = 'badge badge-success';
             embeddingBadge.textContent = 'Active';
             const dimensions = embeddingModel.embedding_dimensions ? ` (${embeddingModel.embedding_dimensions}D)` : '';
+            const modelName = embeddingModel.model_name ? escapeHtml(embeddingModel.model_name) : 'Generic service';
             embeddingInfo.innerHTML = `
-                <p class="font-medium text-surface-900 dark:text-white">External service${dimensions}</p>
+                <p class="font-medium text-surface-900 dark:text-white">${modelName}${dimensions}</p>
                 <p class="text-xs text-surface-500 dark:text-surface-400 mt-1">${escapeHtml(embeddingModel.url)}</p>
             `;
         } else {
@@ -261,7 +262,7 @@
                     
                     // Display name based on model type
                     const displayName = model.model_type === 'embedding' 
-                        ? 'External embedding service'
+                        ? (model.model_name ? escapeHtml(model.model_name) : 'Generic embedding service')
                         : escapeHtml(model.model_name);
                     
                     // Additional info for embedding models
