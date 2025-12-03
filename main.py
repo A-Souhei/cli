@@ -19,6 +19,7 @@ from src.config import ConfigManager
 from src.config.llm_availability import LLMAvailabilityChecker
 from src.model_registry import ModelRegistry
 from src.model_registry.availability import ModelAvailabilityChecker
+from src.embedding_client import EmbeddingClient
 from src.ollama_client import OllamaClient
 from src.chat import ChatManager
 from src.selector import InteractiveSelector
@@ -61,6 +62,7 @@ from src.utils.datamap import (
 from src.utils.ratings import (
     process_rating,
     get_prompt_guidance,
+    set_embedding_client,
 )
 
 # Import code handlers from separate module
@@ -182,6 +184,16 @@ def main(verbose=False):
 
         # Initialize ModelRegistry
         model_registry = ModelRegistry()
+
+        # Initialize EmbeddingClient with fallback to local transformer
+        transformer_url = os.getenv('TRANSFORMER_API_URL', 'http://localhost:16050')
+        embedding_client = EmbeddingClient(
+            model_registry=model_registry,
+            fallback_url=transformer_url
+        )
+        
+        # Set embedding client for ratings module
+        set_embedding_client(embedding_client)
 
         # Run migration from config.yaml to Redis if needed
         run_migration_if_needed(config, model_registry, verbose=verbose)

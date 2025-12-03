@@ -16,6 +16,15 @@ import yaml
 # Add shared source directory to path
 sys.path.insert(0, '/app/src_shared')
 
+# Import EmbeddingClient and ModelRegistry
+try:
+    from embedding_client import EmbeddingClient
+    from model_registry.manager import ModelRegistry
+    EMBEDDING_CLIENT_AVAILABLE = True
+except ImportError:
+    EMBEDDING_CLIENT_AVAILABLE = False
+    print("Warning: EmbeddingClient not available, will use direct transformer calls")
+
 
 # Configure Sentry
 configure_sentry(service_name="postgres-flask")
@@ -64,6 +73,31 @@ OLLAMA_API_URL = CONFIG.get('ollama', {}).get('url', os.getenv('OLLAMA_API_URL',
 DEFAULT_OLLAMA_MODEL = CONFIG.get('ollama', {}).get('model', 'tinyllama')
 OLLAMA_TIMEOUT = CONFIG.get('ollama', {}).get('timeout', 120)
 print(f"Using Ollama - URL: {OLLAMA_API_URL}, Model: {DEFAULT_OLLAMA_MODEL}, Timeout: {OLLAMA_TIMEOUT}")
+
+# Initialize EmbeddingClient
+embedding_client = None
+if EMBEDDING_CLIENT_AVAILABLE:
+    try:
+        # Get Redis config from environment
+        redis_host = os.getenv('REDIS_HOST', 'localhost')
+        redis_port = int(os.getenv('REDIS_PORT', '26379'))
+        
+        # Initialize ModelRegistry and EmbeddingClient
+        model_registry = ModelRegistry(redis_host=redis_host, redis_port=redis_port)
+        embedding_client = EmbeddingClient(
+            model_registry=model_registry,
+            fallback_url=TRANSFORMER_API_URL
+        )
+        print(f"✓ EmbeddingClient initialized with fallback to {TRANSFORMER_API_URL}")
+        if embedding_client.is_using_fallback():
+            print("  → Using local transformer service (no external embedding model configured)")
+        else:
+            active_model = model_registry.get_active_embedding_model()
+            if active_model:
+                print(f"  → Using external embedding service: {active_model.url}")
+    except Exception as e:
+        print(f"Warning: Could not initialize EmbeddingClient: {e}")
+        embedding_client = None
 
 
 def handle_error(e, status_code=500):
@@ -319,33 +353,45 @@ def purge_ratings():
 # MCP Tools endpoints
 
 def get_embedding(text):
-    """Get embedding from transformer service."""
+    """Get embedding from embedding service."""
     try:
-        response = requests.get(
-            f"{TRANSFORMER_API_URL}/embed",
-            params={"text": text},
-            timeout=30
-        )
-        if response.status_code == 200:
-            return response.json().get('embedding')
-        return None
+        if embedding_client:
+            # Use EmbeddingClient (supports external services + fallback)
+            return embedding_client.embed(text)
+        else:
+            # Fallback to direct transformer service call
+            response = requests.get(
+                f"{TRANSFORMER_API_URL}/embed",
+                params={"text": text},
+                timeout=30
+            )
+            if response.status_code == 200:
+                return response.json().get('embedding')
+            return None
     except Exception as e:
+        capture_exception(e)
         print(f"Error getting embedding: {e}")
         return None
 
 
 def get_batch_embeddings(texts):
-    """Get embeddings for multiple texts from transformer service."""
+    """Get embeddings for multiple texts from embedding service."""
     try:
-        response = requests.get(
-            f"{TRANSFORMER_API_URL}/embed/batch",
-            params={"texts": json.dumps(texts)},
-            timeout=60
-        )
-        if response.status_code == 200:
-            return response.json().get('embeddings')
-        return None
+        if embedding_client:
+            # Use EmbeddingClient (supports external services + fallback)
+            return embedding_client.embed_batch(texts)
+        else:
+            # Fallback to direct transformer service call
+            response = requests.get(
+                f"{TRANSFORMER_API_URL}/embed/batch",
+                params={"texts": json.dumps(texts)},
+                timeout=60
+            )
+            if response.status_code == 200:
+                return response.json().get('embeddings')
+            return None
     except Exception as e:
+        capture_exception(e)
         print(f"Error getting batch embeddings: {e}")
         return None
 
