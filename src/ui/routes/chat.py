@@ -508,21 +508,40 @@ def handle_session_delete(session_id):
 
 
 def handle_models():
-    """List available models."""
+    """List registered models from ModelRegistry."""
     try:
-        client, _ = get_ollama_client()
-        models = client.list_models()
-        
-        if models:
-            model_list = "\n".join([f"• `{m}`" for m in models])
+        from src.model_registry import ModelRegistry
+
+        registry = ModelRegistry()
+        all_models = registry.list_models()
+
+        if all_models:
+            # Group models by type
+            general_models = [m for m in all_models if m.model_type == 'general']
+            coder_models = [m for m in all_models if m.model_type == 'coder']
+
+            response_parts = ["📋 **Registered Models:**\n"]
+
+            if general_models:
+                response_parts.append("**General Models:**")
+                for m in general_models:
+                    active_marker = " ✓" if m.is_active else ""
+                    response_parts.append(f"• `{m.model_name}`{active_marker}")
+
+            if coder_models:
+                response_parts.append("\n**Coder Models:**")
+                for m in coder_models:
+                    active_marker = " ✓" if m.is_active else ""
+                    response_parts.append(f"• `{m.model_name}`{active_marker}")
+
             return jsonify({
                 'status': 'success',
-                'response': f"📋 **Available Models:**\n\n{model_list}"
+                'response': "\n".join(response_parts)
             })
         else:
             return jsonify({
                 'status': 'success',
-                'response': "📋 **Available Models:**\n\n_No models found._"
+                'response': "📋 **Registered Models:**\n\n_No models registered. Use `/model add` to register models._"
             })
     except Exception as e:
         capture_exception(e)

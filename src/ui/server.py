@@ -105,6 +105,11 @@ def create_app(verbose: bool = False) -> Flask:
     def explorer_page():
         """File explorer page."""
         return render_template('explorer.html', working_dir=app.config['WORKING_DIR'])
+
+    @app.route('/models')
+    def models_page():
+        """Model management page."""
+        return render_template('models.html')
     
     @app.route('/health')
     def health():
