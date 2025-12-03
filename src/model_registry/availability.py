@@ -202,10 +202,12 @@ class ModelAvailabilityChecker:
         """
         general_model = self.get_available_model('general')
         coder_model = self.get_available_model('coder')
+        embedding_model = self.model_registry.get_active_embedding_model()
 
         status = {
             'general_model': general_model.to_dict() if general_model else None,
             'coder_model': coder_model.to_dict() if coder_model else None,
+            'embedding_model': embedding_model.to_dict() if embedding_model else None,
             'tinyollama_available': False,
             'registry_status': self.model_registry.get_status()
         }
