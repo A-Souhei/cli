@@ -19,23 +19,35 @@ class SessionTitleGenerator:
     MAX_TITLE_LENGTH = 50   # Maximum characters for generated title
     MAX_TOKENS = 60         # Maximum tokens for LLM response
 
-    def __init__(
-        self,
-        ollama_url: str = "http://localhost:11434",
-        model: str = "tinyllama",
-        timeout: int = 30
-    ):
+    def __init__(self, ollama_url: str, model: str, timeout: int):
         """
         Initialize the session title generator.
 
         Args:
-            ollama_url: URL of the ollama service
-            model: Model name to use for title generation
+            ollama_url: URL of the ollama service (from config)
+            model: Model name to use for title generation (from config)
             timeout: Request timeout in seconds
         """
         self.ollama_url = ollama_url
         self.model = model
         self.timeout = timeout
+
+    def is_ollama_reachable(self) -> bool:
+        """
+        Check if the Ollama service is reachable.
+
+        Returns:
+            True if Ollama is reachable, False otherwise
+        """
+        try:
+            with httpx.Client(timeout=5) as client:
+                response = client.get(f"{self.ollama_url}/api/tags")
+                return response.status_code == 200
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.RequestError):
+            return False
+        except Exception as e:
+            capture_exception(e)
+            return False
 
     def generate_title(self, first_prompt: str) -> Optional[str]:
         """
@@ -48,6 +60,10 @@ class SessionTitleGenerator:
             Generated title string, or None if generation failed
         """
         if not first_prompt or not first_prompt.strip():
+            return None
+
+        # Check if Ollama is reachable before attempting to generate title
+        if not self.is_ollama_reachable():
             return None
 
         # Truncate very long prompts to avoid token limits

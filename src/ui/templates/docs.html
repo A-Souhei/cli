@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+
+{% block title %}Documentation - AI CLI{% endblock %}
+
+{% block content %}
+<div class="flex h-full">
+    <!-- Documentation Sidebar -->
+    <aside class="w-56 bg-white dark:bg-surface-900 border-r border-surface-200 dark:border-surface-700 overflow-y-auto flex-shrink-0">
+        <div class="p-4">
+            <h2 class="text-sm font-semibold text-surface-900 dark:text-white mb-3">Documentation</h2>
+            <nav id="docs-nav" class="space-y-0.5">
+                <div class="text-surface-500 dark:text-surface-400 text-center py-3 text-xs">Loading...</div>
+            </nav>
+        </div>
+    </aside>
+    
+    <!-- Documentation Content -->
+    <main class="flex-1 overflow-y-auto p-6">
+        <div id="docs-content" class="max-w-4xl">
+            <div class="text-surface-500 dark:text-surface-400 text-center py-10">
+                <svg class="w-12 h-12 mx-auto mb-3 text-surface-300 dark:text-surface-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+                </svg>
+                <p class="text-sm">Select a document from the sidebar to view</p>
+            </div>
+        </div>
+    </main>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let currentDoc = null;
+    
+    // Wait for marked to be loaded from base.html
+    function waitForMarked() {
+        return new Promise((resolve) => {
+            if (typeof marked !== 'undefined' && marked.parse) {
+                resolve();
+            } else {
+                // Check every 100ms for up to 3 seconds
+                let attempts = 0;
+                const interval = setInterval(() => {
+                    attempts++;
+                    if (typeof marked !== 'undefined' && marked.parse) {
+                        clearInterval(interval);
+                        resolve();
+                    } else if (attempts > 30) {
+                        clearInterval(interval);
+                        resolve(); // Give up, will use fallback
+                    }
+                }, 100);
+            }
+        });
+    }
+    
+    // Render markdown to HTML
+    function renderMarkdown(text) {
+        if (typeof marked !== 'undefined' && marked.parse) {
+            try {
+                return marked.parse(text);
+            } catch (e) {
+                console.error('Markdown parsing error:', e);
+            }
+        }
+        
+        // Fallback: basic markdown rendering
+        return text
+            .replace(/^### (.*$)/gim, '<h3 class="text-lg font-medium mb-2 mt-6">$1</h3>')
+            .replace(/^## (.*$)/gim, '<h2 class="text-xl font-semibold mb-3 mt-8">$1</h2>')
+            .replace(/^# (.*$)/gim, '<h1 class="text-2xl font-semibold mb-4 border-b pb-3">$1</h1>')
+            .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>')
+            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+            .replace(/`([^`]+)`/g, '<code class="bg-surface-100 dark:bg-surface-800 px-1.5 py-0.5 rounded text-primary-500 text-sm font-mono">$1</code>')
+            .replace(/```([\s\S]*?)```/g, '<pre class="bg-surface-900 p-4 rounded-lg mb-4 overflow-x-auto"><code class="text-surface-200 text-sm">$1</code></pre>')
+            .replace(/^- (.*$)/gim, '<li class="ml-5 list-disc">$1</li>')
+            .replace(/\n\n/g, '</p><p class="mb-4">')
+            .replace(/\n/g, '<br>');
+    }
+    
+    // Load documentation list
+    async function loadDocsList() {
+        const nav = document.getElementById('docs-nav');
+        
+        try {
+            const response = await fetch('/api/docs/');
+            const data = await response.json();
+            
+            if (data.status === 'success' && data.docs.length > 0) {
+                // Add CLI Usage first (built-in)
+                let navHtml = `
+                    <button onclick="loadDoc('cli-usage', 'CLI Usage')" 
+                            class="doc-link flex items-center gap-2 w-full px-2.5 py-1.5 text-left rounded-md text-surface-600 dark:text-surface-300 hover:bg-surface-100 dark:hover:bg-surface-800 hover:text-surface-900 dark:hover:text-white transition-colors text-sm"
+                            data-doc="cli-usage">
+                        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                        </svg>
+                        <span>CLI Usage</span>
+                    </button>
+                    <div class="border-t border-surface-200 dark:border-surface-700 my-2"></div>
+                `;
+                
+                // Add documentation files
+                navHtml += data.docs.map(doc => `
+                    <button onclick="loadDoc('${doc.filename}', '${escapeHtml(doc.name)}')" 
+                            class="doc-link flex items-center gap-2 w-full px-2.5 py-1.5 text-left rounded-md text-surface-600 dark:text-surface-300 hover:bg-surface-100 dark:hover:bg-surface-800 hover:text-surface-900 dark:hover:text-white transition-colors text-sm"
+                            data-doc="${doc.filename}">
+                        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        </svg>
+                        <span class="truncate">${doc.name}</span>
+                    </button>
+                `).join('');
+                
+                nav.innerHTML = navHtml;
+                
+                // Load CLI Usage by default
+                loadDoc('cli-usage', 'CLI Usage');
+            } else {
+                nav.innerHTML = '<p class="text-surface-400 dark:text-surface-500 text-xs">No documentation found</p>';
+            }
+        } catch (error) {
+            nav.innerHTML = `<p class="text-red-500 text-xs">Error: ${error.message}</p>`;
+        }
+    }
+    
+    // Load a specific document
+    async function loadDoc(docName, title) {
+        const content = document.getElementById('docs-content');
+        currentDoc = docName;
+        
+        // Update nav active state
+        document.querySelectorAll('.doc-link').forEach(link => {
+            if (link.dataset.doc === docName) {
+                link.classList.add('bg-primary-100', 'dark:bg-primary-500/15', 'text-primary-600', 'dark:text-primary-400');
+                link.classList.remove('text-surface-600', 'dark:text-surface-300');
+            } else {
+                link.classList.remove('bg-primary-100', 'dark:bg-primary-500/15', 'text-primary-600', 'dark:text-primary-400');
+                link.classList.add('text-surface-600', 'dark:text-surface-300');
+            }
+        });
+        
+        content.innerHTML = `
+            <div class="text-surface-500 dark:text-surface-400 text-center py-10">
+                <svg class="w-8 h-8 mx-auto mb-3 opacity-50 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="text-sm">Loading documentation...</p>
+            </div>
+        `;
+        
+        try {
+            const response = await fetch(`/api/docs/${docName}`);
+            const data = await response.json();
+            
+            if (data.status === 'success' && data.doc) {
+                // Wait for marked to be ready
+                await waitForMarked();
+                
+                // Parse markdown to HTML
+                const htmlContent = renderMarkdown(data.doc.content);
+                
+                content.innerHTML = `
+                    <article class="markdown-content prose dark:prose-invert max-w-none">
+                        ${htmlContent}
+                    </article>
+                `;
+            } else {
+                content.innerHTML = `
+                    <div class="text-center py-10 text-red-500 text-sm">
+                        <p>Failed to load documentation</p>
+                    </div>
+                `;
+            }
+        } catch (error) {
+            content.innerHTML = `
+                <div class="text-center py-10 text-red-500 text-sm">
+                    <p>Error: ${error.message}</p>
+                </div>
+            `;
+        }
+    }
+    
+    // Escape HTML
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    // Load docs list on page load
+    document.addEventListener('DOMContentLoaded', async () => {
+        await waitForMarked();
+        loadDocsList();
+    });
+</script>
+{% endblock %}

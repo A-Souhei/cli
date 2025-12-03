@@ -1,0 +1,334 @@
+{% extends "base.html" %}
+
+{% block title %}Sessions - AI CLI{% endblock %}
+
+{% block content %}
+<div class="h-full flex flex-col">
+    <!-- Header -->
+    <div class="flex-shrink-0 bg-white dark:bg-surface-900 border-b border-surface-200 dark:border-surface-800 px-6 py-4">
+        <div class="flex items-center justify-between mb-3">
+            <div>
+                <h1 class="text-base font-semibold text-surface-900 dark:text-white">Sessions</h1>
+                <p class="text-surface-500 dark:text-surface-400 text-xs mt-0.5">Manage your conversation sessions</p>
+            </div>
+            <div class="flex items-center gap-3">
+                <label class="flex items-center gap-2 text-surface-600 dark:text-surface-300 text-sm cursor-pointer">
+                    <input type="checkbox" id="show-all" class="rounded bg-white dark:bg-surface-800 border-surface-300 dark:border-surface-600 text-primary-500 focus:ring-primary-500 focus:ring-offset-0">
+                    <span>All directories</span>
+                </label>
+                <button onclick="clearSessions()" class="btn btn-danger btn-sm gap-1.5">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                    </svg>
+                    <span>Clear All</span>
+                </button>
+            </div>
+        </div>
+        
+        <!-- Working Directory Info -->
+        <div class="flex items-center gap-2 text-xs">
+            <svg class="w-3.5 h-3.5 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+            </svg>
+            <span class="text-surface-600 dark:text-surface-300">Current directory:</span>
+            <code class="text-primary-500 bg-surface-100 dark:bg-surface-800 px-2 py-0.5 rounded font-mono">{{ working_dir }}</code>
+        </div>
+    </div>
+    
+    <!-- Sessions List -->
+    <div class="flex-1 overflow-auto p-6">
+        <div id="sessions-container" class="space-y-3 max-w-4xl mx-auto">
+            <div class="flex flex-col items-center justify-center text-surface-500 dark:text-surface-400 text-center py-16">
+                <svg class="w-8 h-8 mx-auto mb-3 animate-spin opacity-50" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="text-sm">Loading sessions...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Session Details Modal -->
+<div id="session-modal" class="fixed inset-0 bg-black/50 backdrop-blur-sm hidden items-center justify-center z-50">
+    <div class="card p-5 max-w-3xl w-full mx-4 max-h-[80vh] overflow-auto">
+        <div class="flex items-center justify-between mb-5">
+            <h2 class="text-base font-semibold dark:text-white text-surface-900" id="modal-title">Session Details</h2>
+            <button onclick="closeModal()" class="btn btn-ghost btn-icon">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <div id="modal-content" class="space-y-4">
+            <!-- Content will be loaded here -->
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let showAll = false;
+    
+    // Toggle show all
+    document.getElementById('show-all').addEventListener('change', function(e) {
+        showAll = e.target.checked;
+        loadSessions();
+    });
+    
+    // Load sessions
+    async function loadSessions() {
+        const container = document.getElementById('sessions-container');
+        
+        try {
+            const url = showAll ? '/api/sessions/?all=true' : '/api/sessions/';
+            const response = await fetch(url);
+            const data = await response.json();
+            
+            if (data.status === 'success' && data.sessions.length > 0) {
+                container.innerHTML = data.sessions.map(session => {
+                    // Escape all user-provided data
+                    const safeTitle = escapeHtml(session.title || 'Untitled Session');
+                    const safeSessionId = escapeHtml(session.session_id || '');
+                    const safeWorkingDir = escapeHtml(session.working_dir || '');
+                    const shortId = safeSessionId ? safeSessionId.substring(0, 16) + '...' : 'N/A';
+                    
+                    return `
+                    <div class="card p-4 hover:dark:border-primary-500/30 hover:border-primary-300 transition-colors" data-session-id="${safeSessionId}">
+                        <div class="flex items-start justify-between">
+                            <div class="flex items-start gap-3">
+                                <div class="w-10 h-10 dark:bg-primary-500/15 bg-primary-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                    <svg class="w-5 h-5 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                                    </svg>
+                                </div>
+                                <div class="min-w-0">
+                                    <h3 class="text-sm font-medium dark:text-white text-surface-900 mb-1">${safeTitle}</h3>
+                                    <p class="dark:text-surface-400 text-surface-500 text-xs font-mono mb-1.5">${shortId}</p>
+                                    <div class="flex items-center gap-4 text-xs dark:text-surface-500 text-surface-400">
+                                        <span class="flex items-center gap-1">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/>
+                                            </svg>
+                                            ${session.num_interactions || 0}
+                                        </span>
+                                        ${session.start_time ? `
+                                        <span class="flex items-center gap-1">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                            </svg>
+                                            ${new Date(session.start_time).toLocaleDateString()}
+                                        </span>
+                                        ` : ''}
+                                    </div>
+                                    ${safeWorkingDir ? `<p class="dark:text-surface-600 text-surface-400 text-[10px] mt-1.5 font-mono truncate max-w-sm" title="${safeWorkingDir}">${safeWorkingDir}</p>` : ''}
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <button class="view-session-btn btn btn-ghost btn-icon" title="View" data-session-id="${safeSessionId}">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                    </svg>
+                                </button>
+                                <button class="delete-session-btn btn btn-ghost btn-icon hover:!text-red-500" title="Delete" data-session-id="${safeSessionId}">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;}).join('');
+                
+                // Attach event listeners after rendering
+                attachSessionEventListeners();
+            } else {
+                container.innerHTML = `
+                    <div class="flex flex-col items-center justify-center py-16 text-center">
+                        <svg class="w-12 h-12 mx-auto mb-3 dark:text-surface-600 text-surface-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/>
+                        </svg>
+                        <h3 class="text-sm font-medium dark:text-surface-400 text-surface-500 mb-1.5">No sessions found</h3>
+                        <p class="dark:text-surface-500 text-surface-400 text-xs">Start with <code class="dark:bg-surface-800 bg-surface-100 px-1.5 py-0.5 rounded text-primary-500">/session start</code></p>
+                    </div>
+                `;
+            }
+        } catch (error) {
+            container.innerHTML = `
+                <div class="text-center py-10 text-red-500">
+                    <svg class="w-10 h-10 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    <p class="text-sm">Failed to load sessions: ${error.message}</p>
+                </div>
+            `;
+        }
+    }
+    
+    // View session details
+    async function viewSession(sessionId) {
+        const modal = document.getElementById('session-modal');
+        const modalContent = document.getElementById('modal-content');
+        const modalTitle = document.getElementById('modal-title');
+        
+        modalContent.innerHTML = '<div class="dark:text-surface-400 text-surface-500 text-center py-6 text-sm">Loading...</div>';
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        
+        try {
+            const response = await fetch(`/api/sessions/${sessionId}`);
+            const data = await response.json();
+            
+            if (data.status === 'success' && data.session) {
+                const session = data.session;
+                modalTitle.textContent = session.title || 'Session Details';
+                
+                // Escape session data for display
+                const safeSessionId = escapeHtml(session.session_id);
+                const safeWorkingDir = escapeHtml(session.working_dir || 'N/A');
+                
+                let historyHtml = '';
+                if (session.history && session.history.length > 0) {
+                    historyHtml = session.history.map((interaction, idx) => {
+                        const safePrompt = escapeHtml(interaction.prompt || '');
+                        const responseText = String(interaction.response || '');
+                        const safeResponse = escapeHtml(responseText.substring(0, 500));
+                        const hasMore = responseText.length > 500;
+                        
+                        return `
+                        <div class="dark:bg-surface-800 bg-surface-100 rounded-lg p-3">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="px-1.5 py-0.5 dark:bg-primary-500/15 bg-primary-100 text-primary-500 text-[10px] font-medium rounded">#${idx + 1}</span>
+                                <span class="dark:text-surface-500 text-surface-400 text-[10px]">${new Date(interaction.timestamp).toLocaleString()}</span>
+                            </div>
+                            <div class="mb-2">
+                                <p class="dark:text-surface-500 text-surface-400 text-xs mb-0.5">User:</p>
+                                <p class="dark:text-white text-surface-900 text-sm">${safePrompt}</p>
+                            </div>
+                            <div>
+                                <p class="dark:text-surface-500 text-surface-400 text-xs mb-0.5">Assistant:</p>
+                                <div class="dark:text-surface-300 text-surface-600 text-xs max-h-32 overflow-y-auto">${safeResponse}${hasMore ? '...' : ''}</div>
+                            </div>
+                        </div>
+                    `;}).join('');
+                } else {
+                    historyHtml = '<p class="dark:text-surface-500 text-surface-400 text-sm">No interactions recorded</p>';
+                }
+                
+                modalContent.innerHTML = `
+                    <div class="grid grid-cols-2 gap-3 mb-5">
+                        <div class="dark:bg-surface-800 bg-surface-100 rounded-lg p-3">
+                            <p class="dark:text-surface-500 text-surface-400 text-xs mb-1">Session ID</p>
+                            <p class="dark:text-white text-surface-900 font-mono text-xs">${safeSessionId}</p>
+                        </div>
+                        <div class="dark:bg-surface-800 bg-surface-100 rounded-lg p-3">
+                            <p class="dark:text-surface-500 text-surface-400 text-xs mb-1">Start Time</p>
+                            <p class="dark:text-white text-surface-900 text-sm">${session.start_time ? new Date(session.start_time).toLocaleString() : 'N/A'}</p>
+                        </div>
+                        <div class="dark:bg-surface-800 bg-surface-100 rounded-lg p-3">
+                            <p class="dark:text-surface-500 text-surface-400 text-xs mb-1">Interactions</p>
+                            <p class="dark:text-white text-surface-900 text-sm">${session.history ? session.history.length : 0}</p>
+                        </div>
+                        <div class="dark:bg-surface-800 bg-surface-100 rounded-lg p-3">
+                            <p class="dark:text-surface-500 text-surface-400 text-xs mb-1">Working Directory</p>
+                            <p class="dark:text-white text-surface-900 text-xs font-mono truncate" title="${safeWorkingDir}">${safeWorkingDir}</p>
+                        </div>
+                    </div>
+                    <h3 class="text-sm font-semibold dark:text-white text-surface-900 mb-3">Conversation History</h3>
+                    <div class="space-y-3 max-h-80 overflow-y-auto">${historyHtml}</div>
+                `;
+            } else {
+                modalContent.innerHTML = '<div class="text-red-500 text-center py-6 text-sm">Failed to load session details</div>';
+            }
+        } catch (error) {
+            modalContent.innerHTML = `<div class="text-red-500 text-center py-6 text-sm">Error: ${error.message}</div>`;
+        }
+    }
+    
+    // Delete session
+    async function deleteSession(sessionId) {
+        showConfirm(
+            'Are you sure you want to delete this session?',
+            async () => {
+                try {
+                    const response = await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+                    const data = await response.json();
+                    
+                    if (data.status === 'success') {
+                        loadSessions();
+                    } else {
+                        showAlert('Failed to delete session: ' + data.message, 'error');
+                    }
+                } catch (error) {
+                    showAlert('Error deleting session: ' + error.message, 'error');
+                }
+            }
+        );
+    }
+    
+    // Clear all sessions
+    async function clearSessions() {
+        showConfirm(
+            'Are you sure you want to delete all sessions for this directory?',
+            async () => {
+                try {
+                    const response = await fetch('/api/sessions/clear', { method: 'DELETE' });
+                    const data = await response.json();
+                    
+                    if (data.status === 'success') {
+                        loadSessions();
+                    } else {
+                        showAlert('Failed to clear sessions: ' + data.message, 'error');
+                    }
+                } catch (error) {
+                    showAlert('Error clearing sessions: ' + error.message, 'error');
+                }
+            }
+        );
+    }
+    
+    // Close modal
+    function closeModal() {
+        const modal = document.getElementById('session-modal');
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+    
+    // Escape HTML
+    function escapeHtml(text) {
+        if (text === null || text === undefined) return '';
+        const div = document.createElement('div');
+        div.textContent = String(text);
+        return div.innerHTML;
+    }
+    
+    // Attach event listeners for session buttons (called after rendering)
+    function attachSessionEventListeners() {
+        // View buttons
+        document.querySelectorAll('.view-session-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const sessionId = this.dataset.sessionId;
+                if (sessionId) viewSession(sessionId);
+            });
+        });
+        
+        // Delete buttons
+        document.querySelectorAll('.delete-session-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const sessionId = this.dataset.sessionId;
+                if (sessionId) deleteSession(sessionId);
+            });
+        });
+    }
+    
+    // Close modal on click outside
+    document.getElementById('session-modal').addEventListener('click', function(e) {
+        if (e.target === this) closeModal();
+    });
+    
+    // Load sessions on page load
+    document.addEventListener('DOMContentLoaded', loadSessions);
+</script>
+{% endblock %}

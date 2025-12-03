@@ -1,6 +1,12 @@
 """Main entry point for the AI CLI application."""
 
+# CRITICAL: Capture original working directory BEFORE any imports
+# This must be the first thing we do to preserve the true launch directory
+import os
 import sys
+if 'AI_CLI_ORIGINAL_DIR' not in os.environ:
+    os.environ['AI_CLI_ORIGINAL_DIR'] = os.getcwd()
+
 import json
 import argparse
 import re
@@ -8,7 +14,6 @@ import requests
 import urllib.parse
 import subprocess
 import asyncio
-import os
 from pathlib import Path
 from src.config import ConfigManager
 from src.config.llm_availability import LLMAvailabilityChecker
@@ -2022,11 +2027,24 @@ Ensure all imports are correct, syntax is valid, and the code runs without error
 
 
 if __name__ == "__main__":
+    # AI_CLI_ORIGINAL_DIR is already set at the top of this file before imports
+    
     parser = argparse.ArgumentParser(description="AI CLI - Powered by Ollama")
     parser.add_argument(
         '-v', '--verbose',
         action='store_true',
         help='Enable verbose mode to show debug information'
     )
+    parser.add_argument(
+        '--show-ui',
+        action='store_true',
+        help='Launch the web-based UI instead of CLI'
+    )
     args = parser.parse_args()
-    main(verbose=args.verbose)
+    
+    if args.show_ui:
+        # Import and start UI server
+        from src.ui.server import start_ui_server
+        start_ui_server(verbose=args.verbose)
+    else:
+        main(verbose=args.verbose)

@@ -567,9 +567,13 @@ def list_sessions():
         # Get all session keys from index
         sessions_index_key = "cli:sessions:index"
         all_keys = redis_client.smembers(sessions_index_key)
+        
+        app.logger.info(f"DEBUG /session/list: prefix={prefix}, total_keys_in_index={len(all_keys)}")
 
         # Filter by prefix
         filtered_keys = [k for k in all_keys if k.startswith(prefix)]
+        
+        app.logger.info(f"DEBUG: filtered_keys count={len(filtered_keys)}")
 
         sessions = []
         for key in filtered_keys:
@@ -577,6 +581,7 @@ def list_sessions():
             if session_data:
                 try:
                     session = json.loads(session_data)
+                    
                     # Extract summary info (including title and working_dir)
                     summary = {
                         'session_id': session.get('session_id'),
@@ -589,7 +594,9 @@ def list_sessions():
                     sessions.append(summary)
                 except (json.JSONDecodeError, KeyError, TypeError) as e:
                     # Skip malformed sessions - log and continue to next
-                    print(f"Skipping malformed session: {e}")
+                    print(f"ERROR: Skipping malformed session {key}: {e}", flush=True)
+                    import traceback
+                    traceback.print_exc()
                     continue
 
         return jsonify({

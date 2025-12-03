@@ -280,7 +280,6 @@ class SessionManager:
             True if saved successfully, False otherwise
         """
         if not self.active_session:
-            print("⚠️  No active session to save.")
             return False
 
         try:
@@ -299,10 +298,6 @@ class SessionManager:
             key = f"{self._session_key_prefix}{self.active_session}"
 
             with httpx.Client(timeout=10.0) as client:
-                # Check if Redis API has a generic set endpoint
-                # For now, we'll use a simple approach with redis-py if available
-                # Otherwise, store via file or implement custom endpoint
-
                 # Store session data
                 response = client.post(
                     f"{self.redis_api_url}/session/store",
@@ -313,15 +308,12 @@ class SessionManager:
                 )
 
                 if response.status_code == 200:
-                    print(f"💾 Session saved: {self.active_session}")
                     return True
                 else:
-                    print(f"⚠️  Failed to save session: {response.text}")
                     return False
 
         except Exception as e:
             capture_exception(e)
-            print(f"❌ Error saving session: {e}")
             return False
 
     def restore_from_redis(self, session_id: str, current_working_dir: Optional[str] = None) -> bool:

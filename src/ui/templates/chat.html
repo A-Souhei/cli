@@ -1,0 +1,1108 @@
+{% extends "base.html" %}
+
+{% block title %}Chat - AI CLI{% endblock %}
+
+{% block content %}
+<div class="flex flex-col h-full">
+    <!-- Fixed Header with Toolbar -->
+    <div class="flex-shrink-0 sticky top-0 z-40 px-4 py-2 bg-white dark:bg-surface-900 border-b border-surface-200 dark:border-surface-800 shadow-sm">
+        <div class="flex items-center gap-3">
+            <!-- Left: Title and Session Status -->
+            <div class="flex items-center gap-2 flex-shrink-0">
+                <h1 class="text-base font-semibold text-surface-900 dark:text-white">Chat</h1>
+                <div id="session-status" class="flex items-center gap-1.5 px-2 py-0.5 bg-surface-100 dark:bg-surface-800 rounded-md">
+                    <div id="session-indicator" class="w-1.5 h-1.5 rounded-full bg-surface-400 dark:bg-surface-500"></div>
+                    <span id="session-text" class="text-surface-500 dark:text-surface-400 text-xs whitespace-nowrap">No Session</span>
+                </div>
+            </div>
+            
+            <!-- Center: Command Toolbar -->
+            <div class="flex items-center gap-1.5 flex-1 overflow-x-auto overflow-y-visible scrollbar-hide">
+                <!-- Session Commands -->
+                <div class="relative flex-shrink-0" id="session-dropdown">
+                    <button id="session-btn" class="btn btn-secondary btn-sm gap-1 whitespace-nowrap">
+                        <svg class="w-3.5 h-3.5 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+                        </svg>
+                        <span>Session</span>
+                        <svg class="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+                    <div id="session-menu" data-dropdown-menu class="hidden dropdown-menu z-50 py-1 min-w-[160px]">
+                        <button class="session-action dropdown-item w-full text-left flex items-center gap-2" data-action="start">
+                            <span class="text-emerald-500">▶</span> Start
+                        </button>
+                        <button class="session-action dropdown-item w-full text-left flex items-center gap-2" data-action="end">
+                            <span class="text-red-400">■</span> End
+                        </button>
+                        <button class="session-action dropdown-item w-full text-left flex items-center gap-2" data-action="info">
+                            <span class="text-primary-400">ℹ</span> Info
+                        </button>
+                        <button class="session-action dropdown-item w-full text-left flex items-center gap-2" data-action="list">
+                            <span class="text-surface-400">☰</span> List
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Code Command -->
+                <button id="code-btn" class="btn btn-secondary btn-sm gap-1 flex-shrink-0 whitespace-nowrap" title="Execute code command">
+                    <svg class="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+                    </svg>
+                    <span>/code</span>
+                </button>
+                
+                <!-- Repomap Commands -->
+                <div class="relative flex-shrink-0" id="repomap-dropdown">
+                    <button id="repomap-btn" class="btn btn-secondary btn-sm gap-1 whitespace-nowrap">
+                        <svg class="w-3.5 h-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
+                        </svg>
+                        <span>Repomap</span>
+                        <svg class="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+                    <div id="repomap-menu" data-dropdown-menu class="hidden dropdown-menu z-50 py-1 min-w-[160px]">
+                        <button class="repomap-action dropdown-item w-full text-left" data-action="create">📦 Create</button>
+                        <button class="repomap-action dropdown-item w-full text-left" data-action="load">📂 Load</button>
+                        <button class="repomap-action dropdown-item w-full text-left" data-action="update">🔄 Update</button>
+                    </div>
+                </div>
+                
+                <!-- Datamap Commands -->
+                <div class="relative flex-shrink-0" id="datamap-dropdown">
+                    <button id="datamap-btn" class="btn btn-secondary btn-sm gap-1 whitespace-nowrap">
+                        <svg class="w-3.5 h-3.5 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/>
+                        </svg>
+                        <span>Datamap</span>
+                        <svg class="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+                    <div id="datamap-menu" data-dropdown-menu class="hidden dropdown-menu z-50 py-1 min-w-[160px]">
+                        <button class="datamap-action dropdown-item w-full text-left" data-action="create">🗄️ Create</button>
+                        <button class="datamap-action dropdown-item w-full text-left" data-action="load">📂 Load</button>
+                        <button class="datamap-action dropdown-item w-full text-left" data-action="update">🔄 Update</button>
+                    </div>
+                </div>
+                
+                <!-- Models -->
+                <button id="models-btn" class="btn btn-secondary btn-sm gap-1 flex-shrink-0 whitespace-nowrap" title="List available models">
+                    <svg class="w-3.5 h-3.5 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                    </svg>
+                    <span>Models</span>
+                </button>
+                
+                <!-- MCPs -->
+                <button id="mcps-btn" class="btn btn-secondary btn-sm gap-1 flex-shrink-0 whitespace-nowrap" title="List MCPs">
+                    <svg class="w-3.5 h-3.5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/>
+                    </svg>
+                    <span>MCPs</span>
+                </button>
+                
+                <!-- Attach File -->
+                <button id="attach-btn" class="btn btn-secondary btn-sm gap-1 flex-shrink-0 whitespace-nowrap" title="Attach file with @ prefix">
+                    <svg class="w-3.5 h-3.5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                    </svg>
+                    <span>@File</span>
+                </button>
+                
+                <!-- Help -->
+                <button id="help-btn" class="btn btn-ghost btn-sm gap-1 flex-shrink-0 whitespace-nowrap" title="Show available commands">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    <span>Help</span>
+                </button>
+            </div>
+            
+            <!-- Right: Model Selector and Clear -->
+            <div class="flex items-center gap-2 flex-shrink-0">
+                <select id="model-select" class="input text-xs py-1 px-2 pr-6 min-w-[100px]">
+                    <!-- Models loaded dynamically from API -->
+                </select>
+                <button id="clear-chat" class="btn btn-ghost btn-sm gap-1 whitespace-nowrap">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                    </svg>
+                    <span>Clear</span>
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Chat Messages -->
+    <div id="chat-messages" class="flex-1 overflow-y-auto p-5 space-y-4">
+        <!-- Welcome message -->
+        <div class="flex items-start gap-3 max-w-3xl">
+            <div class="w-7 h-7 bg-gradient-to-br from-primary-500 to-primary-600 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm">
+                <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                </svg>
+            </div>
+            <div class="card p-4">
+                <p class="dark:text-surface-200 text-surface-700 text-sm mb-2">Welcome to AI CLI Chat! 👋</p>
+                <p class="dark:text-surface-400 text-surface-500 text-xs mb-3">Use the <span class="text-primary-500 font-medium">toolbar above</span> for quick actions, or type commands:</p>
+                <div class="space-y-1.5 text-xs">
+                    <div class="flex items-center gap-2">
+                        <code class="dark:bg-surface-800 bg-surface-100 px-1.5 py-0.5 rounded text-emerald-500 font-mono">/code</code>
+                        <span class="dark:text-surface-400 text-surface-500">Execute code tasks</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <code class="dark:bg-surface-800 bg-surface-100 px-1.5 py-0.5 rounded text-primary-500 font-mono">/session</code>
+                        <span class="dark:text-surface-400 text-surface-500">Manage sessions</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <code class="dark:bg-surface-800 bg-surface-100 px-1.5 py-0.5 rounded text-amber-500 font-mono">/repomap</code>
+                        <span class="dark:text-surface-400 text-surface-500">Repository mapping</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <code class="dark:bg-surface-800 bg-surface-100 px-1.5 py-0.5 rounded text-orange-500 font-mono">@file</code>
+                        <span class="dark:text-surface-400 text-surface-500">Include file in context</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Code Mode Modal -->
+    <div id="code-modal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+        <div class="card p-5 w-full max-w-xl mx-4">
+            <h3 class="text-base font-semibold dark:text-white text-surface-900 mb-1 flex items-center gap-2">
+                <svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+                </svg>
+                Code Command
+            </h3>
+            <p class="dark:text-surface-400 text-surface-500 text-xs mb-3">Describe what code you want to create or modify</p>
+            <textarea id="code-prompt" class="input w-full resize-none font-mono text-sm" rows="4" placeholder="Example: write Python code to calculate fibonacci(20)"></textarea>
+            <div class="flex justify-end gap-2 mt-4">
+                <button id="code-cancel" class="btn btn-secondary btn-sm">Cancel</button>
+                <button id="code-execute" class="btn btn-primary btn-sm">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    Execute
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- File Attach Modal with Upload -->
+    <div id="attach-modal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+        <div class="card p-5 w-full max-w-md mx-4">
+            <h3 class="text-base font-semibold dark:text-white text-surface-900 mb-3 flex items-center gap-2">
+                <svg class="w-4 h-4 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                </svg>
+                Attach File
+            </h3>
+            
+            <!-- Tabs -->
+            <div class="flex gap-1 mb-3 p-1 dark:bg-surface-800 bg-surface-100 rounded-lg">
+                <button id="tab-path" class="flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors dark:bg-surface-700 dark:text-white bg-white text-surface-900 shadow-sm">Path</button>
+                <button id="tab-upload" class="flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors dark:text-surface-400 dark:hover:text-white text-surface-500 hover:text-surface-900">Upload</button>
+            </div>
+            
+            <!-- Path Input Tab -->
+            <div id="path-tab-content">
+                <p class="dark:text-surface-400 text-surface-500 text-xs mb-2">Enter file path to include:</p>
+                <input type="text" id="attach-path" class="input w-full font-mono text-sm" placeholder="e.g., src/main.py">
+            </div>
+            
+            <!-- Upload Tab -->
+            <div id="upload-tab-content" class="hidden">
+                <p class="dark:text-surface-400 text-surface-500 text-xs mb-2">Upload files to include in context:</p>
+                <div id="drop-zone" class="border-2 border-dashed dark:border-surface-700 border-surface-300 rounded-lg p-6 text-center dark:hover:border-orange-500/50 hover:border-orange-500 transition-colors cursor-pointer">
+                    <input type="file" id="file-input" class="hidden" multiple>
+                    <svg class="w-8 h-8 mx-auto dark:text-surface-500 text-surface-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                    </svg>
+                    <p class="dark:text-surface-400 text-surface-500 text-xs">Drag & drop or click to browse</p>
+                </div>
+                <div id="uploaded-files" class="mt-2 space-y-1"></div>
+            </div>
+            
+            <div class="flex justify-end gap-2 mt-4">
+                <button id="attach-cancel" class="btn btn-secondary btn-sm">Cancel</button>
+                <button id="attach-insert" class="btn btn-primary btn-sm">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+                    </svg>
+                    Insert
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Input Area -->
+    <div class="flex-shrink-0 px-4 py-5 bg-white dark:bg-surface-900 border-t border-surface-200 dark:border-surface-800">
+        <div class="w-full max-w-5xl mx-auto space-y-3">
+            <!-- Attached files preview -->
+            <div id="attached-files-preview" class="hidden flex flex-wrap gap-2"></div>
+            
+            <form id="chat-form" class="space-y-2">
+                <div class="rounded-[28px] border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-900/60 px-3 sm:px-4 py-3 shadow-soft flex items-center gap-2 sm:gap-3 transition focus-within:border-primary-500 focus-within:ring-2 focus-within:ring-primary-500/25">
+                    <!-- Plus button inside input -->
+                    <button 
+                        type="button" 
+                        id="plus-attach-btn"
+                        class="flex-shrink-0 h-10 w-10 rounded-2xl text-surface-500 dark:text-surface-300 hover:text-primary-500 transition flex items-center justify-center"
+                        title="Attach file (@)"
+                    >
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+                        </svg>
+                    </button>
+                    
+                    <div class="flex-1 relative flex items-center" style="min-height: 40px;">
+                        <textarea 
+                            id="chat-input" 
+                            aria-label="Chat input"
+                            class="w-full bg-transparent border-none text-sm sm:text-base leading-relaxed focus:outline-none focus:ring-0 resize-none text-surface-900 dark:text-surface-50 px-0 py-0 align-middle"
+                            rows="1"
+                            style="min-height: 24px; max-height: 220px;"
+                        ></textarea>
+                        <span id="chat-placeholder" class="absolute inset-0 flex items-center text-sm sm:text-base text-surface-400 dark:text-surface-500 pointer-events-none select-none transition-opacity duration-150">Type your message or command...</span>
+                    </div>
+                    
+                    <button 
+                        type="submit" 
+                        id="send-button"
+                        class="flex-shrink-0 h-10 w-10 rounded-2xl text-primary-600 hover:text-primary-500 transition flex items-center justify-center"
+                        title="Send"
+                    >
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="flex flex-wrap items-center justify-between gap-2 text-[11px] uppercase tracking-wide dark:text-surface-500 text-surface-400">
+                    <span class="flex items-center gap-2">
+                        <span class="px-2 py-0.5 rounded-full border border-surface-300 dark:border-surface-700 dark:bg-surface-800 bg-white font-semibold">/</span>
+                        <span class="normal-case tracking-normal text-xs">Start a command</span>
+                    </span>
+                    <span class="hidden sm:flex items-center gap-1 normal-case tracking-normal text-xs">
+                        <span class="px-1.5 py-0.5 rounded border border-surface-200 dark:border-surface-700 dark:bg-surface-800 bg-white text-[11px]">Shift</span>
+                        <span>+</span>
+                        <span class="px-1.5 py-0.5 rounded border border-surface-200 dark:border-surface-700 dark:bg-surface-800 bg-white text-[11px]">Enter</span>
+                        <span class="text-surface-500 dark:text-surface-400">New line</span>
+                    </span>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // DOM Elements
+    const chatMessages = document.getElementById('chat-messages');
+    const chatForm = document.getElementById('chat-form');
+    const chatInput = document.getElementById('chat-input');
+    const chatPlaceholder = document.getElementById('chat-placeholder');
+    const sendButton = document.getElementById('send-button');
+    const clearChatBtn = document.getElementById('clear-chat');
+    const modelSelect = document.getElementById('model-select');
+    
+    // Session elements
+    const sessionBtn = document.getElementById('session-btn');
+    const sessionMenu = document.getElementById('session-menu');
+    const sessionIndicator = document.getElementById('session-indicator');
+    const sessionText = document.getElementById('session-text');
+    
+    // Repomap elements
+    const repomapBtn = document.getElementById('repomap-btn');
+    const repomapMenu = document.getElementById('repomap-menu');
+    
+    // Datamap elements
+    const datamapBtn = document.getElementById('datamap-btn');
+    const datamapMenu = document.getElementById('datamap-menu');
+    
+    // Other buttons
+    const codeBtn = document.getElementById('code-btn');
+    const modelsBtn = document.getElementById('models-btn');
+    const mcpsBtn = document.getElementById('mcps-btn');
+    const attachBtn = document.getElementById('attach-btn');
+    const helpBtn = document.getElementById('help-btn');
+    
+    // Modals
+    const codeModal = document.getElementById('code-modal');
+    const codePrompt = document.getElementById('code-prompt');
+    const codeCancel = document.getElementById('code-cancel');
+    const codeExecute = document.getElementById('code-execute');
+    const attachModal = document.getElementById('attach-modal');
+    const attachPath = document.getElementById('attach-path');
+    const attachCancel = document.getElementById('attach-cancel');
+    const attachInsert = document.getElementById('attach-insert');
+    
+    let isProcessing = false;
+    let sessionActive = false;
+
+    function updateChatPlaceholder() {
+        if (!chatPlaceholder) return;
+        if (document.activeElement === chatInput || chatInput.value.trim().length) {
+            chatPlaceholder.classList.add('opacity-0');
+        } else {
+            chatPlaceholder.classList.remove('opacity-0');
+        }
+    }
+    
+    // ========== Dropdown Menus ==========
+    const dropdownMenus = [sessionMenu, repomapMenu, datamapMenu];
+
+    function resetDropdownPosition(menu) {
+        menu.style.position = '';
+        menu.style.top = '';
+        menu.style.left = '';
+        menu.style.minWidth = '';
+        menu.style.marginTop = '';
+    }
+
+    function hideAllDropdowns() {
+        dropdownMenus.forEach(menu => {
+            menu.classList.add('hidden');
+            resetDropdownPosition(menu);
+        });
+    }
+
+    function positionDropdown(trigger, menu) {
+        const rect = trigger.getBoundingClientRect();
+        menu.style.position = 'fixed';
+        menu.style.top = `${rect.bottom + 6}px`;
+        menu.style.left = `${rect.left}px`;
+        menu.style.minWidth = `${Math.max(rect.width, 160)}px`;
+        menu.style.marginTop = '0';
+    }
+
+    function toggleDropdown(trigger, menu) {
+        const shouldOpen = menu.classList.contains('hidden');
+        hideAllDropdowns();
+        if (shouldOpen) {
+            positionDropdown(trigger, menu);
+            menu.classList.remove('hidden');
+        }
+    }
+
+    sessionBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        toggleDropdown(sessionBtn, sessionMenu);
+    });
+
+    repomapBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        toggleDropdown(repomapBtn, repomapMenu);
+    });
+
+    datamapBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        toggleDropdown(datamapBtn, datamapMenu);
+    });
+
+    document.addEventListener('click', hideAllDropdowns);
+    window.addEventListener('resize', hideAllDropdowns);
+    window.addEventListener('scroll', hideAllDropdowns, true);
+    
+    // ========== Session Actions ==========
+    document.querySelectorAll('.session-action').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const action = btn.dataset.action;
+            sessionMenu.classList.add('hidden');
+            
+            switch(action) {
+                case 'start':
+                    await executeCommand('/session start');
+                    break;
+                case 'end':
+                    await executeCommand('/session end');
+                    break;
+                case 'info':
+                    await executeCommand('/session info');
+                    break;
+                case 'list':
+                    await executeCommand('/session list');
+                    break;
+            }
+        });
+    });
+    
+    // ========== Repomap Actions ==========
+    document.querySelectorAll('.repomap-action').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const action = btn.dataset.action;
+            repomapMenu.classList.add('hidden');
+            
+            switch(action) {
+                case 'create':
+                    await executeCommand('/repomap create');
+                    break;
+                case 'load':
+                    await executeCommand('/repomap load');
+                    break;
+                case 'update':
+                    await executeCommand('/repomap update');
+                    break;
+            }
+        });
+    });
+    
+    // ========== Datamap Actions ==========
+    document.querySelectorAll('.datamap-action').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const action = btn.dataset.action;
+            datamapMenu.classList.add('hidden');
+            
+            switch(action) {
+                case 'create':
+                    await executeCommand('/datamap create');
+                    break;
+                case 'load':
+                    await executeCommand('/datamap load');
+                    break;
+                case 'update':
+                    await executeCommand('/datamap update');
+                    break;
+            }
+        });
+    });
+    
+    // ========== Code Modal ==========
+    codeBtn.addEventListener('click', () => {
+        codeModal.classList.remove('hidden');
+        codePrompt.focus();
+    });
+    
+    codeCancel.addEventListener('click', () => {
+        codeModal.classList.add('hidden');
+        codePrompt.value = '';
+    });
+    
+    codeExecute.addEventListener('click', async () => {
+        const prompt = codePrompt.value.trim();
+        if (prompt) {
+            codeModal.classList.add('hidden');
+            await executeCommand('/code ' + prompt);
+            codePrompt.value = '';
+        }
+    });
+    
+    // ========== Attach Modal ==========
+    const plusAttachBtn = document.getElementById('plus-attach-btn');
+    const tabPath = document.getElementById('tab-path');
+    const tabUpload = document.getElementById('tab-upload');
+    const pathTabContent = document.getElementById('path-tab-content');
+    const uploadTabContent = document.getElementById('upload-tab-content');
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const uploadedFilesDiv = document.getElementById('uploaded-files');
+    const attachedFilesPreview = document.getElementById('attached-files-preview');
+    
+    let uploadedFiles = [];
+    let attachedFilePaths = [];
+    
+    // Plus button opens attach modal
+    plusAttachBtn.addEventListener('click', () => {
+        attachModal.classList.remove('hidden');
+        attachPath.focus();
+    });
+    
+    attachBtn.addEventListener('click', () => {
+        attachModal.classList.remove('hidden');
+        attachPath.focus();
+    });
+    
+    // Tab switching
+    tabPath.addEventListener('click', () => {
+        tabPath.classList.add('dark:bg-surface-700', 'dark:text-white', 'bg-white', 'text-surface-900', 'shadow-sm');
+        tabPath.classList.remove('dark:text-surface-400', 'dark:hover:text-white', 'text-surface-500', 'hover:text-surface-900');
+        tabUpload.classList.remove('dark:bg-surface-700', 'dark:text-white', 'bg-white', 'text-surface-900', 'shadow-sm');
+        tabUpload.classList.add('dark:text-surface-400', 'dark:hover:text-white', 'text-surface-500', 'hover:text-surface-900');
+        pathTabContent.classList.remove('hidden');
+        uploadTabContent.classList.add('hidden');
+    });
+    
+    tabUpload.addEventListener('click', () => {
+        tabUpload.classList.add('dark:bg-surface-700', 'dark:text-white', 'bg-white', 'text-surface-900', 'shadow-sm');
+        tabUpload.classList.remove('dark:text-surface-400', 'dark:hover:text-white', 'text-surface-500', 'hover:text-surface-900');
+        tabPath.classList.remove('dark:bg-surface-700', 'dark:text-white', 'bg-white', 'text-surface-900', 'shadow-sm');
+        tabPath.classList.add('dark:text-surface-400', 'dark:hover:text-white', 'text-surface-500', 'hover:text-surface-900');
+        uploadTabContent.classList.remove('hidden');
+        pathTabContent.classList.add('hidden');
+    });
+    
+    // Drop zone interactions
+    dropZone.addEventListener('click', () => fileInput.click());
+    
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('border-orange-500', 'bg-dark-700');
+    });
+    
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('border-orange-500', 'bg-dark-700');
+    });
+    
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('border-orange-500', 'bg-dark-700');
+        handleFiles(e.dataTransfer.files);
+    });
+    
+    fileInput.addEventListener('change', () => {
+        handleFiles(fileInput.files);
+    });
+    
+    function handleFiles(files) {
+        for (const file of files) {
+            if (!uploadedFiles.find(f => f.name === file.name)) {
+                uploadedFiles.push(file);
+                renderUploadedFile(file);
+            }
+        }
+    }
+    
+    function renderUploadedFile(file) {
+        const div = document.createElement('div');
+        div.className = 'flex items-center justify-between dark:bg-surface-800 bg-surface-100 rounded-lg px-2.5 py-1.5';
+        div.innerHTML = `
+            <div class="flex items-center gap-2">
+                <svg class="w-3.5 h-3.5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                <span class="dark:text-surface-200 text-surface-700 text-xs">${file.name}</span>
+                <span class="dark:text-surface-500 text-surface-400 text-[10px]">(${formatFileSize(file.size)})</span>
+            </div>
+            <button type="button" class="remove-file dark:text-surface-400 dark:hover:text-red-400 text-surface-400 hover:text-red-500 transition-colors" data-name="${file.name}">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        `;
+        uploadedFilesDiv.appendChild(div);
+        
+        div.querySelector('.remove-file').addEventListener('click', () => {
+            uploadedFiles = uploadedFiles.filter(f => f.name !== file.name);
+            div.remove();
+        });
+    }
+    
+    function formatFileSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    attachCancel.addEventListener('click', () => {
+        attachModal.classList.add('hidden');
+        attachPath.value = '';
+        uploadedFiles = [];
+        uploadedFilesDiv.innerHTML = '';
+    });
+    
+    attachInsert.addEventListener('click', async () => {
+        // Handle path input
+        const path = attachPath.value.trim();
+        if (path) {
+            addAttachedFile(path);
+        }
+        
+        // Handle uploaded files - save them temporarily and add to context
+        for (const file of uploadedFiles) {
+            // Read file content and store for the message
+            const content = await readFileContent(file);
+            addAttachedFile(file.name, content);
+        }
+        
+        attachModal.classList.add('hidden');
+        attachPath.value = '';
+        uploadedFiles = [];
+        uploadedFilesDiv.innerHTML = '';
+        chatInput.focus();
+    });
+    
+    async function readFileContent(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = reject;
+            reader.readAsText(file);
+        });
+    }
+    
+    function addAttachedFile(filename, content = null) {
+        const fileInfo = { name: filename, content: content };
+        attachedFilePaths.push(fileInfo);
+        renderAttachedFilePreview();
+    }
+    
+    function renderAttachedFilePreview() {
+        if (attachedFilePaths.length === 0) {
+            attachedFilesPreview.classList.add('hidden');
+            return;
+        }
+        
+        attachedFilesPreview.classList.remove('hidden');
+        attachedFilesPreview.innerHTML = attachedFilePaths.map((f, idx) => `
+            <span class="inline-flex items-center gap-1 dark:bg-orange-500/15 bg-orange-100 text-orange-500 dark:text-orange-400 px-2 py-0.5 rounded text-xs font-medium">
+                <span>@${f.name}</span>
+                <button type="button" class="remove-attached hover:text-orange-600 dark:hover:text-orange-200" data-idx="${idx}">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </span>
+        `).join('');
+        
+        attachedFilesPreview.querySelectorAll('.remove-attached').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const idx = parseInt(btn.dataset.idx);
+                attachedFilePaths.splice(idx, 1);
+                renderAttachedFilePreview();
+            });
+        });
+    }
+    
+    // ========== Other Toolbar Buttons ==========
+    modelsBtn.addEventListener('click', async () => {
+        await executeCommand('/models');
+    });
+    
+    mcpsBtn.addEventListener('click', async () => {
+        await executeCommand('/mcps');
+    });
+    
+    helpBtn.addEventListener('click', () => {
+        addSystemMessage(`
+**Available Commands:**
+
+**Session Management:**
+• \`/session start\` - Start a new session
+• \`/session end\` - End current session
+• \`/session info\` - Show session info
+• \`/session list\` - List saved sessions
+• \`/session restore <id>\` - Restore a session
+• \`/session delete <id>\` - Delete a session
+
+**Code Commands:**
+• \`/code <prompt>\` - Execute code tasks (write, edit, run)
+
+**Repository Mapping:**
+• \`/repomap create\` - Create repository map
+• \`/repomap load\` - Load repomap into context
+• \`/repomap update\` - Update existing repomap
+
+**Data Mapping:**
+• \`/datamap create\` - Create data map
+• \`/datamap load\` - Load datamap into context
+• \`/datamap update\` - Update existing datamap
+
+**Other:**
+• \`/models\` - List available models
+• \`/mcps\` - List MCP servers
+• \`/mcp-tools <name>\` - Show tools for an MCP
+• \`@filename\` - Include file in message
+• \`clear\` - Clear chat history
+        `);
+    });
+    
+    // ========== Command Execution ==========
+    async function executeCommand(command) {
+        if (isProcessing) return;
+        
+        addUserMessage(command);
+        isProcessing = true;
+        sendButton.disabled = true;
+        addLoadingIndicator();
+        
+        try {
+            const response = await fetch('/api/chat/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: command })
+            });
+            
+            removeLoadingIndicator();
+            const data = await response.json();
+            
+            if (response.ok && data.status === 'success') {
+                addAssistantMessage(data.response || data.message);
+                
+                if (data.session_active !== undefined) {
+                    updateSessionStatus(data.session_active, data.session_id);
+                }
+            } else {
+                addAssistantMessage(data.message || 'Command failed', true);
+            }
+        } catch (error) {
+            removeLoadingIndicator();
+            addAssistantMessage('Failed to execute command: ' + error.message, true);
+        }
+        
+        isProcessing = false;
+        sendButton.disabled = false;
+    }
+    
+    // ========== Session Status ==========
+    function updateSessionStatus(active, sessionId) {
+        sessionActive = active;
+        if (active) {
+            sessionIndicator.className = 'w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse';
+            sessionText.textContent = sessionId ? `${sessionId.substring(0, 8)}...` : 'Active';
+            sessionText.className = 'text-emerald-500 text-xs';
+        } else {
+            sessionIndicator.className = 'w-1.5 h-1.5 rounded-full dark:bg-surface-500 bg-surface-400';
+            sessionText.textContent = 'No Session';
+            sessionText.className = 'dark:text-surface-400 text-surface-500 text-xs';
+        }
+    }
+    
+    // ========== Chat Functions ==========
+    chatInput.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = Math.min(this.scrollHeight, 200) + 'px';
+        updateChatPlaceholder();
+    });
+    chatInput.addEventListener('focus', updateChatPlaceholder);
+    chatInput.addEventListener('blur', updateChatPlaceholder);
+    
+    chatInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            if (!isProcessing && chatInput.value.trim()) {
+                chatForm.dispatchEvent(new Event('submit'));
+            }
+        }
+    });
+    
+    clearChatBtn.addEventListener('click', function() {
+        chatMessages.innerHTML = `
+            <div class="flex items-start gap-3 max-w-3xl">
+                <div class="w-7 h-7 bg-gradient-to-br from-primary-500 to-primary-600 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm">
+                    <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                    </svg>
+                </div>
+                <div class="card p-4">
+                    <p class="dark:text-surface-200 text-surface-700 text-sm">Chat cleared. Start a new conversation.</p>
+                </div>
+            </div>
+        `;
+    });
+    
+    function addUserMessage(text) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'flex items-start gap-3 justify-end max-w-3xl ml-auto';
+        messageDiv.innerHTML = `
+            <div class="bg-primary-600 rounded-xl rounded-tr-sm px-4 py-2.5 shadow-sm">
+                <p class="text-white text-sm whitespace-pre-wrap">${escapeHtml(text)}</p>
+            </div>
+            <div class="w-7 h-7 dark:bg-surface-700 bg-surface-200 rounded-lg flex items-center justify-center flex-shrink-0">
+                <svg class="w-4 h-4 dark:text-surface-400 text-surface-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                </svg>
+            </div>
+        `;
+        chatMessages.appendChild(messageDiv);
+        scrollToBottom();
+    }
+    
+    function addAssistantMessage(text, isError = false) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'flex items-start gap-3 max-w-3xl';
+        
+        const cardClass = isError ? 'card p-4 border-red-500/20 dark:bg-red-950/30 bg-red-50' : 'card p-4';
+        const iconBg = isError ? 'from-red-500 to-red-600' : 'from-primary-500 to-primary-600';
+        
+        messageDiv.innerHTML = `
+            <div class="w-7 h-7 bg-gradient-to-br ${iconBg} rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm">
+                <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                </svg>
+            </div>
+            <div class="${cardClass} markdown-content text-sm">
+                ${marked.parse(text)}
+            </div>
+        `;
+        chatMessages.appendChild(messageDiv);
+        scrollToBottom();
+    }
+    
+    function addSystemMessage(text) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'flex items-start gap-3 max-w-3xl';
+        messageDiv.innerHTML = `
+            <div class="w-7 h-7 bg-gradient-to-br from-surface-500 to-surface-600 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm">
+                <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+            </div>
+            <div class="card p-4 markdown-content text-sm dark:bg-surface-800/50 bg-surface-50">
+                ${marked.parse(text)}
+            </div>
+        `;
+        chatMessages.appendChild(messageDiv);
+        scrollToBottom();
+    }
+    
+    function addLoadingIndicator() {
+        const loadingDiv = document.createElement('div');
+        loadingDiv.id = 'loading-indicator';
+        loadingDiv.className = 'flex items-start gap-3';
+        loadingDiv.innerHTML = `
+            <div class="w-7 h-7 bg-gradient-to-br from-primary-500 to-primary-600 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm">
+                <svg class="w-4 h-4 text-white animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            </div>
+            <div class="card px-4 py-2.5">
+                <div class="flex items-center gap-2">
+                    <div class="w-1.5 h-1.5 rounded-full bg-primary-500 animate-pulse"></div>
+                    <p class="dark:text-surface-400 text-surface-500 text-sm">Thinking...</p>
+                </div>
+            </div>
+        `;
+        chatMessages.appendChild(loadingDiv);
+        scrollToBottom();
+    }
+    
+    function removeLoadingIndicator() {
+        const loading = document.getElementById('loading-indicator');
+        if (loading) loading.remove();
+    }
+    
+    function scrollToBottom() {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+    
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    // ========== Form Submission ==========
+    chatForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        let message = chatInput.value.trim();
+        if ((!message && attachedFilePaths.length === 0) || isProcessing) return;
+        
+        // Prepend attached file references to the message
+        if (attachedFilePaths.length > 0) {
+            const attachments = attachedFilePaths.map(f => '@' + f.name).join(' ');
+            message = attachments + ' ' + message;
+        }
+        
+        // Check if it's a command
+        if (message.startsWith('/') || message.toLowerCase() === 'clear' || message.toLowerCase() === 'models' || message.toLowerCase() === 'mcps') {
+            chatInput.value = '';
+            chatInput.style.height = 'auto';
+            updateChatPlaceholder();
+            attachedFilePaths = [];
+            renderAttachedFilePreview();
+            await executeCommand(message);
+            return;
+        }
+        
+        isProcessing = true;
+        sendButton.disabled = true;
+        
+        addUserMessage(message);
+        chatInput.value = '';
+        chatInput.style.height = 'auto';
+        updateChatPlaceholder();
+        
+        // Build file contents for the request
+        const fileContents = {};
+        for (const f of attachedFilePaths) {
+            if (f.content) {
+                fileContents[f.name] = f.content;
+            }
+        }
+        
+        // Clear attached files
+        attachedFilePaths = [];
+        renderAttachedFilePreview();
+        
+        addLoadingIndicator();
+        
+        try {
+            const response = await fetch('/api/chat/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    message: message,
+                    model: modelSelect.value,
+                    file_contents: fileContents
+                })
+            });
+            
+            removeLoadingIndicator();
+            const data = await response.json();
+            
+            if (response.ok && data.status === 'success') {
+                addAssistantMessage(data.response);
+            } else {
+                addAssistantMessage(data.message || 'An error occurred', true);
+            }
+        } catch (error) {
+            removeLoadingIndicator();
+            addAssistantMessage('Failed to connect to the server: ' + error.message, true);
+        }
+        
+        isProcessing = false;
+        sendButton.disabled = false;
+        chatInput.focus();
+    });
+    
+    // Focus input on load
+    chatInput.focus();
+    updateChatPlaceholder();
+    
+    // Auto-create session on page load
+    async function autoCreateSession() {
+        try {
+            const response = await fetch('/api/chat/auto-session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const data = await response.json();
+            
+            if (response.ok && data.status === 'success') {
+                updateSessionStatus(data.session_active, data.session_id);
+            }
+        } catch (error) {
+            console.error('Failed to auto-create session:', error);
+        }
+    }
+    
+    // Restore a session by ID
+    async function restoreSession(sessionId) {
+        try {
+            addLoadingIndicator();
+            
+            // First, end any existing session
+            await fetch('/api/chat/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: '/session end' })
+            });
+            
+            // Then restore the requested session
+            const response = await fetch('/api/chat/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: `/session restore ${sessionId}` })
+            });
+            
+            const data = await response.json();
+            removeLoadingIndicator();
+            
+            if (response.ok && data.status === 'success') {
+                updateSessionStatus(true, sessionId);
+                
+                // Fetch session history and display it
+                try {
+                    const historyResponse = await fetch(`/api/sessions/${sessionId}`);
+                    const historyData = await historyResponse.json();
+                    
+                    if (historyResponse.ok && historyData.status === 'success' && historyData.session) {
+                        const session = historyData.session;
+                        const history = session.history || [];
+                        
+                        // Clear chat and display history
+                        chatMessages.innerHTML = '';
+                        
+                        // Display each interaction from history
+                        history.forEach(interaction => {
+                            if (interaction.prompt) {
+                                addUserMessage(interaction.prompt);
+                            }
+                            if (interaction.response) {
+                                addAssistantMessage(interaction.response);
+                            }
+                        });
+                        
+                        // Add restoration confirmation message
+                        addAssistantMessage(`✅ Session restored: ${session.title || 'Untitled'} (${history.length} interactions)`);
+                    } else {
+                        addAssistantMessage(data.response || `Session ${sessionId.substring(0, 8)}... restored`);
+                    }
+                } catch (historyError) {
+                    console.error('Failed to load session history:', historyError);
+                    addAssistantMessage(data.response || `Session ${sessionId.substring(0, 8)}... restored`);
+                }
+            } else {
+                addAssistantMessage(data.message || 'Failed to restore session', true);
+                // Fall back to creating new session
+                autoCreateSession();
+            }
+        } catch (error) {
+            removeLoadingIndicator();
+            console.error('Failed to restore session:', error);
+            addAssistantMessage('Failed to restore session: ' + error.message, true);
+            // Fall back to creating new session
+            autoCreateSession();
+        }
+    }
+    
+    // Load available models from Ollama API
+    async function loadModels() {
+        try {
+            const response = await fetch('/api/chat/models');
+            const data = await response.json();
+            
+            if (data.status === 'success' && data.models.length > 0) {
+                // Clear existing options
+                modelSelect.innerHTML = '';
+                
+                // Add models from API
+                data.models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model;
+                    option.textContent = model;
+                    modelSelect.appendChild(option);
+                });
+            }
+        } catch (error) {
+            console.error('Failed to load models:', error);
+        }
+    }
+    
+    // Initialize session and models on load
+    loadModels();
+    
+    // Check if we should restore a session from URL parameter
+    const urlParams = new URLSearchParams(window.location.search);
+    const restoreSessionId = urlParams.get('restore');
+    
+    if (restoreSessionId) {
+        // Restore the session instead of creating new one
+        restoreSession(restoreSessionId);
+    } else {
+        // Auto-create new session
+        autoCreateSession();
+    }
+    
+    // Close modals on escape
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            codeModal.classList.add('hidden');
+            attachModal.classList.add('hidden');
+        }
+    });
+</script>
+{% endblock %}
