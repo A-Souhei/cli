@@ -1,51 +1,42 @@
 # Ollama AI CLI Configuration
 
-# Ollama service configuration
+# NOTE: Models are now managed dynamically via ModelRegistry (stored in Redis)
+# The ollama.model and ollama.coder_model fields below will be auto-migrated
+# to the ModelRegistry on first startup. After migration, you can remove them.
+#
+# To manage models, use:
+#   /model general add <url> <model_name>  - Add a general chat model
+#   /model coder add <url> <model_name>    - Add a coder model
+#   /model list                            - List registered models
+#   /model status                          - Check availability
+#
+# Or use the Web UI at /models
+
+# Legacy model configuration (will be auto-migrated to ModelRegistry)
 ollama:
-  # Ollama service URL (local or remote)
   url: "http://192.168.31.23:11434"
-  
-  # Model to use (e.g., tinyllama, llama2, mistral, codellama, etc.)
   model: "llama3.1:8b"
-  
-  # Model to use for code editing tasks (should be a coder-optimized model)
   coder_model: "qwen2.5-coder:7b"
-  
-  # Optional: Request timeout in seconds
   timeout: 120
 
-# Local tinyollama configuration (Docker container fallback)
-# This is used when remote ollama is not reachable or as a lightweight alternative
+# Local tinyollama configuration (lightweight fallback)
+# This is the only model that stays in config - used when primary models unavailable
 tinyollama:
-  # Tinyollama service URL (local Docker container)
   url: "http://localhost:11434"
-  
-  # Model to use (tinyllama is lightweight, ~1GB, CPU-friendly)
   model: "tinyllama"
-  
-  # Optional: Request timeout in seconds
   timeout: 60
-  
-  # Features that are disabled when using tinyollama (lightweight model limitations)
-  # These features require larger models for reliable operation
+  # Features disabled for tinyollama (lightweight model limitations)
   disabled_features:
-    - code_mode        # /code command - requires larger models for code generation
+    - code_mode        # /code command - requires larger models
     - coder_model      # Code editing - requires specialized coder models
-    - repomap_create   # Repository mapping - requires large context understanding
-    - repomap_update   # Repository map update - requires large context understanding
-    - datamap_create   # Data mapping - requires large context understanding
-    - datamap_update   # Data map update - requires large context understanding
+    - repomap_create   # Repository mapping - requires large context
+    - repomap_update   # Repository map update - requires large context
+    - datamap_create   # Data mapping - requires large context
+    - datamap_update   # Data map update - requires large context
 
 # Chat configuration
 chat:
-  # System prompt (optional)
   system_prompt: "You are a helpful AI assistant."
-  
-  # Maximum context length
   max_context_length: 10
-  
-  # Temperature for response generation (0.0 - 1.0)
   temperature: 0.7
-  
-  # Stream responses (true/false)
   stream: true
