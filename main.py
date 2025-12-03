@@ -621,7 +621,7 @@ def main(verbose=False):
                                     if test_response.status_code == 200:
                                         test_data = test_response.json()
                                         service_type = 'ollama'
-                                except:
+                                except requests.exceptions.RequestException:
                                     pass
                             
                             # Try GET first (local transformer service format)
@@ -635,7 +635,7 @@ def main(verbose=False):
                                     if test_response.status_code == 200:
                                         test_data = test_response.json()
                                         service_type = 'transformer'
-                                except:
+                                except requests.exceptions.RequestException:
                                     pass
                             
                             # If GET failed, try POST /embed (generic external services format)
@@ -649,7 +649,7 @@ def main(verbose=False):
                                     if test_response.status_code == 200:
                                         test_data = test_response.json()
                                         service_type = 'generic'
-                                except:
+                                except requests.exceptions.RequestException:
                                     pass
                             
                             if test_data is None or ('embedding' not in test_data and 'embeddings' not in test_data):
@@ -664,7 +664,10 @@ def main(verbose=False):
                             elif 'embeddings' in test_data and test_data['embeddings']:
                                 embedding = test_data['embeddings'][0]
                             
-                            dimensions = len(embedding) if (embedding and len(embedding) > 0) else None
+                            if embedding and isinstance(embedding, list) and len(embedding) > 0:
+                                dimensions = len(embedding)
+                            else:
+                                dimensions = None
                             
                             model = model_registry.add_model(
                                 model_type='embedding',

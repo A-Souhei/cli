@@ -37,12 +37,13 @@ By default, the CLI uses the local transformer service:
 ### CLI Command
 
 ```bash
-/model embedding add <url> [timeout]
+/model embedding add <url> [model_name] [timeout]
 ```
 
 **Parameters**:
 - `<url>`: URL of the embedding service (e.g., `http://localhost:8000`)
-- `[timeout]`: Optional timeout in seconds (default: 60)
+- `[model_name]`: *(Optional)* Name of the embedding model to use (required for Ollama services; ignored for others)
+- `[timeout]`: *(Optional)* Timeout in seconds (default: 60)
 
 **Example**:
 ```bash

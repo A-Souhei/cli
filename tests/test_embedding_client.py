@@ -1,7 +1,7 @@
 """Unit tests for EmbeddingClient."""
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import patch, MagicMock
 from src.embedding_client.client import EmbeddingClient
 from src.model_registry.manager import ModelRegistry
 
@@ -39,7 +39,7 @@ def test_get_active_embedding_config_no_model(embedding_client, mock_registry):
 def test_get_active_embedding_config_with_model(embedding_client, mock_registry):
     """Test getting config when active embedding model exists."""
     # Add an embedding model
-    model = mock_registry.add_model(
+    mock_registry.add_model(
         model_type='embedding',
         url='http://external:8000',
         model_name='',

@@ -192,14 +192,14 @@ class EmbeddingClient:
                 embeddings = result['embeddings']
                 
                 # Auto-detect dimensions on first call if not set
-                if stored_dimensions is None and embeddings:
+                if stored_dimensions is None and embeddings and len(embeddings) > 0:
                     active_model = self.model_registry.get_active_embedding_model()
                     if active_model:
                         detected_dims = self._auto_detect_dimensions(active_model.model_id, embeddings[0])
                         print(f"Auto-detected embedding dimensions: {detected_dims}")
                 
                 # Warn if dimensions changed
-                elif stored_dimensions and embeddings:
+                elif stored_dimensions and embeddings and len(embeddings) > 0:
                     actual_dims = len(embeddings[0])
                     if actual_dims != stored_dimensions:
                         warnings.warn(

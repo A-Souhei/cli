@@ -174,7 +174,7 @@ class TestEmbeddingClientWithRedis:
         """Test that dimensions are persisted in Redis when using external model."""
         # Add an external model (with unreachable URL, will fallback)
         # But dimensions should still be tracked in the model config
-        model = registry_with_redis.add_model(
+        registry_with_redis.add_model(
             model_type='embedding',
             url='http://localhost:16050',  # Use local transformer as "external"
             model_name='',
