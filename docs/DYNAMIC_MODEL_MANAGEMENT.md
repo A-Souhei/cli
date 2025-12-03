@@ -60,7 +60,7 @@ class ModelRegistry:
     def list_models(self, model_type: str = None) -> List[ModelConfig]
     def get_active_model(self, model_type: str) -> Optional[ModelConfig]
     def set_active_model(self, model_id: str) -> bool
-    def check_model_availability(self, model_id: str) -> bool
+    def update_availability(self, model_id: str, is_available: bool) -> bool
     def get_model(self, model_id: str) -> Optional[ModelConfig]
 ```
 

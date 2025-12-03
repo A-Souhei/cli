@@ -653,11 +653,20 @@ def main(verbose=False):
                                 console.print(f"\n❌ [red]Model not found: {model_id}[/red]\n")
                             else:
                                 console.print(f"\n🔍 [yellow]Checking {model.model_name}...[/yellow]")
-                                is_available = llm_checker.check_model_availability(model_id)
-                                if is_available:
-                                    console.print(f"✓ [green]Model is available[/green]\n")
-                                else:
-                                    console.print(f"✗ [red]Model is unavailable[/red]\n")
+                                try:
+                                    is_available = llm_checker.check_model_availability(model_id)
+                                    if is_available:
+                                        console.print(f"✓ [green]Model is available[/green]\n")
+                                    else:
+                                        console.print(f"✗ [red]Model is unavailable[/red]")
+                                        console.print(f"[dim]Possible reasons:[/dim]")
+                                        console.print(f"[dim]  - Ollama service at {model.url} is not running[/dim]")
+                                        console.print(f"[dim]  - Network connection issues[/dim]")
+                                        console.print(f"[dim]  - Model '{model.model_name}' not pulled on server[/dim]")
+                                        console.print(f"[dim]  - Timeout or authentication failure[/dim]\n")
+                                except Exception as e:
+                                    console.print(f"✗ [red]Model is unavailable[/red]")
+                                    console.print(f"[dim]Error: {str(e)}[/dim]\n")
                         continue
 
                     # Unknown model command

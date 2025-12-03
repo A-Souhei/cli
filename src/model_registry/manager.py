@@ -2,7 +2,6 @@
 
 import os
 import redis
-import json
 import uuid
 from datetime import datetime
 from typing import Dict, List, Optional, Any
@@ -49,7 +48,7 @@ class ModelRegistry:
             use_memory: If True, use in-memory storage instead of Redis (useful for testing)
         """
         self.redis_host = redis_host or os.getenv('REDIS_HOST', 'localhost')
-        self.redis_port = redis_port or int(os.getenv('REDIS_HOST_PORT', '26379'))
+        self.redis_port = redis_port or int(os.getenv('REDIS_PORT', '26379'))
 
         # Initialize in-memory storage
         self._memory_storage: Dict[str, Dict[str, Any]] = {}
@@ -93,6 +92,34 @@ class ModelRegistry:
     def _get_index_key(self, model_type: str) -> str:
         """Get Redis key for model type index."""
         return f"models:index:{model_type}"
+
+    def _parse_model_data(self, model_data: dict) -> dict:
+        """
+        Parse model data from Redis, converting string values to proper types.
+        
+        Args:
+            model_data: Raw model data from Redis
+            
+        Returns:
+            Parsed model data with proper types
+        """
+        # Convert string booleans to actual booleans
+        model_data['is_active'] = model_data['is_active'] == 'True'
+        
+        # Handle is_available (empty string = None)
+        if model_data.get('is_available') == '':
+            model_data['is_available'] = None
+        elif model_data.get('is_available') is not None:
+            model_data['is_available'] = model_data['is_available'] == 'True'
+        
+        # Handle last_checked (empty string = None)
+        if model_data.get('last_checked') == '':
+            model_data['last_checked'] = None
+        
+        # Convert timeout to int
+        model_data['timeout'] = int(model_data['timeout'])
+        
+        return model_data
 
     def add_model(
         self,
@@ -277,17 +304,7 @@ class ModelRegistry:
                 for model_id in model_ids:
                     model_data = self.redis_client.hgetall(self._get_model_key(model_id))
                     if model_data:
-                        # Convert string booleans to actual booleans
-                        model_data['is_active'] = model_data['is_active'] == 'True'
-                        # Handle is_available (empty string = None)
-                        if model_data.get('is_available') == '':
-                            model_data['is_available'] = None
-                        elif model_data.get('is_available') is not None:
-                            model_data['is_available'] = model_data['is_available'] == 'True'
-                        # Handle last_checked (empty string = None)
-                        if model_data.get('last_checked') == '':
-                            model_data['last_checked'] = None
-                        model_data['timeout'] = int(model_data['timeout'])
+                        model_data = self._parse_model_data(model_data)
                         models.append(ModelConfig.from_dict(model_data))
             else:
                 # In-memory fallback
@@ -325,18 +342,7 @@ class ModelRegistry:
                 if not model_data:
                     return None
 
-                # Convert string booleans to actual booleans
-                model_data['is_active'] = model_data['is_active'] == 'True'
-                # Handle is_available (empty string = None)
-                if model_data.get('is_available') == '':
-                    model_data['is_available'] = None
-                elif model_data.get('is_available') is not None:
-                    model_data['is_available'] = model_data['is_available'] == 'True'
-                # Handle last_checked (empty string = None)
-                if model_data.get('last_checked') == '':
-                    model_data['last_checked'] = None
-                model_data['timeout'] = int(model_data['timeout'])
-
+                model_data = self._parse_model_data(model_data)
                 return ModelConfig.from_dict(model_data)
             else:
                 # In-memory fallback
@@ -396,18 +402,7 @@ class ModelRegistry:
                 if not model_data:
                     return None
 
-                # Convert string booleans to actual booleans
-                model_data['is_active'] = model_data['is_active'] == 'True'
-                # Handle is_available (empty string = None)
-                if model_data.get('is_available') == '':
-                    model_data['is_available'] = None
-                elif model_data.get('is_available') is not None:
-                    model_data['is_available'] = model_data['is_available'] == 'True'
-                # Handle last_checked (empty string = None)
-                if model_data.get('last_checked') == '':
-                    model_data['last_checked'] = None
-                model_data['timeout'] = int(model_data['timeout'])
-
+                model_data = self._parse_model_data(model_data)
                 return ModelConfig.from_dict(model_data)
             else:
                 # In-memory fallback

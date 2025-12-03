@@ -63,7 +63,7 @@ def test_list_models(registry):
 def test_get_active_model(registry):
     """Test getting the active model."""
     model1 = registry.add_model('general', 'http://localhost:11434', 'llama3', 120, set_active=True)
-    model2 = registry.add_model('general', 'http://localhost:11434', 'llama2', 120, set_active=False)
+    registry.add_model('general', 'http://localhost:11434', 'llama2', 120, set_active=False)
 
     active = registry.get_active_model('general')
     assert active is not None
@@ -145,8 +145,8 @@ def test_get_status(registry):
 def test_multiple_models_same_type(registry):
     """Test adding multiple models of the same type."""
     model1 = registry.add_model('general', 'http://localhost:11434', 'llama3', 120, set_active=True)
-    model2 = registry.add_model('general', 'http://remote:11434', 'llama2', 120, set_active=False)
-    model3 = registry.add_model('general', 'http://other:11434', 'mistral', 120, set_active=False)
+    registry.add_model('general', 'http://remote:11434', 'llama2', 120, set_active=False)
+    registry.add_model('general', 'http://other:11434', 'mistral', 120, set_active=False)
 
     models = registry.list_models('general')
     assert len(models) == 3
@@ -159,7 +159,7 @@ def test_multiple_models_same_type(registry):
 def test_remove_active_model(registry):
     """Test removing the active model clears the active status."""
     model1 = registry.add_model('general', 'http://localhost:11434', 'llama3', 120, set_active=True)
-    model2 = registry.add_model('general', 'http://localhost:11434', 'llama2', 120, set_active=False)
+    registry.add_model('general', 'http://localhost:11434', 'llama2', 120, set_active=False)
 
     # Remove active model
     registry.remove_model(model1.model_id)
