@@ -10,7 +10,7 @@ from typing import Optional
 
 
 UI_PID_FILE = Path.home() / ".ai_cli_ui.pid"
-UI_PORT = 18080
+UI_PORT = int(os.getenv("UI_PORT", "18080"))
 
 
 def get_running_ui_pid() -> Optional[int]:
@@ -116,7 +116,7 @@ def start_ui_server_background(verbose: bool = False) -> bool:
     python_exe = str(venv_python) if venv_python.exists() else sys.executable
 
     # Build command
-    cmd = [python_exe, str(ui_server_script)]
+    cmd = [python_exe, str(ui_server_script), "--port", str(UI_PORT)]
     if verbose:
         cmd.append("--verbose")
 
@@ -146,6 +146,19 @@ def start_ui_server_background(verbose: bool = False) -> bool:
         print(f"✓ UI server started in background (PID {process.pid})")
         print(f"  Access at: http://127.0.0.1:{UI_PORT}")
         print(f"  Stop with: ai-cli --stop-ui")
+
+        # Open browser after server starts
+        import webbrowser
+        import threading
+
+        def open_browser():
+            import time
+            time.sleep(0.5)  # Brief delay to ensure server is ready
+            webbrowser.open(f"http://127.0.0.1:{UI_PORT}")
+
+        browser_thread = threading.Thread(target=open_browser)
+        browser_thread.daemon = True
+        browser_thread.start()
 
         return True
 

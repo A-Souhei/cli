@@ -31,8 +31,8 @@ def main():
     parser.add_argument(
         '--port',
         type=int,
-        default=18080,
-        help='Port to listen on (default: 18080)'
+        default=int(os.getenv('UI_PORT', '18080')),
+        help='Port to listen on (default: from UI_PORT env or 18080)'
     )
     args = parser.parse_args()
 
