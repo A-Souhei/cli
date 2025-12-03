@@ -17,11 +17,14 @@ import asyncio
 from pathlib import Path
 from src.config import ConfigManager
 from src.config.llm_availability import LLMAvailabilityChecker
+from src.model_registry import ModelRegistry
+from src.model_registry.availability import ModelAvailabilityChecker
 from src.ollama_client import OllamaClient
 from src.chat import ChatManager
 from src.selector import InteractiveSelector
 from src.mcp import MCPClient
 from src.session import SessionManager, SessionTitleGenerator, WorkingDirectoryMismatchError
+from migrations.migrate_models import run_migration_if_needed
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -177,14 +180,22 @@ def main(verbose=False):
         # Load configuration
         config = ConfigManager()
 
-        # Check LLM availability and get the best available LLM
-        llm_checker = LLMAvailabilityChecker(config)
+        # Initialize ModelRegistry
+        model_registry = ModelRegistry()
+
+        # Run migration from config.yaml to Redis if needed
+        run_migration_if_needed(config, model_registry, verbose=verbose)
+
+        # Check model availability using new ModelAvailabilityChecker
+        llm_checker = ModelAvailabilityChecker(config, model_registry)
         llm_config = llm_checker.get_available_llm()
 
         # Initialize Ollama client with the available LLM
+        # Note: If no model is available, llm_config.url will be empty
+        # but we still create the client (graceful degradation)
         ollama_client = OllamaClient(
-            host=llm_config.url,
-            model=llm_config.model,
+            host=llm_config.url if llm_config.url else 'http://localhost:11434',
+            model=llm_config.model if llm_config.model else 'none',
             timeout=llm_config.timeout
         )
 
@@ -442,6 +453,224 @@ def main(verbose=False):
                             console.print("\n[dim]Cancelled[/dim]\n")
                     except Exception as e:
                         console.print(f"❌ [red]Error clearing sessions: {e}[/red]\n")
+                    continue
+
+                # Handle /model commands
+                if user_input_normalized.lower().startswith('model '):
+                    model_cmd = user_input_normalized[6:].strip()
+
+                    # /model status
+                    if model_cmd == 'status':
+                        console.print("\n📊 [bold]Model Status:[/bold]\n")
+
+                        # General model
+                        general = model_registry.get_active_model('general')
+                        if general:
+                            availability_icon = "✓" if llm_checker.check_model_availability(general.model_id) else "✗"
+                            console.print(f"[bold cyan]General Model:[/bold cyan]")
+                            console.print(f"  {availability_icon} [cyan]{general.model_name}[/cyan] @ {general.url}")
+                            console.print(f"  ID: [dim]{general.model_id}[/dim]")
+                        else:
+                            console.print("[bold cyan]General Model:[/bold cyan] [yellow]Not configured[/yellow]")
+                            console.print("  Use: [dim]/model general add <url> <model_name>[/dim]")
+
+                        console.print()
+
+                        # Coder model
+                        coder = model_registry.get_active_model('coder')
+                        if coder:
+                            availability_icon = "✓" if llm_checker.check_model_availability(coder.model_id) else "✗"
+                            console.print(f"[bold cyan]Coder Model:[/bold cyan]")
+                            console.print(f"  {availability_icon} [cyan]{coder.model_name}[/cyan] @ {coder.url}")
+                            console.print(f"  ID: [dim]{coder.model_id}[/dim]")
+                        else:
+                            console.print("[bold cyan]Coder Model:[/bold cyan] [yellow]Not configured[/yellow]")
+                            console.print("  Use: [dim]/model coder add <url> <model_name>[/dim]")
+
+                        console.print()
+
+                        # Fallback
+                        if config.has_tinyollama_config():
+                            tinyollama_url = config.get_tinyollama_url()
+                            tinyollama_available = llm_checker.check_ollama_available(tinyollama_url)
+                            fallback_icon = "✓" if tinyollama_available else "✗"
+                            console.print(f"[bold cyan]Fallback (Tinyollama):[/bold cyan]")
+                            console.print(f"  {fallback_icon} [cyan]{config.get_tinyollama_model()}[/cyan] @ {tinyollama_url}")
+
+                        console.print()
+                        continue
+
+                    # /model list or /model <type> list
+                    parts = model_cmd.split()
+                    if len(parts) == 1 and parts[0] == 'list':
+                        # List all models
+                        console.print("\n📋 [bold]All Models:[/bold]\n")
+                        for model_type in ['general', 'coder']:
+                            models = model_registry.list_models(model_type)
+                            console.print(f"[bold cyan]{model_type.capitalize()} Models:[/bold cyan]")
+                            if models:
+                                for m in models:
+                                    active_marker = "→" if m.is_active else " "
+                                    console.print(f"  {active_marker} [cyan]{m.model_name}[/cyan] @ {m.url}")
+                                    console.print(f"    ID: [dim]{m.model_id}[/dim]")
+                            else:
+                                console.print("  [dim]No models configured[/dim]")
+                            console.print()
+                        continue
+
+                    # /model <type> list
+                    if len(parts) == 2 and parts[1] == 'list':
+                        model_type = parts[0]
+                        if model_type not in ['general', 'coder']:
+                            console.print(f"\n❌ [red]Invalid model type: {model_type}[/red]")
+                            console.print("[dim]Valid types: general, coder[/dim]\n")
+                            continue
+
+                        models = model_registry.list_models(model_type)
+                        console.print(f"\n📋 [bold]{model_type.capitalize()} Models:[/bold]\n")
+                        if models:
+                            for m in models:
+                                active_marker = "→" if m.is_active else " "
+                                console.print(f"  {active_marker} [cyan]{m.model_name}[/cyan] @ {m.url}")
+                                console.print(f"    ID: [dim]{m.model_id}[/dim]")
+                        else:
+                            console.print("  [dim]No models configured[/dim]")
+                        console.print()
+                        continue
+
+                    # /model <type> add <url> <model_name>
+                    if len(parts) >= 4 and parts[1] == 'add':
+                        model_type = parts[0]
+                        url = parts[2]
+                        model_name = parts[3]
+                        timeout = 120
+
+                        if model_type not in ['general', 'coder']:
+                            console.print(f"\n❌ [red]Invalid model type: {model_type}[/red]")
+                            console.print("[dim]Valid types: general, coder[/dim]\n")
+                            continue
+
+                        console.print(f"\n🔍 [yellow]Checking availability of {model_name} @ {url}...[/yellow]")
+                        if not llm_checker.check_ollama_available(url):
+                            console.print(f"❌ [red]Cannot reach Ollama service at {url}[/red]\n")
+                            continue
+
+                        try:
+                            model = model_registry.add_model(
+                                model_type=model_type,
+                                url=url,
+                                model_name=model_name,
+                                timeout=timeout,
+                                set_active=True
+                            )
+                            console.print(f"\n✅ [green]Model registered successfully![/green]")
+                            console.print(f"  ID: [cyan]{model.model_id}[/cyan]")
+                            console.print(f"  Type: [cyan]{model.model_type}[/cyan]")
+                            console.print(f"  Model: [cyan]{model.model_name}[/cyan]")
+                            console.print(f"  URL: [cyan]{model.url}[/cyan]")
+                            console.print(f"  Status: [green]Active[/green]\n")
+
+                            # Refresh llm_checker cache
+                            llm_checker.reset()
+                        except Exception as e:
+                            console.print(f"\n❌ [red]Failed to add model: {e}[/red]\n")
+                        continue
+
+                    # /model <type> use <model_id>
+                    if len(parts) == 3 and parts[1] == 'use':
+                        model_type = parts[0]
+                        model_id = parts[2]
+
+                        if model_type not in ['general', 'coder']:
+                            console.print(f"\n❌ [red]Invalid model type: {model_type}[/red]")
+                            console.print("[dim]Valid types: general, coder[/dim]\n")
+                            continue
+
+                        try:
+                            success = model_registry.set_active_model(model_id)
+                            if success:
+                                model = model_registry.get_model(model_id)
+                                console.print(f"\n✅ [green]Active {model_type} model set to:[/green]")
+                                console.print(f"  [cyan]{model.model_name}[/cyan] @ {model.url}\n")
+
+                                # Refresh llm_checker cache
+                                llm_checker.reset()
+                            else:
+                                console.print(f"\n❌ [red]Model not found: {model_id}[/red]\n")
+                        except Exception as e:
+                            console.print(f"\n❌ [red]Failed to set active model: {e}[/red]\n")
+                        continue
+
+                    # /model <type> remove <model_id>
+                    if len(parts) == 3 and parts[1] == 'remove':
+                        model_type = parts[0]
+                        model_id = parts[2]
+
+                        if model_type not in ['general', 'coder']:
+                            console.print(f"\n❌ [red]Invalid model type: {model_type}[/red]")
+                            console.print("[dim]Valid types: general, coder[/dim]\n")
+                            continue
+
+                        try:
+                            model = model_registry.get_model(model_id)
+                            if not model:
+                                console.print(f"\n❌ [red]Model not found: {model_id}[/red]\n")
+                                continue
+
+                            success = model_registry.remove_model(model_id)
+                            if success:
+                                console.print(f"\n✅ [green]Removed model:[/green]")
+                                console.print(f"  [cyan]{model.model_name}[/cyan] @ {model.url}\n")
+
+                                # Refresh llm_checker cache
+                                llm_checker.reset()
+                            else:
+                                console.print(f"\n❌ [red]Failed to remove model[/red]\n")
+                        except Exception as e:
+                            console.print(f"\n❌ [red]Failed to remove model: {e}[/red]\n")
+                        continue
+
+                    # /model check [model_id]
+                    if parts[0] == 'check':
+                        if len(parts) == 1:
+                            # Check all active models
+                            console.print("\n🔍 [bold]Checking all active models...[/bold]\n")
+                            for model_type in ['general', 'coder']:
+                                model = model_registry.get_active_model(model_type)
+                                if model:
+                                    is_available = llm_checker.check_model_availability(model.model_id)
+                                    status_icon = "✓" if is_available else "✗"
+                                    status_text = "[green]Available[/green]" if is_available else "[red]Unavailable[/red]"
+                                    console.print(f"{status_icon} {model_type.capitalize()}: [cyan]{model.model_name}[/cyan] - {status_text}")
+                                else:
+                                    console.print(f"  {model_type.capitalize()}: [yellow]Not configured[/yellow]")
+                            console.print()
+                        else:
+                            # Check specific model
+                            model_id = parts[1]
+                            model = model_registry.get_model(model_id)
+                            if not model:
+                                console.print(f"\n❌ [red]Model not found: {model_id}[/red]\n")
+                            else:
+                                console.print(f"\n🔍 [yellow]Checking {model.model_name}...[/yellow]")
+                                is_available = llm_checker.check_model_availability(model_id)
+                                if is_available:
+                                    console.print(f"✓ [green]Model is available[/green]\n")
+                                else:
+                                    console.print(f"✗ [red]Model is unavailable[/red]\n")
+                        continue
+
+                    # Unknown model command
+                    console.print("\n❌ [red]Unknown model command[/red]")
+                    console.print("\n[bold]Available commands:[/bold]")
+                    console.print("  /model status")
+                    console.print("  /model list")
+                    console.print("  /model <type> list")
+                    console.print("  /model <type> add <url> <model_name>")
+                    console.print("  /model <type> use <model_id>")
+                    console.print("  /model <type> remove <model_id>")
+                    console.print("  /model check [model_id]")
+                    console.print("\n[dim]Where <type> is: general or coder[/dim]\n")
                     continue
 
                 # Handle /repomap create command
@@ -1103,6 +1332,13 @@ def main(verbose=False):
                         console.print("[dim]This feature requires a larger model for reliable code generation.[/dim]")
                         console.print("[dim]Connect to the primary Ollama server to use this feature.[/dim]\n")
                         continue
+
+                    # Check if coder model is available
+                    if not llm_checker.has_coder_model():
+                        console.print("\n⚠️  [yellow]No coder model configured.[/yellow]")
+                        console.print("[dim]The /code command requires a coder model for optimal results.[/dim]")
+                        console.print("[dim]Add a coder model with: /model coder add <url> <model_name>[/dim]\n")
+                        continue
                         
                     prompt_text = user_input_normalized[5:].strip()  # Extract text after "code "
 
@@ -1408,7 +1644,12 @@ Wrap your output in a markdown code block like this:
 
                                                 # For edit operations with original file, use coder model and allow more tokens
                                                 edit_num_predict = 8192 if original_file_content else None
-                                                edit_model = config.get_coder_model() if original_file_content else None
+                                                # Use coder model from registry if available
+                                                edit_model = None
+                                                if original_file_content:
+                                                    coder_model = model_registry.get_active_model('coder')
+                                                    if coder_model:
+                                                        edit_model = coder_model.model_name
 
                                                 with Live(spinner, console=console, refresh_per_second=10):
                                                     if stream:
@@ -1853,6 +2094,13 @@ Ensure all imports are correct, syntax is valid, and the code runs without error
                 # Inject all system messages before the last user message
                 if system_messages_to_inject:
                     messages = messages[:-1] + system_messages_to_inject + [messages[-1]]
+
+                # Check if general model is available for chat
+                if not llm_checker.has_general_model():
+                    console.print("\n⚠️  [yellow]No general model configured.[/yellow]")
+                    console.print("[dim]Chat features require a general model to be configured.[/dim]")
+                    console.print("[dim]Add a model with: /model general add <url> <model_name>[/dim]\n")
+                    continue
 
                 # Get AI response
                 console.print()  # Add spacing before AI response

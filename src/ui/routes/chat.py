@@ -105,24 +105,23 @@ def _save_current_session_to_ui_store() -> None:
 @chat_bp.route('/models', methods=['GET'])
 def get_available_models():
     """
-    Get list of available models from the Ollama API.
+    Get list of registered models from ModelRegistry.
+    Only returns models that have been added via /model commands.
     """
     try:
-        from src.config.manager import ConfigManager
-        import httpx
-        
-        config = ConfigManager()
-        ollama_url = config.get_ollama_url()
-        # Call Ollama API to get models
-        response = httpx.get(f"{ollama_url}/api/tags", timeout=10)
-        response.raise_for_status()
-        
-        data = response.json()
-        models = [model['name'] for model in data.get('models', [])]
-        
+        from src.model_registry import ModelRegistry
+
+        registry = ModelRegistry()
+
+        # Get all registered models (both general and coder)
+        all_models = registry.list_models()
+
+        # Extract unique model names
+        model_names = list(set(m.model_name for m in all_models))
+
         return jsonify({
             'status': 'success',
-            'models': models
+            'models': model_names
         })
     except Exception as e:
         capture_exception(e)
@@ -135,15 +134,28 @@ def get_available_models():
 
 
 def get_ollama_client():
-    """Get or create an Ollama client instance."""
+    """Get or create an Ollama client instance using active general model."""
     from src.ollama_client.client import OllamaClient
     from src.config.manager import ConfigManager
-    
+    from src.model_registry import ModelRegistry
+
     config = ConfigManager()
-    host = config.get_ollama_url()
-    model = config.get_ollama_model()
-    timeout = config.get_ollama_timeout()
-    
+    registry = ModelRegistry()
+
+    # Try to get active general model from registry
+    general_model = registry.get_active_model('general')
+
+    if general_model:
+        # Use registered general model
+        host = general_model.url
+        model = general_model.model_name
+        timeout = general_model.timeout
+    else:
+        # Fallback to config (for backward compatibility)
+        host = config.get_ollama_url()
+        model = config.get_ollama_model()
+        timeout = config.get_ollama_timeout()
+
     return OllamaClient(host=host, model=model, timeout=timeout), config
 
 

@@ -27,6 +27,7 @@ from src.ui.routes.commands import commands_bp
 from src.ui.routes.docs import docs_bp
 from src.ui.routes.chat import chat_bp
 from src.ui.routes.files import files_bp
+from src.ui.routes.models import models_bp
 
 
 def create_app(verbose: bool = False) -> Flask:
@@ -63,6 +64,7 @@ def create_app(verbose: bool = False) -> Flask:
     app.register_blueprint(docs_bp, url_prefix='/api/docs')
     app.register_blueprint(chat_bp, url_prefix='/api/chat')
     app.register_blueprint(files_bp, url_prefix='/api/files')
+    app.register_blueprint(models_bp, url_prefix='/api/models')
     
     @app.route('/')
     def index():
