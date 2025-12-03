@@ -2451,7 +2451,7 @@ Ensure all imports are correct, syntax is valid, and the code runs without error
 
 if __name__ == "__main__":
     # AI_CLI_ORIGINAL_DIR is already set at the top of this file before imports
-    
+
     parser = argparse.ArgumentParser(description="AI CLI - Powered by Ollama")
     parser.add_argument(
         '-v', '--verbose',
@@ -2461,13 +2461,42 @@ if __name__ == "__main__":
     parser.add_argument(
         '--show-ui',
         action='store_true',
-        help='Launch the web-based UI instead of CLI'
+        help='Launch the web-based UI in background (detached, no logs)'
+    )
+    parser.add_argument(
+        '--with-logs',
+        action='store_true',
+        help='Run UI server in foreground with logs (use with --show-ui)'
+    )
+    parser.add_argument(
+        '--stop-ui',
+        action='store_true',
+        help='Stop the running UI server'
     )
     args = parser.parse_args()
-    
+
+    # Import UI process utilities
+    from src.utils.ui_process import (
+        start_ui_server_background,
+        stop_ui_server,
+        cleanup_ui_on_startup
+    )
+
+    if args.stop_ui:
+        # Stop UI server and exit
+        stop_ui_server(verbose=True)
+        sys.exit(0)
+
     if args.show_ui:
-        # Import and start UI server
-        from src.ui.server import start_ui_server
-        start_ui_server(verbose=args.verbose)
+        if args.with_logs:
+            # Start UI server in foreground with logs
+            from src.ui.server import start_ui_server
+            start_ui_server(verbose=args.verbose)
+        else:
+            # Start UI server in background
+            success = start_ui_server_background(verbose=args.verbose)
+            sys.exit(0 if success else 1)
     else:
+        # Always cleanup UI on CLI startup (even without --show-ui)
+        cleanup_ui_on_startup(verbose=args.verbose)
         main(verbose=args.verbose)
