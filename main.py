@@ -605,7 +605,7 @@ def main(verbose=False):
                             elif 'embeddings' in test_data and test_data['embeddings']:
                                 embedding = test_data['embeddings'][0]
                             
-                            dimensions = len(embedding) if embedding else None
+                            dimensions = len(embedding) if (embedding and len(embedding) > 0) else None
                             
                             model = model_registry.add_model(
                                 model_type='embedding',
