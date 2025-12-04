@@ -148,6 +148,73 @@ def get_session_manager() -> SessionManager:
     return _session_manager
 
 
+# Cache for tool categories from MCP
+_tool_categories_cache: Dict[str, List[str]] = {}
+_tool_categories_loaded = False
+
+
+def _load_tool_categories_from_mcp(mcp_client: 'MCPClient') -> Dict[str, List[str]]:
+    """
+    Load tool categories from the MCP's get_tool_metadata tool.
+    Falls back to hardcoded defaults if MCP call fails.
+    """
+    global _tool_categories_cache, _tool_categories_loaded
+    
+    if _tool_categories_loaded:
+        return _tool_categories_cache
+    
+    # Default hardcoded values as fallback
+    defaults = {
+        'code_generation': ['write_python_code', 'edit_python_code', 'write_r_code', 'edit_r_code', 'run_python_code', 'run_r_code'],
+        'valid_coding': [
+            'run_python_code', 'run_r_code', 'detect_code',
+            'write_python_code', 'write_r_code',
+            'edit_python_code', 'edit_r_code',
+            'add_file_context', 'add_directory_context',
+            'verify_file_modifications'
+        ],
+        'meta': ['retrieve_all_tools', 'roll_the_dice', 'spin_the_roulette']
+    }
+    
+    try:
+        # Call the MCP tool to get metadata
+        result = mcp_client.call_tool('get_tool_metadata', {'list_categories': True})
+        
+        if result and isinstance(result, str):
+            data = json.loads(result)
+            if data.get('status') == 'success' and 'categories' in data:
+                # Now fetch the full tools for each category
+                for category_name in data['categories'].keys():
+                    cat_result = mcp_client.call_tool('get_tool_metadata', {'category': category_name})
+                    if cat_result and isinstance(cat_result, str):
+                        cat_data = json.loads(cat_result)
+                        if cat_data.get('status') == 'success' and 'tools' in cat_data:
+                            _tool_categories_cache[category_name] = cat_data['tools']
+                
+                _tool_categories_loaded = True
+                return _tool_categories_cache
+    except Exception as e:
+        # Log but don't fail - fall back to defaults
+        print(f"[DEBUG] Failed to load tool categories from MCP: {e}")
+    
+    # Fall back to defaults
+    _tool_categories_cache = defaults
+    _tool_categories_loaded = True
+    return _tool_categories_cache
+
+
+def get_tool_category(category_name: str, mcp_client: 'MCPClient' = None) -> List[str]:
+    """
+    Get tools for a specific category, loading from MCP if needed.
+    """
+    global _tool_categories_cache, _tool_categories_loaded
+    
+    if not _tool_categories_loaded and mcp_client:
+        _load_tool_categories_from_mcp(mcp_client)
+    
+    return _tool_categories_cache.get(category_name, [])
+
+
 def _save_current_session_to_ui_store() -> None:
     """Save the current session to the UI in-memory store."""
     session_manager = get_session_manager()
@@ -884,16 +951,11 @@ async def _execute_all_steps_async(steps, at_references, working_dir, session_id
             except Exception:
                 pass  # Non-critical, continue execution
 
-        # Define tool categories (like CLI)
-        code_generation_tools = ['write_python_code', 'edit_python_code', 'write_r_code', 'edit_r_code', 'run_python_code', 'run_r_code']
-        valid_coding_tools = [
-            'run_python_code', 'run_r_code', 'detect_code',
-            'write_python_code', 'write_r_code',
-            'edit_python_code', 'edit_r_code',
-            'add_file_context', 'add_directory_context',
-            'verify_file_modifications'
-        ]
-        meta_tools = ['retrieve_all_tools', 'roll_the_dice', 'spin_the_roulette']
+        # Load tool categories dynamically from MCP (with fallback to hardcoded defaults)
+        _load_tool_categories_from_mcp(mcp_client)
+        code_generation_tools = get_tool_category('code_generation', mcp_client)
+        valid_coding_tools = get_tool_category('valid_coding', mcp_client)
+        meta_tools = get_tool_category('meta', mcp_client)
 
         # Execute each step (matches CLI flow)
         execution_results = []

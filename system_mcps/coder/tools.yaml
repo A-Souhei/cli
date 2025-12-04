@@ -1,0 +1,118 @@
+# Coder MCP Tool Definitions
+# This file defines tool metadata including categories for dynamic tool routing
+
+categories:
+  code_generation:
+    description: "Tools that generate or write new code (requires LLM code generation)"
+    tools:
+      - write_python_code
+      - edit_python_code
+      - write_r_code
+      - edit_r_code
+      - run_python_code
+      - run_r_code
+
+  valid_coding:
+    description: "All valid coding tools that can be used in /code command"
+    tools:
+      - run_python_code
+      - run_r_code
+      - detect_code
+      - write_python_code
+      - write_r_code
+      - edit_python_code
+      - edit_r_code
+      - add_file_context
+      - add_directory_context
+      - verify_file_modifications
+
+  meta:
+    description: "Meta tools that orchestrate other tools"
+    tools:
+      - retrieve_all_tools
+      - roll_the_dice
+      - spin_the_roulette
+
+  context:
+    description: "Tools for adding context to the session"
+    tools:
+      - add_file_context
+      - add_directory_context
+
+  execution:
+    description: "Tools that execute code"
+    tools:
+      - run_python_code
+      - run_r_code
+
+  file_write:
+    description: "Tools that write files"
+    tools:
+      - write_python_code
+      - write_r_code
+
+  file_edit:
+    description: "Tools that edit existing files"
+    tools:
+      - edit_python_code
+      - edit_r_code
+
+  verification:
+    description: "Tools for verifying code changes"
+    tools:
+      - verify_file_modifications
+      - detect_code
+
+# Tool metadata with additional information
+tools:
+  run_python_code:
+    requires_llm_generation: false
+    language: python
+    
+  run_r_code:
+    requires_llm_generation: false
+    language: r
+    
+  detect_code:
+    requires_llm_generation: false
+    
+  write_python_code:
+    requires_llm_generation: true
+    language: python
+    creates_file: true
+    
+  write_r_code:
+    requires_llm_generation: true
+    language: r
+    creates_file: true
+    
+  edit_python_code:
+    requires_llm_generation: true
+    language: python
+    modifies_file: true
+    
+  edit_r_code:
+    requires_llm_generation: true
+    language: r
+    modifies_file: true
+    
+  add_file_context:
+    requires_llm_generation: false
+    
+  add_directory_context:
+    requires_llm_generation: false
+    
+  verify_file_modifications:
+    requires_llm_generation: false
+    
+  retrieve_all_tools:
+    requires_llm_generation: false
+    is_meta: true
+    
+  roll_the_dice:
+    requires_llm_generation: false
+    is_meta: true
+    
+  spin_the_roulette:
+    requires_llm_generation: false
+    is_meta: true
