@@ -890,7 +890,30 @@
         }
     });
     
-    clearChatBtn.addEventListener('click', function() {
+    clearChatBtn.addEventListener('click', async function() {
+        // Call the backend to clear chat and create new session
+        try {
+            const response = await fetch('/api/chat/command', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ command: '/clear' })
+            });
+            
+            const data = await response.json();
+            console.log('Clear response:', data);
+            
+            // Update session status using the existing function
+            if (data.session_active !== undefined && data.session_id) {
+                console.log('Updating session to:', data.session_id);
+                updateSessionStatus(data.session_active, data.session_id);
+            }
+        } catch (error) {
+            console.error('Error clearing chat:', error);
+        }
+        
+        // Clear the UI
         chatMessages.innerHTML = `
             <div class="flex items-start gap-3 max-w-3xl">
                 <div class="w-7 h-7 bg-gradient-to-br from-primary-500 to-primary-600 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm">
