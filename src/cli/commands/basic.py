@@ -13,8 +13,12 @@ def handle_exit(console, mcp_client, run_async, debug_print, verbose):
         if verbose:
             debug_print(f"Cleanup: {e}", icon="🧹")
     # Redirect stderr to suppress prompt_toolkit task cleanup warnings
-    # Open /dev/null without context manager since we exit immediately
-    sys.stderr = open(os.devnull, 'w')
+    # Note: We exit immediately after this, so the file handle cleanup happens via process termination
+    try:
+        import os
+        sys.stderr = open(os.devnull, 'w')
+    except Exception:
+        pass  # Ignore errors in stderr redirection
     sys.exit(0)
 
 

@@ -8,6 +8,11 @@ import os
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Constants for line count testing
+ORIGINAL_LINE_COUNT = 2583
+REDUCTION_TARGET = 2200  # At least 15% reduction target
+
+
 def test_import_cli_modules():
     """Test that all new CLI modules can be imported."""
     try:
@@ -37,15 +42,12 @@ def test_line_count_reduced():
     with open('main.py', 'r') as f:
         lines = len(f.readlines())
     
-    original_lines = 2583
-    reduction_target = 2200  # At least 15% reduction
-    
-    if lines < reduction_target:
-        reduction_pct = ((original_lines - lines) / original_lines) * 100
-        print(f"✓ main.py reduced from {original_lines} to {lines} lines ({reduction_pct:.1f}% reduction)")
+    if lines < REDUCTION_TARGET:
+        reduction_pct = ((ORIGINAL_LINE_COUNT - lines) / ORIGINAL_LINE_COUNT) * 100
+        print(f"✓ main.py reduced from {ORIGINAL_LINE_COUNT} to {lines} lines ({reduction_pct:.1f}% reduction)")
         return True
     else:
-        print(f"✗ main.py only reduced to {lines} lines (target: <{reduction_target})")
+        print(f"✗ main.py only reduced to {lines} lines (target: <{REDUCTION_TARGET})")
         return False
 
 def test_documentation_exists():

@@ -19,7 +19,16 @@ from src.cli.commands.model import (
 
 
 class CommandDispatcher:
-    """Dispatches user input to appropriate command handlers."""
+    """Dispatches user input to appropriate command handlers.
+    
+    Note: This class has many parameters by design to maintain dependency injection
+    and avoid hidden dependencies. Each parameter represents a dependency that the
+    dispatcher needs to route commands. This explicit approach makes testing easier
+    and dependencies clear, though it does result in a longer constructor signature.
+    
+    Future refactoring could group related parameters into configuration objects
+    if the parameter count becomes unmanageable.
+    """
     
     def __init__(self, console, config, ollama_client, chat_manager, mcp_client,
                  session_manager, model_registry, llm_checker, transformer_url,

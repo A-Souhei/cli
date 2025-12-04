@@ -19,7 +19,12 @@ from migrations.migrate_models import run_migration_if_needed
 
 
 class CLIInitializer:
-    """Handles initialization of CLI components."""
+    """Handles initialization of CLI components.
+    
+    Note: This class accepts several parameters for dependency injection to enable
+    testing and maintain flexibility. The parameters represent external dependencies
+    that need to be provided (like callbacks and configuration).
+    """
     
     def __init__(self, verbose=False, debug_print=None, run_async=None, 
                  get_user_working_dir=None, console=None, history_file=None,
