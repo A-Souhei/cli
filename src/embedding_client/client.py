@@ -211,8 +211,8 @@ class EmbeddingClient:
                 return embeddings
                 
             except Exception as e:
-                # Log the error and fall through to fallback
-                warnings.warn("External embedding service failed. Falling back to local service.")
+                # Silently fall through to fallback - this is expected behavior
+                # when external service is unavailable
                 capture_exception(e)
 
         # Fallback to local transformer service

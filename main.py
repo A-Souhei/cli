@@ -106,6 +106,35 @@ def get_user_working_dir():
     return _USER_WORKING_DIR
 
 
+def set_user_working_dir(new_path: str) -> bool:
+    """
+    Change the user's working directory.
+    
+    Args:
+        new_path: New directory path (can be relative or absolute)
+        
+    Returns:
+        True if directory was changed successfully, False otherwise
+    """
+    global _USER_WORKING_DIR
+    
+    # Resolve path relative to current working dir
+    if not os.path.isabs(new_path):
+        new_path = os.path.join(get_user_working_dir(), new_path)
+    
+    # Normalize the path
+    new_path = os.path.normpath(os.path.abspath(new_path))
+    
+    # Check if directory exists
+    if not os.path.isdir(new_path):
+        return False
+    
+    _USER_WORKING_DIR = new_path
+    # Also update environment variable for consistency
+    os.environ['AI_CLI_CWD'] = new_path
+    return True
+
+
 def run_async(coro):
     """
     Run an async coroutine safely, handling nested event loop scenarios.
@@ -304,6 +333,35 @@ def main(verbose=False):
                 if user_input_normalized.lower() == 'clear':
                     chat_manager.clear_history()
                     console.print("\n🗑️ [yellow]Chat history cleared[/yellow]\n")
+                    continue
+
+                # Handle /wd (working directory) commands
+                if user_input_normalized.lower() == 'wd' or user_input_normalized.lower() == 'wd show':
+                    console.print(f"\n📂 [bold]Working Directory:[/bold] [cyan]{get_user_working_dir()}[/cyan]\n")
+                    continue
+
+                if user_input_normalized.lower().startswith('wd change ') or user_input_normalized.lower().startswith('wd cd '):
+                    # Extract path - handle both 'wd change' and 'wd cd'
+                    if user_input_normalized.lower().startswith('wd change '):
+                        new_path = user_input_normalized[10:].strip()
+                    else:
+                        new_path = user_input_normalized[6:].strip()
+                    
+                    if not new_path:
+                        console.print("\n❌ [red]Usage: /wd change <path>[/red]")
+                        console.print("[dim]Example: /wd change ~/projects/myapp[/dim]\n")
+                        continue
+                    
+                    # Expand ~ to home directory
+                    new_path = os.path.expanduser(new_path)
+                    
+                    if set_user_working_dir(new_path):
+                        console.print(f"\n✓ [green]Working directory changed to:[/green] [cyan]{get_user_working_dir()}[/cyan]")
+                        # Update file completer with new working directory
+                        combined_completer = CombinedCompleter(working_dir=get_user_working_dir())
+                        console.print("[dim]File completion paths updated[/dim]\n")
+                    else:
+                        console.print(f"\n❌ [red]Directory not found:[/red] {new_path}\n")
                     continue
 
                 # Handle /models as alias for /model (support both)
