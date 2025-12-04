@@ -159,12 +159,13 @@ def _kill_process(pid: int, verbose: bool = False) -> bool:
         return False
 
 
-def start_ui_server_background(verbose: bool = False) -> bool:
+def start_ui_server_background(verbose: bool = False, open_browser: bool = True) -> bool:
     """
     Start the UI server in background (detached process, no logs).
 
     Args:
         verbose: Enable verbose mode for the UI server
+        open_browser: Whether to open browser after starting (default True)
 
     Returns:
         True if server was started successfully
@@ -211,18 +212,19 @@ def start_ui_server_background(verbose: bool = False) -> bool:
         print(f"  Access at: http://127.0.0.1:{UI_PORT}")
         print(f"  Stop with: ai-cli --stop-ui")
 
-        # Open browser after server starts
-        import webbrowser
-        import threading
+        # Open browser after server starts (if requested)
+        if open_browser:
+            import webbrowser
+            import threading
 
-        def open_browser():
-            import time
-            time.sleep(0.5)  # Brief delay to ensure server is ready
-            webbrowser.open(f"http://127.0.0.1:{UI_PORT}")
+            def _open_browser():
+                import time
+                time.sleep(0.5)  # Brief delay to ensure server is ready
+                webbrowser.open(f"http://127.0.0.1:{UI_PORT}")
 
-        browser_thread = threading.Thread(target=open_browser)
-        browser_thread.daemon = True
-        browser_thread.start()
+            browser_thread = threading.Thread(target=_open_browser)
+            browser_thread.daemon = True
+            browser_thread.start()
 
         return True
 

@@ -2479,6 +2479,11 @@ if __name__ == "__main__":
         help='Run UI server in foreground with logs (use with --show-ui)'
     )
     parser.add_argument(
+        '--with-cli',
+        action='store_true',
+        help='Run CLI in foreground alongside background UI (use with --show-ui)'
+    )
+    parser.add_argument(
         '--stop-ui',
         action='store_true',
         help='Stop the running UI server'
@@ -2502,8 +2507,16 @@ if __name__ == "__main__":
             # Start UI server in foreground with logs
             from src.ui.server import start_ui_server
             start_ui_server(verbose=args.verbose)
+        elif args.with_cli:
+            # Start UI server in background and run CLI in foreground
+            # Don't open browser automatically since user is in terminal
+            success = start_ui_server_background(verbose=args.verbose, open_browser=False)
+            if success:
+                main(verbose=args.verbose)
+            else:
+                sys.exit(1)
         else:
-            # Start UI server in background
+            # Start UI server in background only
             success = start_ui_server_background(verbose=args.verbose)
             sys.exit(0 if success else 1)
     else:
