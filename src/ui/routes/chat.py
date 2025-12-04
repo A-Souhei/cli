@@ -148,6 +148,73 @@ def get_session_manager() -> SessionManager:
     return _session_manager
 
 
+# Cache for tool categories from MCP
+_tool_categories_cache: Dict[str, List[str]] = {}
+_tool_categories_loaded = False
+
+
+def _load_tool_categories_from_mcp(mcp_client: 'MCPClient') -> Dict[str, List[str]]:
+    """
+    Load tool categories from the MCP's get_tool_metadata tool.
+    Falls back to hardcoded defaults if MCP call fails.
+    """
+    global _tool_categories_cache, _tool_categories_loaded
+    
+    if _tool_categories_loaded:
+        return _tool_categories_cache
+    
+    # Default hardcoded values as fallback
+    defaults = {
+        'code_generation': ['write_python_code', 'edit_python_code', 'write_r_code', 'edit_r_code', 'run_python_code', 'run_r_code'],
+        'valid_coding': [
+            'run_python_code', 'run_r_code', 'detect_code',
+            'write_python_code', 'write_r_code',
+            'edit_python_code', 'edit_r_code',
+            'add_file_context', 'add_directory_context',
+            'verify_file_modifications'
+        ],
+        'meta': ['retrieve_all_tools', 'roll_the_dice', 'spin_the_roulette']
+    }
+    
+    try:
+        # Call the MCP tool to get metadata
+        result = mcp_client.call_tool('get_tool_metadata', {'list_categories': True})
+        
+        if result and isinstance(result, str):
+            data = json.loads(result)
+            if data.get('status') == 'success' and 'categories' in data:
+                # Now fetch the full tools for each category
+                for category_name in data['categories'].keys():
+                    cat_result = mcp_client.call_tool('get_tool_metadata', {'category': category_name})
+                    if cat_result and isinstance(cat_result, str):
+                        cat_data = json.loads(cat_result)
+                        if cat_data.get('status') == 'success' and 'tools' in cat_data:
+                            _tool_categories_cache[category_name] = cat_data['tools']
+                
+                _tool_categories_loaded = True
+                return _tool_categories_cache
+    except Exception as e:
+        # Log but don't fail - fall back to defaults
+        print(f"[DEBUG] Failed to load tool categories from MCP: {e}")
+    
+    # Fall back to defaults
+    _tool_categories_cache = defaults
+    _tool_categories_loaded = True
+    return _tool_categories_cache
+
+
+def get_tool_category(category_name: str, mcp_client: 'MCPClient' = None) -> List[str]:
+    """
+    Get tools for a specific category, loading from MCP if needed.
+    """
+    global _tool_categories_cache, _tool_categories_loaded
+    
+    if not _tool_categories_loaded and mcp_client:
+        _load_tool_categories_from_mcp(mcp_client)
+    
+    return _tool_categories_cache.get(category_name, [])
+
+
 def _save_current_session_to_ui_store() -> None:
     """Save the current session to the UI in-memory store."""
     session_manager = get_session_manager()
@@ -657,24 +724,39 @@ def handle_mcps():
 def handle_code_command(prompt):
     """Handle /code command - returns steps for user confirmation."""
     import requests
+    from src.model_registry import ModelRegistry
+    from flask import current_app
 
     postgres_api_url = os.getenv('POSTGRES_API_URL', 'http://localhost:15000')
     session_manager = get_session_manager()
-    
+
+    # Use configured working directory (from AI_CLI_CWD env var set at startup)
+    working_dir = current_app.config.get('WORKING_DIR', os.getcwd())
+
     # Ensure session is active (like CLI does)
     if not session_manager.is_active():
-        working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
         session_manager.start_session(working_dir=working_dir)
-    
+
     session_id = session_manager.get_session_id()
+
+    # Get coder model for /code operations
+    model_registry = ModelRegistry()
+    coder_model = model_registry.get_active_model('coder')
+
+    # Build request payload with coder model and URL
+    code_command_payload = {
+        'text': prompt,
+        'session_id': session_id
+    }
+
+    if coder_model:
+        code_command_payload['model'] = coder_model.model_name
+        code_command_payload['ollama_url'] = coder_model.url
 
     try:
         response = requests.post(
             f"{postgres_api_url}/mcp-tools/code-command-simple",
-            json={
-                'text': prompt,
-                'session_id': session_id
-            },
+            json=code_command_payload,
             timeout=180
         )
 
@@ -758,17 +840,19 @@ def execute_code_steps():
             }), 400
 
         from src.model_registry import ModelRegistry
+        from flask import current_app
 
         postgres_api_url = os.getenv('POSTGRES_API_URL', 'http://localhost:15000')
         session_manager = get_session_manager()
 
+        # Use configured working directory (from AI_CLI_CWD env var set at startup)
+        working_dir = current_app.config.get('WORKING_DIR', os.getcwd())
+
         # Ensure session is active
         if not session_manager.is_active():
-            working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
             session_manager.start_session(working_dir=working_dir)
 
         session_id = session_manager.get_session_id()
-        working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
 
         # Store @ references in session metadata (like CLI)
         if at_references:
@@ -867,16 +951,11 @@ async def _execute_all_steps_async(steps, at_references, working_dir, session_id
             except Exception:
                 pass  # Non-critical, continue execution
 
-        # Define tool categories (like CLI)
-        code_generation_tools = ['write_python_code', 'edit_python_code', 'write_r_code', 'edit_r_code', 'run_python_code', 'run_r_code']
-        valid_coding_tools = [
-            'run_python_code', 'run_r_code', 'detect_code',
-            'write_python_code', 'write_r_code',
-            'edit_python_code', 'edit_r_code',
-            'add_file_context', 'add_directory_context',
-            'verify_file_modifications'
-        ]
-        meta_tools = ['retrieve_all_tools', 'roll_the_dice', 'spin_the_roulette']
+        # Load tool categories dynamically from MCP (with fallback to hardcoded defaults)
+        _load_tool_categories_from_mcp(mcp_client)
+        code_generation_tools = get_tool_category('code_generation', mcp_client)
+        valid_coding_tools = get_tool_category('valid_coding', mcp_client)
+        meta_tools = get_tool_category('meta', mcp_client)
 
         # Execute each step (matches CLI flow)
         execution_results = []
@@ -969,17 +1048,25 @@ async def _execute_all_steps_async(steps, at_references, working_dir, session_id
                                 })
                                 continue
                         else:
-                            # Generate code with LLM
-                            code = _generate_code_with_llm_sync(step, model_registry, mcp_client)
+                            # Generate code with LLM (use coder model)
+                            code, llm_model_name = _generate_code_with_llm_sync(
+                                step, 
+                                model_registry, 
+                                mcp_client, 
+                                tool_name=tool_name,
+                                use_coder_model=True
+                            )
                             if not code:
                                 execution_results.append({
                                     'step': i,
                                     'tool_name': tool_name,
                                     'status': 'error',
-                                    'message': 'No code detected in LLM response'
+                                    'message': 'No code detected in LLM response',
+                                    'model': llm_model_name
                                 })
                                 continue
                             extracted_params['code'] = code
+                            extracted_params['_model_used'] = llm_model_name
                             if 'file_path' in extracted_params:
                                 extracted_params.pop('file_path')
                     else:
@@ -997,9 +1084,9 @@ async def _execute_all_steps_async(steps, at_references, working_dir, session_id
                                 # Ignore file read errors - will proceed without original content
                                 pass
 
-                        # Generate code with LLM (use coder model for edits)
-                        use_coder_model = original_file_content is not None
-                        code = _generate_code_with_llm_sync(
+                        # Generate code with LLM (always use coder model for code generation)
+                        use_coder_model = True  # Always use coder model for code generation
+                        code, llm_model_name = _generate_code_with_llm_sync(
                             step, 
                             model_registry,
                             mcp_client,
@@ -1014,11 +1101,13 @@ async def _execute_all_steps_async(steps, at_references, working_dir, session_id
                                 'step': i,
                                 'tool_name': tool_name,
                                 'status': 'error',
-                                'message': 'No code detected in LLM response'
+                                'message': 'No code detected in LLM response',
+                                'model': llm_model_name
                             })
                             continue
                         
                         extracted_params['code'] = code
+                        extracted_params['_model_used'] = llm_model_name
 
                         # Add file_path for write/edit tools
                         if file_path and tool_name in ['write_python_code', 'edit_python_code', 'write_r_code', 'edit_r_code']:
@@ -1069,12 +1158,16 @@ async def _execute_all_steps_async(steps, at_references, working_dir, session_id
                     if result_data.get('status') == 'error':
                         status = 'error'
 
-                execution_results.append({
+                # Include model name if it was used for code generation
+                result_entry = {
                     'step': i,
                     'tool_name': tool_name,
                     'status': status,
                     'result': result_data
-                })
+                }
+                if '_model_used' in extracted_params:
+                    result_entry['model'] = extracted_params['_model_used']
+                execution_results.append(result_entry)
 
                 # Add to session history
                 if session_manager.is_active():
@@ -1107,7 +1200,7 @@ async def _execute_all_steps_async(steps, at_references, working_dir, session_id
 def _generate_code_with_llm_sync(step: str, model_registry, mcp_client,
                                   original_file_content: str = None, 
                                   file_path: str = None, use_coder_model: bool = False,
-                                  tool_name: str = None) -> str:
+                                  tool_name: str = None) -> tuple:
     """
     Generate code using LLM, matching CLI behavior.
     
@@ -1121,10 +1214,33 @@ def _generate_code_with_llm_sync(step: str, model_registry, mcp_client,
         tool_name: Name of the tool being used
     
     Returns:
-        Generated code string, or None if no code detected
+        Tuple of (code, model_name) where code is the generated code string or None,
+        and model_name is the name of the model used
     """
+    model_name_used = None
     try:
-        ollama_client, config = get_ollama_client()
+        from src.ollama_client.client import OllamaClient
+        
+        # Get the appropriate model based on use_coder_model flag
+        if use_coder_model:
+            coder_model = model_registry.get_active_model('coder')
+            if coder_model:
+                # Create client with coder model's URL and settings
+                ollama_client = OllamaClient(
+                    host=coder_model.url,
+                    model=coder_model.model_name,
+                    timeout=coder_model.timeout
+                )
+                model_name_used = coder_model.model_name
+                print(f"[_generate_code_with_llm_sync] Using coder model: {coder_model.model_name} at {coder_model.url}")
+            else:
+                # Fallback to general model if no coder model available
+                ollama_client, _ = get_ollama_client()
+                model_name_used = ollama_client.model if hasattr(ollama_client, 'model') else 'unknown'
+                print(f"[_generate_code_with_llm_sync] No coder model available, using general model")
+        else:
+            ollama_client, _ = get_ollama_client()
+            model_name_used = ollama_client.model if hasattr(ollama_client, 'model') else 'unknown'
 
         # Build prompt for edit operations with original file context (like CLI)
         if original_file_content and file_path:
@@ -1133,7 +1249,7 @@ def _generate_code_with_llm_sync(step: str, model_registry, mcp_client,
             lang_name = "R" if is_r_code else "Python"
             code_block_marker = "r" if is_r_code else "python"
             
-            llm_prompt = f"""TASK: Edit the {lang_name} file below. Make ONLY the specific changes requested.
+            llm_prompt = f"""You are a code editor. Edit the {lang_name} file below according to the requested changes.
 
 FILE TO EDIT: {file_path} ({line_count} lines)
 
@@ -1150,45 +1266,93 @@ CRITICAL RULES:
 4. DO NOT change imports, class structure, or method signatures unless specifically requested
 5. Make ONLY the minimal changes needed to fulfill the request
 6. Preserve all docstrings, comments, and formatting
+7. DO NOT add ANY explanatory text, descriptions, or commentary
+8. DO NOT add titles, headers, or sections like "Updated Method" or "Explanation"
+9. ONLY output the code block - nothing before, nothing after
 
-Wrap your output in a markdown code block like this:
+OUTPUT FORMAT (EXACT):
 ```{code_block_marker}
 <the complete updated file content here>
-```"""
-        else:
-            llm_prompt = step
+```
 
-        # Use coder model for edit operations if available
-        model_override = None
-        num_predict = None
-        if use_coder_model:
-            coder_model = model_registry.get_active_model('coder')
-            if coder_model:
-                model_override = coder_model.model_name
-            num_predict = 8192  # Allow more tokens for complete file output
+Start your response with the ``` marker immediately. No text before the code block."""
+        else:
+            # For code generation without original file context, still provide code block instructions
+            is_r_code = tool_name in ['edit_r_code', 'write_r_code', 'run_r_code'] if tool_name else False
+            lang_name = "R" if is_r_code else "Python"
+            code_block_marker = "r" if is_r_code else "python"
+            
+            llm_prompt = f"""You are a code generator. Generate {lang_name} code for the following request.
+
+REQUEST: {step}
+
+CRITICAL RULES:
+1. Output ONLY the code, no explanations
+2. DO NOT add any text before or after the code block
+3. Use proper {lang_name} syntax and best practices
+
+OUTPUT FORMAT (EXACT):
+```{code_block_marker}
+<your code here>
+```
+
+Start your response with the ``` marker immediately. No text before the code block."""
+
+        # Set num_predict for code generation (allow more tokens)
+        num_predict = 8192 if use_coder_model else None
 
         # Call LLM
         messages = [{'role': 'user', 'content': llm_prompt}]
-        response = ollama_client.chat(
-            messages=messages,
-            stream=False,
-            temperature=0.7,
-            num_predict=num_predict,
-            model=model_override
-        )
+        
+        # Debug: Log what we're sending
+        print(f"[_generate_code_with_llm_sync] Prompt length: {len(llm_prompt)} chars, num_predict={num_predict}")
+        
+        try:
+            response = ollama_client.chat(
+                messages=messages,
+                stream=False,
+                temperature=0.7,
+                num_predict=num_predict
+            )
+        except Exception as chat_error:
+            print(f"[_generate_code_with_llm_sync] Chat error: {chat_error}")
+            return (None, model_name_used)
+        
+        # Debug: Log the raw response
+        print(f"[_generate_code_with_llm_sync] Raw response type: {type(response)}")
 
-        full_response = response.get('message', {}).get('content', '') if isinstance(response, dict) else ''
+        # Handle both dict and object responses (ollama library returns object in newer versions)
+        if isinstance(response, dict):
+            full_response = response.get('message', {}).get('content', '')
+        else:
+            # Handle ollama library response object
+            full_response = response.message.content if hasattr(response, 'message') else str(response)
+        
+        # If response is empty, check if there's an error in the response
+        if not full_response:
+            if isinstance(response, dict):
+                error = response.get('error')
+                if error:
+                    print(f"[_generate_code_with_llm_sync] LLM error: {error}")
+                    return (None, model_name_used)
+
+        # Debug: Log LLM response for troubleshooting
+        print(f"[_generate_code_with_llm_sync] LLM response length: {len(full_response)} chars")
+        print(f"[_generate_code_with_llm_sync] First 500 chars: {full_response[:500]}")
 
         # Detect code in response using the passed mcp_client
         detected = mcp_client.detect_code(full_response)
         if detected:
-            return detected['code']
+            print(f"[_generate_code_with_llm_sync] Code detected successfully: {len(detected['code'])} chars")
+            return (detected['code'], model_name_used)
+        else:
+            print(f"[_generate_code_with_llm_sync] ERROR: No code detected in LLM response")
         
-        return None
+        return (None, model_name_used)
 
     except Exception as e:
         capture_exception(e)
-        return None
+        return (None, model_name_used)
 
 
 def _format_execution_response(execution_results: list) -> str:
@@ -1201,8 +1365,12 @@ def _format_execution_response(execution_results: list) -> str:
         tool_name = result.get('tool_name', 'unknown')
         status = result.get('status')
         result_data = result.get('result', {})
+        model_name = result.get('model')
 
-        response_text += f"**{step_num}. {tool_name}**\n\n"
+        response_text += f"**{step_num}. {tool_name}**"
+        if model_name:
+            response_text += f" <small style='color: #888; font-size: 0.75em;'>({model_name})</small>"
+        response_text += "\n\n"
 
         if status == 'error':
             error_msg = result.get('message', 'Unknown error')
@@ -1311,4 +1479,50 @@ def auto_create_session():
             'status': 'error',
             'message': f'Failed to create session: {str(e)}',
             'session_active': False
+        }), 500
+
+
+@chat_bp.route('/rate', methods=['POST'])
+def submit_rating():
+    """
+    Submit a rating for a prompt/response pair.
+    Uses the same rating logic as the CLI.
+    """
+    try:
+        from src.utils.ratings import process_rating
+        
+        data = request.get_json()
+        rating = data.get('rating')
+        prompt_text = data.get('prompt', '')
+        response_text = data.get('response', '')
+        
+        # Validate rating
+        if rating is None or not isinstance(rating, int) or rating < 0 or rating > 10:
+            return jsonify({
+                'status': 'error',
+                'message': 'Invalid rating. Must be 0-10.'
+            }), 400
+        
+        if not prompt_text or not response_text:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing prompt or response text.'
+            }), 400
+        
+        # Get session ID if available
+        session_manager = get_session_manager()
+        session_id = session_manager.get_session_id() if session_manager.is_active() else None
+        
+        # Process rating using CLI logic
+        process_rating(rating, prompt_text, response_text, session_id)
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Rating {rating} submitted successfully'
+        })
+    except Exception as e:
+        capture_exception(e)
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to submit rating: {str(e)}'
         }), 500

@@ -58,14 +58,19 @@ class OllamaClient:
             )
 
             if stream:
-                for chunk in response:
-                    if 'message' in chunk and 'content' in chunk['message']:
-                        yield chunk['message']['content']
+                # Return a generator for streaming
+                return self._stream_response(response)
             else:
                 return response
 
         except Exception as e:
             raise Exception(f"Error communicating with Ollama: {str(e)}")
+
+    def _stream_response(self, response):
+        """Helper generator for streaming responses."""
+        for chunk in response:
+            if 'message' in chunk and 'content' in chunk['message']:
+                yield chunk['message']['content']
 
     def list_models(self) -> List[str]:
         """

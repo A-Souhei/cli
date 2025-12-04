@@ -762,6 +762,9 @@
         const messageDiv = document.createElement('div');
         messageDiv.className = 'flex items-start gap-3 max-w-3xl';
 
+        // Get model name from metadata
+        const modelUsed = metadata?.model_used || '';
+
         // Build steps list
         const stepsHtml = steps.map((step, i) =>
             `<div class="flex gap-2 text-sm">
@@ -782,6 +785,7 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
                     </svg>
                     <p class="dark:text-white text-surface-900 font-semibold text-sm">Code Execution Plan</p>
+                    ${modelUsed ? `<span class="text-xs text-surface-400">(${modelUsed})</span>` : ''}
                 </div>
                 <p class="dark:text-surface-400 text-surface-500 text-xs mb-3">The following ${steps.length} step${steps.length > 1 ? 's' : ''} will be executed:</p>
                 <div class="space-y-2 mb-4 p-3 dark:bg-surface-800 bg-surface-100 rounded-lg">
@@ -918,12 +922,46 @@
         scrollToBottom();
     }
     
-    function addAssistantMessage(text, isError = false) {
+    // Track last prompt and response for rating
+    let lastPromptForRating = null;
+    let lastResponseForRating = null;
+    
+    function addAssistantMessage(text, isError = false, showRating = false, promptText = null, modelName = null) {
         const messageDiv = document.createElement('div');
         messageDiv.className = 'flex items-start gap-3 max-w-3xl';
         
         const cardClass = isError ? 'card p-4 border-red-500/20 dark:bg-red-950/30 bg-red-50' : 'card p-4';
         const iconBg = isError ? 'from-red-500 to-red-600' : 'from-primary-500 to-primary-600';
+        
+        // Generate unique IDs for this message
+        const ratingId = 'rating-' + Date.now();
+        const copyBtnId = 'copy-' + Date.now();
+        
+        // Model name and copy button header (only for successful responses with model info)
+        const headerHtml = modelName ? `
+            <div class="flex items-center justify-between mb-2 pb-2 border-b dark:border-surface-700 border-surface-200">
+                <span class="text-xs dark:text-surface-400 text-surface-500">${modelName}</span>
+                <button id="${copyBtnId}" class="copy-btn text-xs dark:text-surface-400 text-surface-500 hover:text-primary-500 flex items-center gap-1 transition-colors" title="Copy response">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                    </svg>
+                    <span class="copy-text">Copy</span>
+                </button>
+            </div>
+        ` : '';
+        
+        // Rating widget HTML (only shown if showRating is true)
+        const ratingHtml = showRating ? `
+            <div id="${ratingId}" class="rating-widget flex items-center gap-2 mt-3 pt-3 border-t dark:border-surface-700 border-surface-200">
+                <span class="text-xs dark:text-surface-400 text-surface-500">Rate (0-10):</span>
+                <div class="flex gap-1">
+                    ${[0,1,2,3,4,5,6,7,8,9,10].map(n => `
+                        <button class="rating-btn w-6 h-6 text-xs rounded dark:bg-surface-700 bg-surface-200 dark:hover:bg-primary-600 hover:bg-primary-500 hover:text-white transition-colors" data-rating="${n}">${n}</button>
+                    `).join('')}
+                </div>
+                <button class="rating-skip text-xs dark:text-surface-500 text-surface-400 hover:text-surface-600 ml-2">Skip</button>
+            </div>
+        ` : '';
         
         messageDiv.innerHTML = `
             <div class="w-7 h-7 bg-gradient-to-br ${iconBg} rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm">
@@ -931,12 +969,78 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
                 </svg>
             </div>
-            <div class="${cardClass} markdown-content text-sm">
+            <div class="${cardClass} markdown-content text-sm flex-1">
+                ${headerHtml}
                 ${marked.parse(text)}
+                ${ratingHtml}
             </div>
         `;
         chatMessages.appendChild(messageDiv);
         scrollToBottom();
+        
+        // Add copy button handler
+        if (modelName) {
+            const copyBtn = document.getElementById(copyBtnId);
+            copyBtn.addEventListener('click', async () => {
+                try {
+                    await navigator.clipboard.writeText(text);
+                    const copyText = copyBtn.querySelector('.copy-text');
+                    copyText.textContent = 'Copied!';
+                    setTimeout(() => {
+                        copyText.textContent = 'Copy';
+                    }, 2000);
+                } catch (err) {
+                    console.error('Failed to copy:', err);
+                }
+            });
+        }
+        
+        // Add rating button handlers if rating is shown
+        if (showRating) {
+            const ratingWidget = document.getElementById(ratingId);
+            const ratingBtns = ratingWidget.querySelectorAll('.rating-btn');
+            const skipBtn = ratingWidget.querySelector('.rating-skip');
+            
+            // Flag to prevent double-clicks
+            let ratingSubmitted = false;
+            
+            ratingBtns.forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    if (ratingSubmitted) return; // Prevent double-click
+                    ratingSubmitted = true;
+                    
+                    // Immediately hide the widget and show confirmation
+                    const rating = parseInt(btn.dataset.rating);
+                    ratingWidget.innerHTML = `<span class="text-xs text-emerald-500">⭐ Rated ${rating}/10</span>`;
+                    
+                    // Submit rating in background
+                    await submitRating(rating, promptText, text);
+                });
+            });
+            
+            skipBtn.addEventListener('click', () => {
+                if (ratingSubmitted) return; // Prevent double-click
+                ratingSubmitted = true;
+                // Immediately remove the widget
+                ratingWidget.remove();
+            });
+        }
+    }
+    
+    async function submitRating(rating, prompt, response) {
+        try {
+            const res = await fetch('/api/chat/rate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ rating, prompt, response })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                console.error('Rating submission failed:', data.message);
+            }
+        } catch (error) {
+            console.error('Failed to submit rating:', error);
+        }
     }
     
     function addSystemMessage(text) {
@@ -1006,7 +1110,7 @@
             message = attachments + ' ' + message;
         }
         
-        // Check if it's a command
+        // Check if it's a command (no rating for commands)
         if (message.startsWith('/') || message.toLowerCase() === 'clear' || message.toLowerCase() === 'models' || message.toLowerCase() === 'mcps') {
             chatInput.value = '';
             chatInput.style.height = 'auto';
@@ -1019,6 +1123,9 @@
         
         isProcessing = true;
         sendButton.disabled = true;
+        
+        // Store the original message for rating
+        const originalPrompt = message;
         
         addUserMessage(message);
         chatInput.value = '';
@@ -1054,7 +1161,8 @@
             const data = await response.json();
             
             if (response.ok && data.status === 'success') {
-                addAssistantMessage(data.response);
+                // Show rating widget for successful non-command responses, include model name
+                addAssistantMessage(data.response, false, true, originalPrompt, data.model);
             } else {
                 addAssistantMessage(data.message || 'An error occurred', true);
             }

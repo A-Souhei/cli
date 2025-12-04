@@ -12,6 +12,7 @@ import subprocess
 import re
 import json
 import requests
+import yaml
 from pathlib import Path
 from typing import Any, Optional
 
@@ -53,6 +54,48 @@ except ImportError:
 
 # Initialize the MCP server
 app = Server("coder")
+
+# Load tool metadata from YAML
+_TOOLS_METADATA_CACHE = None
+
+def load_tools_metadata() -> dict:
+    """
+    Load tool metadata from tools.yaml file.
+    Caches the result for subsequent calls.
+    """
+    global _TOOLS_METADATA_CACHE
+    if _TOOLS_METADATA_CACHE is not None:
+        return _TOOLS_METADATA_CACHE
+    
+    tools_yaml_path = Path(__file__).parent / "tools.yaml"
+    try:
+        with open(tools_yaml_path, 'r') as f:
+            _TOOLS_METADATA_CACHE = yaml.safe_load(f)
+            return _TOOLS_METADATA_CACHE
+    except Exception as e:
+        debug_print(f"Failed to load tools.yaml: {e}")
+        # Return empty metadata on error
+        return {"categories": {}, "tools": {}}
+
+
+def get_tool_categories() -> dict:
+    """Get all tool categories and their tools."""
+    metadata = load_tools_metadata()
+    return metadata.get("categories", {})
+
+
+def get_tools_in_category(category: str) -> list[str]:
+    """Get list of tools in a specific category."""
+    categories = get_tool_categories()
+    if category in categories:
+        return categories[category].get("tools", [])
+    return []
+
+
+def get_tool_metadata(tool_name: str) -> dict:
+    """Get metadata for a specific tool."""
+    metadata = load_tools_metadata()
+    return metadata.get("tools", {}).get(tool_name, {})
 
 
 def find_cli_venv() -> Optional[str]:
@@ -754,6 +797,33 @@ async def list_tools() -> list[Tool]:
                     }
                 },
                 "required": ["text"]
+            }
+        ),
+        Tool(
+            name="get_tool_metadata",
+            description=(
+                "Get metadata about coder MCP tools including categories and tool information. "
+                "Use this to discover tool capabilities, which tools belong to which categories, "
+                "and additional metadata like whether a tool requires LLM code generation. "
+                "Categories include: code_generation, valid_coding, meta, context, execution, etc."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "Optional: Get tools for a specific category (e.g., 'code_generation', 'valid_coding', 'meta')"
+                    },
+                    "tool_name": {
+                        "type": "string",
+                        "description": "Optional: Get metadata for a specific tool"
+                    },
+                    "list_categories": {
+                        "type": "boolean",
+                        "description": "If true, list all available categories"
+                    }
+                },
+                "required": []
             }
         )
     ]
@@ -1693,6 +1763,62 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             return [TextContent(type="text", text=json.dumps({
                 "status": "error",
                 "message": f"Error in spin_the_roulette: {str(e)}"
+            }, indent=2))]
+
+    elif name == "get_tool_metadata":
+        category = arguments.get("category")
+        tool_name = arguments.get("tool_name")
+        list_categories = arguments.get("list_categories", False)
+
+        debug_print("get_tool_metadata called", category=category, tool_name=tool_name, list_categories=list_categories)
+
+        try:
+            result = {"status": "success"}
+            
+            # List all categories
+            if list_categories:
+                categories = get_tool_categories()
+                result["categories"] = {
+                    name: {
+                        "description": cat_info.get("description", ""),
+                        "tool_count": len(cat_info.get("tools", []))
+                    }
+                    for name, cat_info in categories.items()
+                }
+            
+            # Get tools for a specific category
+            if category:
+                tools = get_tools_in_category(category)
+                if tools:
+                    result["category"] = category
+                    result["tools"] = tools
+                else:
+                    result["status"] = "error"
+                    result["message"] = f"Category '{category}' not found"
+            
+            # Get metadata for a specific tool
+            if tool_name:
+                metadata = get_tool_metadata(tool_name)
+                if metadata:
+                    result["tool_name"] = tool_name
+                    result["metadata"] = metadata
+                else:
+                    # Tool exists but no extra metadata
+                    result["tool_name"] = tool_name
+                    result["metadata"] = {}
+                    result["note"] = "Tool exists but has no additional metadata"
+            
+            # If no specific request, return all metadata
+            if not (category or tool_name or list_categories):
+                full_metadata = load_tools_metadata()
+                result["full_metadata"] = full_metadata
+
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+        except Exception as e:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": f"Error getting tool metadata: {str(e)}"
             }, indent=2))]
 
     else:

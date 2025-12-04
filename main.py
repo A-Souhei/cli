@@ -1038,13 +1038,15 @@ def main(verbose=False):
                         # Call the simplified code-command endpoint to get steps
                         console.print("📝 [cyan]Analyzing prompt and creating execution steps...[/cyan]")
                         
-                        # Build request payload with optional coder model
+                        # Build request payload with optional coder model and URL
                         code_command_payload = {
                             "text": prompt_text,
                             "session_id": session_id
                         }
                         if coder_model_name:
                             code_command_payload["model"] = coder_model_name
+                        if coder_model:
+                            code_command_payload["ollama_url"] = coder_model.url
                         
                         response = requests.post(
                             f"{POSTGRES_API_URL}/mcp-tools/code-command-simple",
@@ -1245,7 +1247,7 @@ def main(verbose=False):
                                                     code_block_marker = "r" if is_r_code else "python"
                                                     comment_prefix = "#" if is_r_code else "#"  # Both use # for comments
                                                     
-                                                    edit_prompt = f"""TASK: Edit the {lang_name} file below. Make ONLY the specific changes requested.
+                                                    edit_prompt = f"""You are a code editor. Edit the {lang_name} file below according to the requested changes.
 
 FILE TO EDIT: {file_path} ({line_count} lines)
 
@@ -1262,11 +1264,16 @@ CRITICAL RULES:
 4. DO NOT change imports, class structure, or method signatures unless specifically requested
 5. Make ONLY the minimal changes needed to fulfill the request
 6. Preserve all docstrings, comments, and formatting
+7. DO NOT add ANY explanatory text, descriptions, or commentary
+8. DO NOT add titles, headers, or sections like "Updated Method" or "Explanation"
+9. ONLY output the code block - nothing before, nothing after
 
-Wrap your output in a markdown code block like this:
+OUTPUT FORMAT (EXACT):
 ```{code_block_marker}
 <the complete updated file content here>
-```"""
+```
+
+Start your response with the ``` marker immediately. No text before the code block."""
                                                     chat_manager.add_user_message(edit_prompt)
                                                 else:
                                                     chat_manager.add_user_message(step)

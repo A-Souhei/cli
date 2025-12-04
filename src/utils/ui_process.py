@@ -210,12 +210,18 @@ def start_ui_server_background(verbose: bool = False, open_browser: bool = True)
 
     # Start detached process with no output
     try:
+        # Pass current working directory to UI server via environment variable
+        env = os.environ.copy()
+        if 'AI_CLI_CWD' not in env:
+            env['AI_CLI_CWD'] = os.getcwd()
+
         # Prepare platform-specific subprocess options
         popen_kwargs = {
             'stdout': subprocess.DEVNULL,
             'stderr': subprocess.DEVNULL,
             'stdin': subprocess.DEVNULL,
-            'cwd': str(ui_server_script.parent)
+            'cwd': str(ui_server_script.parent),
+            'env': env
         }
         
         # start_new_session is not supported on Windows
