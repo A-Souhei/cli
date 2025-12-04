@@ -912,11 +912,13 @@
                 clearSucceeded = true;
             } else if (!response.ok) {
                 console.error('Clear failed:', data.message || 'Unknown error');
-                alert('Failed to clear chat: ' + (data.message || 'Unknown error'));
+                addAssistantMessage("❌ Failed to clear chat: " + (data.message || 'Unknown error'), true);
+                return;
             }
         } catch (error) {
             console.error('Error clearing chat:', error);
-            alert('Failed to clear chat. Please try again.');
+            addAssistantMessage("❌ Failed to clear chat. Please try again.", true);
+            return;
         }
         
         // Only clear the UI if backend call succeeded

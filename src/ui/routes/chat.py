@@ -546,6 +546,38 @@ def handle_session_end():
     })
 
 
+def _call_llm_for_map(prompt: str, system_msg: str) -> str:
+    """
+    Helper function to call LLM for generating repository/data maps.
+    
+    Args:
+        prompt: The user prompt to send to the LLM
+        system_msg: The system message describing the assistant's role
+        
+    Returns:
+        The LLM response content as a string
+        
+    Raises:
+        Exception: If the LLM call fails
+    """
+    client, config = get_ollama_client()
+    
+    messages = [
+        {'role': 'system', 'content': system_msg},
+        {'role': 'user', 'content': prompt}
+    ]
+    
+    response = client.chat(messages=messages, stream=False)
+    
+    # Extract response content
+    if hasattr(response, 'message'):
+        return response.message.content
+    elif isinstance(response, dict):
+        return response.get('message', {}).get('content', '')
+    else:
+        return str(response)
+
+
 def handle_clear():
     """Clear chat and start a new session."""
     session_manager = get_session_manager()
@@ -597,30 +629,18 @@ def handle_repomap_create():
         # Generate the LLM prompt
         repomap_prompt = generate_repomap_prompt(source_files, tree_output=tree_output)
         
-        # Get Ollama client and generate the repomap
-        client, config = get_ollama_client()
-        
-        messages = [
-            {'role': 'system', 'content': 'You are a helpful assistant that creates repository maps.'},
-            {'role': 'user', 'content': repomap_prompt}
-        ]
-        
-        # Call LLM (non-streaming for simplicity in this context)
+        # Call LLM to generate the repomap
         try:
-            response = client.chat(messages=messages, stream=False)
+            full_response = _call_llm_for_map(
+                prompt=repomap_prompt,
+                system_msg='You are a helpful assistant that creates repository maps.'
+            )
         except Exception as llm_error:
             capture_exception(llm_error)
             return jsonify({
                 'status': 'error',
                 'message': f'❌ Error calling LLM: {str(llm_error)}'
             }), 500
-        
-        if hasattr(response, 'message'):
-            full_response = response.message.content
-        elif isinstance(response, dict):
-            full_response = response.get('message', {}).get('content', '')
-        else:
-            full_response = str(response)
         
         # Prepend the tree to the repomap output
         repomap_content = f"""# Repository Map
@@ -739,29 +759,18 @@ def handle_repomap_update():
         # Generate the update prompt
         update_prompt = generate_repomap_update_prompt(source_files, existing_repomap, tree_output=tree_output)
         
-        # Get Ollama client and generate the updated repomap
-        client, config = get_ollama_client()
-        
-        messages = [
-            {'role': 'system', 'content': 'You are a helpful assistant that updates repository maps.'},
-            {'role': 'user', 'content': update_prompt}
-        ]
-        
+        # Call LLM to generate the updated repomap
         try:
-            response = client.chat(messages=messages, stream=False)
+            full_response = _call_llm_for_map(
+                prompt=update_prompt,
+                system_msg='You are a helpful assistant that updates repository maps.'
+            )
         except Exception as llm_error:
             capture_exception(llm_error)
             return jsonify({
                 'status': 'error',
                 'message': f'❌ Error calling LLM: {str(llm_error)}'
             }), 500
-        
-        if hasattr(response, 'message'):
-            full_response = response.message.content
-        elif isinstance(response, dict):
-            full_response = response.get('message', {}).get('content', '')
-        else:
-            full_response = str(response)
         
         # Prepend the tree to the repomap output
         repomap_content = f"""# Repository Map (Updated)
@@ -818,29 +827,18 @@ def handle_datamap_create(args_str: str = ''):
         # Generate the LLM prompt
         datamap_prompt = generate_datamap_prompt(data_sources)
         
-        # Get Ollama client and generate the datamap
-        client, config = get_ollama_client()
-        
-        messages = [
-            {'role': 'system', 'content': 'You are a helpful assistant that creates data maps describing data files and their schemas.'},
-            {'role': 'user', 'content': datamap_prompt}
-        ]
-        
+        # Call LLM to generate the datamap
         try:
-            response = client.chat(messages=messages, stream=False)
+            full_response = _call_llm_for_map(
+                prompt=datamap_prompt,
+                system_msg='You are a helpful assistant that creates data maps describing data files and their schemas.'
+            )
         except Exception as llm_error:
             capture_exception(llm_error)
             return jsonify({
                 'status': 'error',
                 'message': f'❌ Error calling LLM: {str(llm_error)}'
             }), 500
-        
-        if hasattr(response, 'message'):
-            full_response = response.message.content
-        elif isinstance(response, dict):
-            full_response = response.get('message', {}).get('content', '')
-        else:
-            full_response = str(response)
         
         # Create datamap content
         datamap_content = f"""# Data Map
@@ -956,29 +954,18 @@ def handle_datamap_update(args_str: str = ''):
         # Generate the update prompt
         update_prompt = generate_datamap_update_prompt(data_sources, existing_datamap)
         
-        # Get Ollama client and generate the updated datamap
-        client, config = get_ollama_client()
-        
-        messages = [
-            {'role': 'system', 'content': 'You are a helpful assistant that updates data maps.'},
-            {'role': 'user', 'content': update_prompt}
-        ]
-        
+        # Call LLM to generate the updated datamap
         try:
-            response = client.chat(messages=messages, stream=False)
+            full_response = _call_llm_for_map(
+                prompt=update_prompt,
+                system_msg='You are a helpful assistant that updates data maps.'
+            )
         except Exception as llm_error:
             capture_exception(llm_error)
             return jsonify({
                 'status': 'error',
                 'message': f'❌ Error calling LLM: {str(llm_error)}'
             }), 500
-        
-        if hasattr(response, 'message'):
-            full_response = response.message.content
-        elif isinstance(response, dict):
-            full_response = response.get('message', {}).get('content', '')
-        else:
-            full_response = str(response)
         
         # Create updated datamap content
         datamap_content = f"""# Data Map (Updated)
