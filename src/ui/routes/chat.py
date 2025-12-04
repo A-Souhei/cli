@@ -54,6 +54,10 @@ def _get_or_create_event_loop():
                 if _async_loop.is_running():
                     break
                 time.sleep(0.01)
+            
+            # Verify the loop actually started
+            if not _async_loop.is_running():
+                raise RuntimeError("Failed to start event loop within timeout")
     
     return _async_loop
 
@@ -79,35 +83,8 @@ from src.sentry_config import capture_exception
 from src.session.manager import SessionManager
 from src.session.title_generator import SessionTitleGenerator
 from src.mcp import MCPClient
-from src.config.manager import ConfigManager
 
 chat_bp = Blueprint('chat', __name__)
-
-# Global MCP client instance for UI
-_mcp_client = None
-
-def get_mcp_client() -> MCPClient:
-    """Get or create the shared MCP client instance."""
-    global _mcp_client
-    if _mcp_client is None:
-        import os
-        from pathlib import Path
-
-        # Get project root directory
-        current_file = Path(__file__)
-        project_root = current_file.parent.parent.parent.parent
-        system_mcps_dir = project_root / 'system_mcps'
-
-        # Get PostgreSQL API URL
-        postgres_url = os.getenv('POSTGRES_API_URL', 'http://localhost:15000')
-
-        # Create MCP client with required parameters
-        _mcp_client = MCPClient(
-            system_mcps_dir=system_mcps_dir,
-            postgres_url=postgres_url,
-            verbose=False
-        )
-    return _mcp_client
 
 # In-memory session store for UI sessions (fallback when Redis is unavailable)
 # This stores completed/saved sessions that can be listed in the UI
@@ -978,7 +955,7 @@ async def _execute_all_steps_async(steps, at_references, working_dir, session_id
                             # Read existing file
                             full_file_path = os.path.join(working_dir, file_path) if not os.path.isabs(file_path) else file_path
                             try:
-                                with open(full_file_path, 'r') as f:
+                                with open(full_file_path, 'r', encoding='utf-8') as f:
                                     code = f.read()
                                 extracted_params['code'] = code
                                 if 'file_path' in extracted_params:
@@ -1014,9 +991,10 @@ async def _execute_all_steps_async(steps, at_references, working_dir, session_id
                             full_file_path = os.path.join(working_dir, file_path) if not os.path.isabs(file_path) else file_path
                             try:
                                 if os.path.exists(full_file_path):
-                                    with open(full_file_path, 'r') as f:
+                                    with open(full_file_path, 'r', encoding='utf-8') as f:
                                         original_file_content = f.read()
                             except Exception:
+                                # Ignore file read errors - will proceed without original content
                                 pass
 
                         # Generate code with LLM (use coder model for edits)
@@ -1081,7 +1059,8 @@ async def _execute_all_steps_async(steps, at_references, working_dir, session_id
                 if isinstance(result, str):
                     try:
                         result_data = json.loads(result)
-                    except:
+                    except (json.JSONDecodeError, ValueError):
+                        # Result is not JSON, keep as string
                         pass
 
                 # Determine status from result

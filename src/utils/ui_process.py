@@ -2,7 +2,6 @@
 
 import os
 import sys
-import signal
 import psutil
 import subprocess
 from pathlib import Path
@@ -93,6 +92,8 @@ def stop_ui_server(verbose: bool = False) -> bool:
         stopped_any = _kill_process(pid, verbose)
     
     # Also kill any other processes on the UI port as fallback
+    # Note: This only kills processes bound to our specific UI_PORT (5005 by default),
+    # so it's safe - we're only stopping what we started on that port.
     port_pids = get_pids_using_port(UI_PORT)
     for port_pid in port_pids:
         if port_pid != pid:  # Don't try to kill same process twice
@@ -112,7 +113,7 @@ def stop_ui_server(verbose: bool = False) -> bool:
 
 def _kill_process(pid: int, verbose: bool = False) -> bool:
     """
-    Kill a process by PID.
+    Kill a process by PID using cross-platform psutil methods.
     
     Args:
         pid: Process ID to kill
@@ -122,19 +123,18 @@ def _kill_process(pid: int, verbose: bool = False) -> bool:
         True if process was killed, False otherwise
     """
     try:
-        # Try graceful shutdown first
-        os.kill(pid, signal.SIGTERM)
+        process = psutil.Process(pid)
+        
+        # Try graceful shutdown first (cross-platform)
+        process.terminate()
 
         # Wait a bit for graceful shutdown
         import time
-        for _ in range(10):
-            if not psutil.pid_exists(pid):
-                break
-            time.sleep(0.1)
-
-        # Force kill if still running
-        if psutil.pid_exists(pid):
-            os.kill(pid, signal.SIGKILL)
+        try:
+            process.wait(timeout=1.0)
+        except psutil.TimeoutExpired:
+            # Force kill if still running (cross-platform)
+            process.kill()
             time.sleep(0.1)
 
         if verbose:
@@ -142,13 +142,13 @@ def _kill_process(pid: int, verbose: bool = False) -> bool:
 
         return True
 
-    except (ProcessLookupError, psutil.NoSuchProcess):
+    except psutil.NoSuchProcess:
         # Process already dead
         if verbose:
             print(f"UI server process (PID {pid}) already terminated.")
         return True
 
-    except PermissionError:
+    except psutil.AccessDenied:
         if verbose:
             print(f"✗ Permission denied stopping process {pid}. Try with sudo.")
         return False
@@ -157,6 +157,30 @@ def _kill_process(pid: int, verbose: bool = False) -> bool:
         if verbose:
             print(f"Error stopping UI server (PID {pid}): {e}")
         return False
+
+
+def _get_python_executable() -> str:
+    """
+    Get the Python executable path, preferring virtual environment if available.
+    Cross-platform: handles both Unix (bin/python) and Windows (Scripts/python.exe).
+    
+    Returns:
+        Path to the Python executable
+    """
+    project_root = Path(__file__).parent.parent.parent
+    
+    # Try Unix-style venv first
+    unix_venv = project_root / "venv" / "bin" / "python"
+    if unix_venv.exists():
+        return str(unix_venv)
+    
+    # Try Windows-style venv
+    windows_venv = project_root / "venv" / "Scripts" / "python.exe"
+    if windows_venv.exists():
+        return str(windows_venv)
+    
+    # Fall back to current Python executable
+    return sys.executable
 
 
 def start_ui_server_background(verbose: bool = False, open_browser: bool = True) -> bool:
@@ -176,9 +200,8 @@ def start_ui_server_background(verbose: bool = False, open_browser: bool = True)
     # Get the path to the ui_server_standalone.py script
     ui_server_script = Path(__file__).parent.parent / "ui" / "ui_server_standalone.py"
 
-    # Determine Python executable (prefer venv if available)
-    venv_python = Path(__file__).parent.parent.parent / "venv" / "bin" / "python"
-    python_exe = str(venv_python) if venv_python.exists() else sys.executable
+    # Get Python executable (cross-platform)
+    python_exe = _get_python_executable()
 
     # Build command
     cmd = [python_exe, str(ui_server_script), "--port", str(UI_PORT)]
@@ -187,18 +210,22 @@ def start_ui_server_background(verbose: bool = False, open_browser: bool = True)
 
     # Start detached process with no output
     try:
-        # Use subprocess.DEVNULL to suppress all output
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL,
-            start_new_session=True,  # Detach from parent
-            cwd=str(ui_server_script.parent)
-        )
-
-        # Save PID
-        UI_PID_FILE.write_text(str(process.pid))
+        # Prepare platform-specific subprocess options
+        popen_kwargs = {
+            'stdout': subprocess.DEVNULL,
+            'stderr': subprocess.DEVNULL,
+            'stdin': subprocess.DEVNULL,
+            'cwd': str(ui_server_script.parent)
+        }
+        
+        # start_new_session is not supported on Windows
+        if sys.platform != 'win32':
+            popen_kwargs['start_new_session'] = True
+        else:
+            # On Windows, use CREATE_NEW_PROCESS_GROUP for detaching
+            popen_kwargs['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP
+        
+        process = subprocess.Popen(cmd, **popen_kwargs)
 
         # Brief check that process started
         import time
@@ -207,6 +234,9 @@ def start_ui_server_background(verbose: bool = False, open_browser: bool = True)
         if not psutil.pid_exists(process.pid):
             print("✗ Failed to start UI server.")
             return False
+
+        # Save PID only after confirming process is running
+        UI_PID_FILE.write_text(str(process.pid))
 
         print(f"✓ UI server started in background (PID {process.pid})")
         print(f"  Access at: http://127.0.0.1:{UI_PORT}")
