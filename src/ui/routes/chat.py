@@ -1049,7 +1049,7 @@ async def _execute_all_steps_async(steps, at_references, working_dir, session_id
                                 continue
                         else:
                             # Generate code with LLM (use coder model)
-                            code = _generate_code_with_llm_sync(
+                            code, llm_model_name = _generate_code_with_llm_sync(
                                 step, 
                                 model_registry, 
                                 mcp_client, 
@@ -1061,10 +1061,12 @@ async def _execute_all_steps_async(steps, at_references, working_dir, session_id
                                     'step': i,
                                     'tool_name': tool_name,
                                     'status': 'error',
-                                    'message': 'No code detected in LLM response'
+                                    'message': 'No code detected in LLM response',
+                                    'model': llm_model_name
                                 })
                                 continue
                             extracted_params['code'] = code
+                            extracted_params['_model_used'] = llm_model_name
                             if 'file_path' in extracted_params:
                                 extracted_params.pop('file_path')
                     else:
@@ -1084,7 +1086,7 @@ async def _execute_all_steps_async(steps, at_references, working_dir, session_id
 
                         # Generate code with LLM (always use coder model for code generation)
                         use_coder_model = True  # Always use coder model for code generation
-                        code = _generate_code_with_llm_sync(
+                        code, llm_model_name = _generate_code_with_llm_sync(
                             step, 
                             model_registry,
                             mcp_client,
@@ -1099,11 +1101,13 @@ async def _execute_all_steps_async(steps, at_references, working_dir, session_id
                                 'step': i,
                                 'tool_name': tool_name,
                                 'status': 'error',
-                                'message': 'No code detected in LLM response'
+                                'message': 'No code detected in LLM response',
+                                'model': llm_model_name
                             })
                             continue
                         
                         extracted_params['code'] = code
+                        extracted_params['_model_used'] = llm_model_name
 
                         # Add file_path for write/edit tools
                         if file_path and tool_name in ['write_python_code', 'edit_python_code', 'write_r_code', 'edit_r_code']:
@@ -1154,12 +1158,16 @@ async def _execute_all_steps_async(steps, at_references, working_dir, session_id
                     if result_data.get('status') == 'error':
                         status = 'error'
 
-                execution_results.append({
+                # Include model name if it was used for code generation
+                result_entry = {
                     'step': i,
                     'tool_name': tool_name,
                     'status': status,
                     'result': result_data
-                })
+                }
+                if '_model_used' in extracted_params:
+                    result_entry['model'] = extracted_params['_model_used']
+                execution_results.append(result_entry)
 
                 # Add to session history
                 if session_manager.is_active():
@@ -1192,7 +1200,7 @@ async def _execute_all_steps_async(steps, at_references, working_dir, session_id
 def _generate_code_with_llm_sync(step: str, model_registry, mcp_client,
                                   original_file_content: str = None, 
                                   file_path: str = None, use_coder_model: bool = False,
-                                  tool_name: str = None) -> str:
+                                  tool_name: str = None) -> tuple:
     """
     Generate code using LLM, matching CLI behavior.
     
@@ -1206,8 +1214,10 @@ def _generate_code_with_llm_sync(step: str, model_registry, mcp_client,
         tool_name: Name of the tool being used
     
     Returns:
-        Generated code string, or None if no code detected
+        Tuple of (code, model_name) where code is the generated code string or None,
+        and model_name is the name of the model used
     """
+    model_name_used = None
     try:
         from src.ollama_client.client import OllamaClient
         
@@ -1221,13 +1231,16 @@ def _generate_code_with_llm_sync(step: str, model_registry, mcp_client,
                     model=coder_model.model_name,
                     timeout=coder_model.timeout
                 )
+                model_name_used = coder_model.model_name
                 print(f"[_generate_code_with_llm_sync] Using coder model: {coder_model.model_name} at {coder_model.url}")
             else:
                 # Fallback to general model if no coder model available
                 ollama_client, _ = get_ollama_client()
+                model_name_used = ollama_client.model if hasattr(ollama_client, 'model') else 'unknown'
                 print(f"[_generate_code_with_llm_sync] No coder model available, using general model")
         else:
             ollama_client, _ = get_ollama_client()
+            model_name_used = ollama_client.model if hasattr(ollama_client, 'model') else 'unknown'
 
         # Build prompt for edit operations with original file context (like CLI)
         if original_file_content and file_path:
@@ -1331,15 +1344,15 @@ Start your response with the ``` marker immediately. No text before the code blo
         detected = mcp_client.detect_code(full_response)
         if detected:
             print(f"[_generate_code_with_llm_sync] Code detected successfully: {len(detected['code'])} chars")
-            return detected['code']
+            return (detected['code'], model_name_used)
         else:
             print(f"[_generate_code_with_llm_sync] ERROR: No code detected in LLM response")
         
-        return None
+        return (None, model_name_used)
 
     except Exception as e:
         capture_exception(e)
-        return None
+        return (None, model_name_used)
 
 
 def _format_execution_response(execution_results: list) -> str:
@@ -1352,8 +1365,12 @@ def _format_execution_response(execution_results: list) -> str:
         tool_name = result.get('tool_name', 'unknown')
         status = result.get('status')
         result_data = result.get('result', {})
+        model_name = result.get('model')
 
-        response_text += f"**{step_num}. {tool_name}**\n\n"
+        response_text += f"**{step_num}. {tool_name}**"
+        if model_name:
+            response_text += f" <small style='color: #888; font-size: 0.75em;'>({model_name})</small>"
+        response_text += "\n\n"
 
         if status == 'error':
             error_msg = result.get('message', 'Unknown error')
