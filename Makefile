@@ -1,6 +1,6 @@
 .PHONY: help setup run run-verbose venv install build up down restart logs status clean test test-unit test-integration test-spin test-all
 .PHONY: exec-ollama pull-model list-models build-postgres exec-postgres flask-logs update-schema migrate-session
-.PHONY: build-redis build-all-services up-redis up-all redis-logs redis-cli redis-clear ui ui-stop
+.PHONY: build-redis build-all-services up-redis up-all redis-logs redis-cli redis-clear ui ui-logs ui-stop
 
 # Default target
 .DEFAULT_GOAL := help
@@ -43,15 +43,17 @@ run-verbose: venv ## Run the AI CLI in verbose mode
 	@chmod +x start.sh
 	@./start.sh --verbose
 
-ui: venv ## Start the AI CLI Web UI
-	@echo "$(YELLOW)Starting AI CLI Web UI...$(NC)"
+ui: venv ## Start the AI CLI Web UI in background (detached, no logs)
+	@echo "$(YELLOW)Starting AI CLI Web UI in background...$(NC)"
 	@. $(VENV_DIR)/bin/activate && python main.py --show-ui
 
-ui-stop: ## Stop the AI CLI Web UI
+ui-logs: venv ## Start the AI CLI Web UI in foreground with logs
+	@echo "$(YELLOW)Starting AI CLI Web UI with logs...$(NC)"
+	@. $(VENV_DIR)/bin/activate && python main.py --show-ui --with-logs
+
+ui-stop: venv ## Stop the AI CLI Web UI
 	@echo "$(YELLOW)Stopping AI CLI Web UI...$(NC)"
-	@fuser -k 18080/tcp 2>/dev/null; true
-	@pkill -f "main.py --show-ui" 2>/dev/null; true
-	@echo "$(GREEN)✓ Web UI stopped$(NC)"
+	@. $(VENV_DIR)/bin/activate && python main.py --stop-ui
 
 venv: ## Create Python virtual environment
 	@if [ ! -d "$(VENV_DIR)" ]; then \

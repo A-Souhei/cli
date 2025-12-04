@@ -8,6 +8,7 @@ nest_asyncio>=1.5.0
 mcp>=0.9.0
 httpx>=0.25.0
 redis>=5.0.0
+psutil>=5.9.0
 
 # Web UI
 flask>=3.0.0

@@ -8,6 +8,10 @@ Provides endpoints for:
 
 import os
 import sys
+import asyncio
+import re
+import json
+import threading
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any
@@ -16,9 +20,69 @@ from flask import Blueprint, jsonify, request
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
+# Apply nest_asyncio for nested event loop support (like main.py)
+import nest_asyncio
+nest_asyncio.apply()
+
+# Persistent event loop for async operations
+# This ensures MCP client subprocess handles stay on the same loop
+_async_loop = None
+_loop_thread = None
+_loop_lock = threading.Lock()
+
+
+def _get_or_create_event_loop():
+    """Get or create a persistent event loop running in a background thread."""
+    global _async_loop, _loop_thread
+    
+    with _loop_lock:
+        if _async_loop is None or not _async_loop.is_running():
+            # Create a new event loop
+            _async_loop = asyncio.new_event_loop()
+            
+            # Start the loop in a background thread
+            def run_loop():
+                asyncio.set_event_loop(_async_loop)
+                _async_loop.run_forever()
+            
+            _loop_thread = threading.Thread(target=run_loop, daemon=True)
+            _loop_thread.start()
+            
+            # Wait for the loop to start
+            import time
+            for _ in range(50):  # Wait up to 0.5 seconds
+                if _async_loop.is_running():
+                    break
+                time.sleep(0.01)
+            
+            # Verify the loop actually started
+            if not _async_loop.is_running():
+                raise RuntimeError("Failed to start event loop within timeout")
+    
+    return _async_loop
+
+
+def run_async(coro):
+    """
+    Run an async coroutine on the persistent event loop.
+    This ensures all MCP client operations use the same loop,
+    avoiding 'Future attached to a different loop' errors.
+    """
+    loop = _get_or_create_event_loop()
+    
+    # Submit the coroutine to the loop and wait for result
+    future = asyncio.run_coroutine_threadsafe(coro, loop)
+    
+    # Wait for the result with a timeout
+    try:
+        return future.result(timeout=120)  # 2 minute timeout for long operations
+    except Exception as e:
+        raise e
+
 from src.sentry_config import capture_exception
 from src.session.manager import SessionManager
 from src.session.title_generator import SessionTitleGenerator
+from src.mcp import MCPClient
 
 chat_bp = Blueprint('chat', __name__)
 
@@ -591,28 +655,55 @@ def handle_mcps():
 
 
 def handle_code_command(prompt):
-    """Handle /code command."""
+    """Handle /code command - returns steps for user confirmation."""
     import requests
-    import os
-    
+
     postgres_api_url = os.getenv('POSTGRES_API_URL', 'http://localhost:15000')
+    session_manager = get_session_manager()
     
+    # Ensure session is active (like CLI does)
+    if not session_manager.is_active():
+        working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
+        session_manager.start_session(working_dir=working_dir)
+    
+    session_id = session_manager.get_session_id()
+
     try:
         response = requests.post(
             f"{postgres_api_url}/mcp-tools/code-command-simple",
             json={
                 'text': prompt,
-                'session_id': 'ui-session'
+                'session_id': session_id
             },
             timeout=180
         )
-        
+
         if response.status_code == 200:
             data = response.json()
-            return jsonify({
-                'status': 'success',
-                'response': f"✅ **Code Command Executed**\n\n{data.get('result', data.get('message', 'Command completed.'))}"
-            })
+
+            # Check if we got steps back (planning phase)
+            steps = data.get('steps', [])
+            if steps:
+                metadata = data.get('metadata', {})
+                
+                # Extract @ references from prompt for context
+                at_references = re.findall(r'@([\w\-./]+)', prompt)
+
+                # Return steps for user confirmation (UI will display them with Yes/No buttons)
+                return jsonify({
+                    'status': 'awaiting_confirmation',
+                    'steps': steps,
+                    'prompt': prompt,
+                    'metadata': metadata,
+                    'at_references': at_references,
+                    'session_id': session_id
+                })
+            else:
+                # Fallback to result/message if available
+                return jsonify({
+                    'status': 'success',
+                    'response': f"✅ **Code Command Executed**\n\n{data.get('result', data.get('message', 'Command completed.'))}"
+                })
         else:
             return jsonify({
                 'status': 'error',
@@ -634,6 +725,549 @@ def handle_code_command(prompt):
             'status': 'error',
             'message': f'❌ Error: {str(e)}'
         })
+
+
+@chat_bp.route('/execute-code-steps', methods=['POST'])
+def execute_code_steps():
+    """
+    Execute code steps after user confirmation.
+    Matches CLI behavior: loads context maps, generates code with LLM, executes tools.
+
+    Request body:
+        prompt: Original code prompt
+        steps: List of steps to execute
+        at_references: Optional list of @ file references
+        session_id: Optional session ID
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Request body required'
+            }), 400
+
+        prompt = data.get('prompt', '')
+        steps = data.get('steps', [])
+        at_references = data.get('at_references', [])
+
+        if not steps:
+            return jsonify({
+                'status': 'error',
+                'message': 'No steps provided'
+            }), 400
+
+        from src.model_registry import ModelRegistry
+
+        postgres_api_url = os.getenv('POSTGRES_API_URL', 'http://localhost:15000')
+        session_manager = get_session_manager()
+
+        # Ensure session is active
+        if not session_manager.is_active():
+            working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
+            session_manager.start_session(working_dir=working_dir)
+
+        session_id = session_manager.get_session_id()
+        working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
+
+        # Store @ references in session metadata (like CLI)
+        if at_references:
+            session_manager.session_metadata['at_references'] = at_references
+            session_manager.session_metadata['working_dir'] = working_dir
+
+        # Get model registry for coder model selection
+        model_registry = ModelRegistry()
+
+        # Execute all steps in a single async context to avoid event loop issues
+        # This creates a fresh MCP client inside the async function
+        execution_results = run_async(_execute_all_steps_async(
+            steps=steps,
+            at_references=at_references,
+            working_dir=working_dir,
+            session_id=session_id,
+            postgres_api_url=postgres_api_url,
+            model_registry=model_registry,
+            session_manager=session_manager
+        ))
+
+        # Format response with execution results
+        response_text = _format_execution_response(execution_results)
+
+        return jsonify({
+            'status': 'success',
+            'response': response_text,
+            'execution_results': execution_results
+        })
+
+    except Exception as e:
+        capture_exception(e)
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to execute code steps: {str(e)}'
+        }), 500
+
+
+async def _execute_all_steps_async(steps, at_references, working_dir, session_id, 
+                                    postgres_api_url, model_registry, session_manager):
+    """
+    Execute all steps in a single async context.
+    Creates a fresh MCP client to ensure all subprocess handles are on the same event loop.
+    """
+    import requests as http_requests
+    from src.utils.repomap import load_repomap_to_context
+    from src.utils.datamap import load_datamap_to_context
+
+    # Create a fresh MCP client in this async context
+    # This ensures all subprocess handles are created on the current event loop
+    current_file = Path(__file__)
+    project_root = current_file.parent.parent.parent.parent
+    system_mcps_dir = project_root / 'system_mcps'
+    postgres_url = os.getenv('POSTGRES_API_URL', 'http://localhost:15000')
+    
+    mcp_client = MCPClient(
+        system_mcps_dir=system_mcps_dir,
+        postgres_url=postgres_url,
+        verbose=False
+    )
+
+    try:
+        # Pre-start the coder MCP server to ensure subprocess handles are on current loop
+        # This prevents "Future attached to a different loop" errors
+        await mcp_client.start_server('coder')
+
+        # Load .repomap if exists and not already loaded (like CLI)
+        repomap_path = os.path.join(working_dir, '.repomap')
+        repomap_loaded_key = f'repomap_loaded_{repomap_path}'
+        if os.path.exists(repomap_path) and not session_manager.session_metadata.get(repomap_loaded_key):
+            try:
+                repomap_result = await load_repomap_to_context(
+                    mcp_client,
+                    '.repomap',
+                    working_dir,
+                    session_id
+                )
+                if repomap_result.get('status') == 'success':
+                    session_manager.session_metadata[repomap_loaded_key] = True
+            except Exception:
+                pass  # Non-critical, continue execution
+
+        # Load .datamap if exists and not already loaded (like CLI)
+        datamap_path = os.path.join(working_dir, '.datamap')
+        datamap_loaded_key = f'datamap_loaded_{datamap_path}'
+        if os.path.exists(datamap_path) and not session_manager.session_metadata.get(datamap_loaded_key):
+            try:
+                datamap_result = await load_datamap_to_context(
+                    mcp_client,
+                    '.datamap',
+                    working_dir,
+                    session_id
+                )
+                if datamap_result.get('status') == 'success':
+                    session_manager.session_metadata[datamap_loaded_key] = True
+            except Exception:
+                pass  # Non-critical, continue execution
+
+        # Define tool categories (like CLI)
+        code_generation_tools = ['write_python_code', 'edit_python_code', 'write_r_code', 'edit_r_code', 'run_python_code', 'run_r_code']
+        valid_coding_tools = [
+            'run_python_code', 'run_r_code', 'detect_code',
+            'write_python_code', 'write_r_code',
+            'edit_python_code', 'edit_r_code',
+            'add_file_context', 'add_directory_context',
+            'verify_file_modifications'
+        ]
+        meta_tools = ['retrieve_all_tools', 'roll_the_dice', 'spin_the_roulette']
+
+        # Execute each step (matches CLI flow)
+        execution_results = []
+
+        for i, step in enumerate(steps, 1):
+            tool_name = 'unknown'
+            try:
+                # Step 1: Match this step with the best MCP tool
+                match_response = http_requests.post(
+                    f"{postgres_api_url}/mcp-tools/retrieve",
+                    json={
+                        "prompts": [step],
+                        "threshold": 0.3,
+                        "context_references": at_references
+                    },
+                    timeout=30
+                )
+
+                if match_response.status_code != 200:
+                    execution_results.append({
+                        'step': i,
+                        'tool_name': 'unknown',
+                        'status': 'error',
+                        'message': 'Failed to match tool'
+                    })
+                    continue
+
+                match_data = match_response.json()
+                matched_results = match_data.get('results', [])
+
+                if not matched_results or not matched_results[0].get('best_match'):
+                    execution_results.append({
+                        'step': i,
+                        'tool_name': 'unknown',
+                        'status': 'skipped',
+                        'message': 'No matching tool found'
+                    })
+                    continue
+
+                best_match = matched_results[0]['best_match']
+                tool_name = best_match.get('tool_name')
+                mcp_name = best_match.get('mcp_name', 'coder')
+                extracted_params = best_match.get('extracted_params', {})
+
+                # Skip meta tools
+                if tool_name in meta_tools:
+                    continue
+
+                # Skip invalid tools
+                if tool_name not in valid_coding_tools:
+                    execution_results.append({
+                        'step': i,
+                        'tool_name': tool_name,
+                        'status': 'skipped',
+                        'message': f'Invalid tool for /code command: {tool_name}'
+                    })
+                    continue
+
+                # Step 2: For code generation tools, use LLM to generate code first (like CLI)
+                if tool_name in code_generation_tools:
+                    # Check for file path with @ prefix
+                    file_match = re.search(r'@([\w\-./]+\.(?:py|r|R))', step)
+                    file_path = file_match.group(1) if file_match else None
+
+                    # For run_python_code/run_r_code with existing file, read the file
+                    if tool_name in ['run_python_code', 'run_r_code'] and file_path:
+                        step_lower = step.lower()
+                        is_run_file = (
+                            ('file' in step_lower and '@' in step_lower) or
+                            ('script' in step_lower and '@' in step_lower) or
+                            'run @' in step_lower or
+                            'execute @' in step_lower
+                        )
+
+                        if is_run_file:
+                            # Read existing file
+                            full_file_path = os.path.join(working_dir, file_path) if not os.path.isabs(file_path) else file_path
+                            try:
+                                with open(full_file_path, 'r', encoding='utf-8') as f:
+                                    code = f.read()
+                                extracted_params['code'] = code
+                                if 'file_path' in extracted_params:
+                                    extracted_params.pop('file_path')
+                            except FileNotFoundError:
+                                execution_results.append({
+                                    'step': i,
+                                    'tool_name': tool_name,
+                                    'status': 'error',
+                                    'message': f'File not found: {file_path}'
+                                })
+                                continue
+                        else:
+                            # Generate code with LLM
+                            code = _generate_code_with_llm_sync(step, model_registry, mcp_client)
+                            if not code:
+                                execution_results.append({
+                                    'step': i,
+                                    'tool_name': tool_name,
+                                    'status': 'error',
+                                    'message': 'No code detected in LLM response'
+                                })
+                                continue
+                            extracted_params['code'] = code
+                            if 'file_path' in extracted_params:
+                                extracted_params.pop('file_path')
+                    else:
+                        # For write/edit tools, generate code with LLM
+                        original_file_content = None
+                        
+                        # For edit tools, read original file for context
+                        if tool_name in ['edit_python_code', 'edit_r_code'] and file_path:
+                            full_file_path = os.path.join(working_dir, file_path) if not os.path.isabs(file_path) else file_path
+                            try:
+                                if os.path.exists(full_file_path):
+                                    with open(full_file_path, 'r', encoding='utf-8') as f:
+                                        original_file_content = f.read()
+                            except Exception:
+                                # Ignore file read errors - will proceed without original content
+                                pass
+
+                        # Generate code with LLM (use coder model for edits)
+                        use_coder_model = original_file_content is not None
+                        code = _generate_code_with_llm_sync(
+                            step, 
+                            model_registry,
+                            mcp_client,
+                            original_file_content=original_file_content,
+                            file_path=file_path,
+                            use_coder_model=use_coder_model,
+                            tool_name=tool_name
+                        )
+                        
+                        if not code:
+                            execution_results.append({
+                                'step': i,
+                                'tool_name': tool_name,
+                                'status': 'error',
+                                'message': 'No code detected in LLM response'
+                            })
+                            continue
+                        
+                        extracted_params['code'] = code
+
+                        # Add file_path for write/edit tools
+                        if file_path and tool_name in ['write_python_code', 'edit_python_code', 'write_r_code', 'edit_r_code']:
+                            extracted_params['file_path'] = file_path
+                        elif 'file_path' not in extracted_params and tool_name in ['write_python_code', 'edit_python_code', 'write_r_code', 'edit_r_code']:
+                            execution_results.append({
+                                'step': i,
+                                'tool_name': tool_name,
+                                'status': 'error',
+                                'message': 'No file path specified'
+                            })
+                            continue
+                else:
+                    # Non-code-generation tools: use extracted params
+                    # Strip @ prefix from file_path if present
+                    if 'file_path' in extracted_params and extracted_params['file_path']:
+                        fp = extracted_params['file_path']
+                        if fp.startswith('@'):
+                            extracted_params['file_path'] = fp[1:]
+                    if 'directory_path' in extracted_params and extracted_params['directory_path']:
+                        dp = extracted_params['directory_path']
+                        if dp.startswith('@'):
+                            extracted_params['directory_path'] = dp[1:]
+
+                # Add working_dir and session_id
+                extracted_params['working_dir'] = working_dir
+                extracted_params['session_id'] = session_id
+
+                # Step 3: Execute the tool using MCP client (await directly since we're in async context)
+                result = await mcp_client.call_tool(
+                    mcp_name=mcp_name,
+                    tool_name=tool_name,
+                    arguments=extracted_params
+                )
+
+                # Parse result
+                result_data = result
+                if isinstance(result, str):
+                    try:
+                        result_data = json.loads(result)
+                    except (json.JSONDecodeError, ValueError):
+                        # Result is not JSON, keep as string
+                        pass
+
+                # Determine status from result
+                status = 'success'
+                if isinstance(result_data, dict):
+                    if result_data.get('status') == 'error':
+                        status = 'error'
+
+                execution_results.append({
+                    'step': i,
+                    'tool_name': tool_name,
+                    'status': status,
+                    'result': result_data
+                })
+
+                # Add to session history
+                if session_manager.is_active():
+                    session_manager.add_interaction(
+                        prompt=step,
+                        response=json.dumps(result_data) if isinstance(result_data, dict) else str(result_data),
+                        metadata={'step': i, 'tool': tool_name}
+                    )
+                    try:
+                        session_manager.save_to_redis()
+                    except Exception:
+                        pass
+
+            except Exception as step_error:
+                capture_exception(step_error)
+                execution_results.append({
+                    'step': i,
+                    'tool_name': tool_name,
+                    'status': 'error',
+                    'message': str(step_error)
+                })
+
+        return execution_results
+
+    finally:
+        # Cleanup the MCP client
+        await mcp_client.cleanup()
+
+
+def _generate_code_with_llm_sync(step: str, model_registry, mcp_client,
+                                  original_file_content: str = None, 
+                                  file_path: str = None, use_coder_model: bool = False,
+                                  tool_name: str = None) -> str:
+    """
+    Generate code using LLM, matching CLI behavior.
+    
+    Args:
+        step: The step/prompt to generate code for
+        model_registry: ModelRegistry instance
+        mcp_client: MCPClient instance (for detect_code)
+        original_file_content: For edit operations, the original file content
+        file_path: Target file path
+        use_coder_model: Whether to use coder model (for edit operations)
+        tool_name: Name of the tool being used
+    
+    Returns:
+        Generated code string, or None if no code detected
+    """
+    try:
+        ollama_client, config = get_ollama_client()
+
+        # Build prompt for edit operations with original file context (like CLI)
+        if original_file_content and file_path:
+            line_count = len(original_file_content.splitlines())
+            is_r_code = tool_name in ['edit_r_code', 'write_r_code'] if tool_name else False
+            lang_name = "R" if is_r_code else "Python"
+            code_block_marker = "r" if is_r_code else "python"
+            
+            llm_prompt = f"""TASK: Edit the {lang_name} file below. Make ONLY the specific changes requested.
+
+FILE TO EDIT: {file_path} ({line_count} lines)
+
+=== ORIGINAL FILE START ===
+{original_file_content}
+=== ORIGINAL FILE END ===
+
+REQUESTED CHANGES: {step}
+
+CRITICAL RULES:
+1. Output the COMPLETE file with ALL {line_count} lines (or close to it)
+2. DO NOT remove, truncate, or summarize any existing functions, classes, or code
+3. DO NOT add comments like "# Rest of your methods..." or "# ... existing code ..."
+4. DO NOT change imports, class structure, or method signatures unless specifically requested
+5. Make ONLY the minimal changes needed to fulfill the request
+6. Preserve all docstrings, comments, and formatting
+
+Wrap your output in a markdown code block like this:
+```{code_block_marker}
+<the complete updated file content here>
+```"""
+        else:
+            llm_prompt = step
+
+        # Use coder model for edit operations if available
+        model_override = None
+        num_predict = None
+        if use_coder_model:
+            coder_model = model_registry.get_active_model('coder')
+            if coder_model:
+                model_override = coder_model.model_name
+            num_predict = 8192  # Allow more tokens for complete file output
+
+        # Call LLM
+        messages = [{'role': 'user', 'content': llm_prompt}]
+        response = ollama_client.chat(
+            messages=messages,
+            stream=False,
+            temperature=0.7,
+            num_predict=num_predict,
+            model=model_override
+        )
+
+        full_response = response.get('message', {}).get('content', '') if isinstance(response, dict) else ''
+
+        # Detect code in response using the passed mcp_client
+        detected = mcp_client.detect_code(full_response)
+        if detected:
+            return detected['code']
+        
+        return None
+
+    except Exception as e:
+        capture_exception(e)
+        return None
+
+
+def _format_execution_response(execution_results: list) -> str:
+    """Format execution results into a readable response string."""
+    response_text = f"✅ **Code Execution Complete**\n\n"
+    response_text += f"Executed {len(execution_results)} step(s):\n\n"
+
+    for result in execution_results:
+        step_num = result['step']
+        tool_name = result.get('tool_name', 'unknown')
+        status = result.get('status')
+        result_data = result.get('result', {})
+
+        response_text += f"**{step_num}. {tool_name}**\n\n"
+
+        if status == 'error':
+            error_msg = result.get('message', 'Unknown error')
+            if isinstance(result_data, dict) and result_data.get('message'):
+                error_msg = result_data.get('message')
+            response_text += f"❌ Error: {error_msg}\n\n"
+            continue
+        elif status == 'skipped':
+            response_text += f"⚠️ Skipped: {result.get('message', 'No matching tool')}\n\n"
+            continue
+
+        # Show execution details based on tool type
+        if tool_name in ['run_python_code', 'run_r_code']:
+            if isinstance(result_data, dict):
+                stdout = result_data.get('stdout', '').strip()
+                stderr = result_data.get('stderr', '').strip()
+                exit_code = result_data.get('exit_code', -1)
+
+                if stdout:
+                    response_text += f"📄 **Output:**\n```\n{stdout}\n```\n"
+                if stderr:
+                    response_text += f"⚠️ **Errors/Warnings:**\n```\n{stderr}\n```\n"
+
+                if exit_code == 0:
+                    response_text += f"✅ _Exit code: {exit_code}_\n\n"
+                else:
+                    response_text += f"❌ _Exit code: {exit_code}_\n\n"
+            else:
+                response_text += f"```\n{result_data}\n```\n\n"
+
+        elif tool_name in ['write_python_code', 'write_r_code', 'edit_python_code', 'edit_r_code']:
+            if isinstance(result_data, dict):
+                file_path = result_data.get('file_path', 'unknown')
+                file_status = result_data.get('status', 'completed')
+                message = result_data.get('message', '')
+                response_text += f"✓ File {file_status}: `{file_path}`\n"
+                if message:
+                    response_text += f"   {message}\n"
+                response_text += "\n"
+            else:
+                response_text += f"```\n{result_data}\n```\n\n"
+
+        elif tool_name == 'add_file_context':
+            if isinstance(result_data, dict):
+                file_path = result_data.get('file_path', 'unknown')
+                response_text += f"📂 Loaded file into context: `{file_path}`\n\n"
+            else:
+                response_text += f"```\n{result_data}\n```\n\n"
+
+        elif tool_name == 'add_directory_context':
+            if isinstance(result_data, dict):
+                dir_path = result_data.get('directory_path', 'unknown')
+                files_count = result_data.get('files_count', 0)
+                response_text += f"📁 Loaded directory into context: `{dir_path}` ({files_count} files)\n\n"
+            else:
+                response_text += f"```\n{result_data}\n```\n\n"
+
+        else:
+            # Generic display for other tools
+            if isinstance(result_data, dict):
+                response_text += f"```json\n{json.dumps(result_data, indent=2)}\n```\n\n"
+            else:
+                response_text += f"```\n{result_data}\n```\n\n"
+
+    return response_text
 
 
 @chat_bp.route('/auto-session', methods=['POST'])

@@ -132,7 +132,7 @@ def create_app(verbose: bool = False) -> Flask:
     return app
 
 
-def start_ui_server(host: str = '127.0.0.1', port: int = 18080, verbose: bool = False):
+def start_ui_server(host: str = '127.0.0.1', port: int = None, verbose: bool = False):
     """
     Start the UI server and open browser.
     
@@ -145,14 +145,18 @@ def start_ui_server(host: str = '127.0.0.1', port: int = 18080, verbose: bool = 
         verbose: Enable verbose logging
     """
     from rich.console import Console
-    
+
     console = Console()
-    
+
+    # Use environment variable if port not specified
+    if port is None:
+        port = int(os.getenv('UI_PORT', '18080'))
+
     console.print("\n🌐 [bold cyan]Starting AI CLI Web Interface...[/bold cyan]\n")
     console.print("  [yellow]⚠️  CLI is blocked while UI is running[/yellow]")
-    
+
     app = create_app(verbose=verbose)
-    
+
     url = f"http://{host}:{port}"
     console.print(f"  📍 Server: [green]{url}[/green]")
     console.print(f"  📂 Working Directory: [dim]{app.config['WORKING_DIR']}[/dim]")

@@ -75,8 +75,17 @@ make build-redis        # Build Redis API image
 ```bash
 make run                # Run CLI (uses ./start.sh)
 make run-verbose        # Run CLI in verbose mode
-make ui                 # Start Web UI on port 18080
+make ui                 # Start Web UI in background (detached, no logs)
+make ui-logs            # Start Web UI in foreground with logs
+make ui-stop            # Stop the running Web UI
+
+# Direct CLI commands
+./venv/bin/python main.py --show-ui              # Start UI in background
+./venv/bin/python main.py --show-ui --with-logs  # Start UI in foreground with logs
+./venv/bin/python main.py --stop-ui              # Stop UI server
 ```
+
+**Note**: The UI runs on port 18080. When starting the CLI normally, any running UI instance is automatically cleaned up to prevent conflicts.
 
 ### Docker Services
 ```bash

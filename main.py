@@ -106,6 +106,35 @@ def get_user_working_dir():
     return _USER_WORKING_DIR
 
 
+def set_user_working_dir(new_path: str) -> bool:
+    """
+    Change the user's working directory.
+    
+    Args:
+        new_path: New directory path (can be relative or absolute)
+        
+    Returns:
+        True if directory was changed successfully, False otherwise
+    """
+    global _USER_WORKING_DIR
+    
+    # Resolve path relative to current working dir
+    if not os.path.isabs(new_path):
+        new_path = os.path.join(get_user_working_dir(), new_path)
+    
+    # Normalize the path
+    new_path = os.path.normpath(os.path.abspath(new_path))
+    
+    # Check if directory exists
+    if not os.path.isdir(new_path):
+        return False
+    
+    _USER_WORKING_DIR = new_path
+    # Also update environment variable for consistency
+    os.environ['AI_CLI_CWD'] = new_path
+    return True
+
+
 def run_async(coro):
     """
     Run an async coroutine safely, handling nested event loop scenarios.
@@ -304,6 +333,35 @@ def main(verbose=False):
                 if user_input_normalized.lower() == 'clear':
                     chat_manager.clear_history()
                     console.print("\n🗑️ [yellow]Chat history cleared[/yellow]\n")
+                    continue
+
+                # Handle /wd (working directory) commands
+                if user_input_normalized.lower() == 'wd' or user_input_normalized.lower() == 'wd show':
+                    console.print(f"\n📂 [bold]Working Directory:[/bold] [cyan]{get_user_working_dir()}[/cyan]\n")
+                    continue
+
+                if user_input_normalized.lower().startswith('wd change ') or user_input_normalized.lower().startswith('wd cd '):
+                    # Extract path - handle both 'wd change' and 'wd cd'
+                    if user_input_normalized.lower().startswith('wd change '):
+                        new_path = user_input_normalized[10:].strip()
+                    else:
+                        new_path = user_input_normalized[6:].strip()
+                    
+                    if not new_path:
+                        console.print("\n❌ [red]Usage: /wd change <path>[/red]")
+                        console.print("[dim]Example: /wd change ~/projects/myapp[/dim]\n")
+                        continue
+                    
+                    # Expand ~ to home directory
+                    new_path = os.path.expanduser(new_path)
+                    
+                    if set_user_working_dir(new_path):
+                        console.print(f"\n✓ [green]Working directory changed to:[/green] [cyan]{get_user_working_dir()}[/cyan]")
+                        # Update file completer with new working directory
+                        combined_completer = CombinedCompleter(working_dir=get_user_working_dir())
+                        console.print("[dim]File completion paths updated[/dim]\n")
+                    else:
+                        console.print(f"\n❌ [red]Directory not found:[/red] {new_path}\n")
                     continue
 
                 # Handle /models as alias for /model (support both)
@@ -1584,15 +1642,27 @@ def main(verbose=False):
                     console.print(f"\n🎯 [bold cyan]Processing code command...[/bold cyan]")
                     console.print(f"[dim]Prompt: {prompt_text[:100]}{'...' if len(prompt_text) > 100 else ''}[/dim]\n")
 
+                    # Get coder model for all /code operations
+                    coder_model = model_registry.get_active_model('coder')
+                    coder_model_name = coder_model.model_name if coder_model else None
+                    if coder_model_name:
+                        debug_print(f"Using coder model for /code: {coder_model_name}", icon="🤖")
+
                     try:
                         # Call the simplified code-command endpoint to get steps
                         console.print("📝 [cyan]Analyzing prompt and creating execution steps...[/cyan]")
+                        
+                        # Build request payload with optional coder model
+                        code_command_payload = {
+                            "text": prompt_text,
+                            "session_id": session_id
+                        }
+                        if coder_model_name:
+                            code_command_payload["model"] = coder_model_name
+                        
                         response = requests.post(
                             f"{POSTGRES_API_URL}/mcp-tools/code-command-simple",
-                            json={
-                                "text": prompt_text,
-                                "session_id": session_id
-                            },
+                            json=code_command_payload,
                             headers={"Content-Type": "application/json"},
                             timeout=180
                         )
@@ -1721,7 +1791,7 @@ def main(verbose=False):
                                                         console.print(f"  ❌ [red]Error reading file: {str(e)}[/red]\n")
                                                         continue
                                                 else:
-                                                    # Generate code with LLM
+                                                    # Generate code with LLM (use coder model if available)
                                                     console.print(f"  🤖 [yellow]Generating code with LLM...[/yellow]")
 
                                                     chat_manager.add_user_message(step)
@@ -1735,14 +1805,16 @@ def main(verbose=False):
                                                             for chunk in ollama_client.chat(
                                                                 messages=messages,
                                                                 stream=True,
-                                                                temperature=temperature
+                                                                temperature=temperature,
+                                                                model=coder_model_name
                                                             ):
                                                                 full_response += chunk
                                                         else:
                                                             response = ollama_client.chat(
                                                                 messages=messages,
                                                                 stream=False,
-                                                                temperature=temperature
+                                                                temperature=temperature,
+                                                                model=coder_model_name
                                                             )
                                                             full_response = response.get('message', {}).get('content', '')
 
@@ -1817,14 +1889,10 @@ Wrap your output in a markdown code block like this:
 
                                                 spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
 
-                                                # For edit operations with original file, use coder model and allow more tokens
+                                                # For edit operations with original file, allow more tokens
                                                 edit_num_predict = 8192 if original_file_content else None
-                                                # Use coder model from registry if available
-                                                edit_model = None
-                                                if original_file_content:
-                                                    coder_model = model_registry.get_active_model('coder')
-                                                    if coder_model:
-                                                        edit_model = coder_model.model_name
+                                                # Use coder model (already retrieved at start of /code command)
+                                                edit_model = coder_model_name
 
                                                 with Live(spinner, console=console, refresh_per_second=10):
                                                     if stream:
@@ -2451,7 +2519,7 @@ Ensure all imports are correct, syntax is valid, and the code runs without error
 
 if __name__ == "__main__":
     # AI_CLI_ORIGINAL_DIR is already set at the top of this file before imports
-    
+
     parser = argparse.ArgumentParser(description="AI CLI - Powered by Ollama")
     parser.add_argument(
         '-v', '--verbose',
@@ -2461,13 +2529,55 @@ if __name__ == "__main__":
     parser.add_argument(
         '--show-ui',
         action='store_true',
-        help='Launch the web-based UI instead of CLI'
+        help='Launch the web-based UI in background (detached, no logs)'
+    )
+    parser.add_argument(
+        '--with-logs',
+        action='store_true',
+        help='Run UI server in foreground with logs (use with --show-ui)'
+    )
+    parser.add_argument(
+        '--with-cli',
+        action='store_true',
+        help='Run CLI in foreground alongside background UI (use with --show-ui)'
+    )
+    parser.add_argument(
+        '--stop-ui',
+        action='store_true',
+        help='Stop the running UI server'
     )
     args = parser.parse_args()
-    
+
+    # Import UI process utilities
+    from src.utils.ui_process import (
+        start_ui_server_background,
+        stop_ui_server,
+        cleanup_ui_on_startup
+    )
+
+    if args.stop_ui:
+        # Stop UI server and exit
+        stop_ui_server(verbose=True)
+        sys.exit(0)
+
     if args.show_ui:
-        # Import and start UI server
-        from src.ui.server import start_ui_server
-        start_ui_server(verbose=args.verbose)
+        if args.with_logs:
+            # Start UI server in foreground with logs
+            from src.ui.server import start_ui_server
+            start_ui_server(verbose=args.verbose)
+        elif args.with_cli:
+            # Start UI server in background and run CLI in foreground
+            # Don't open browser automatically since user is in terminal
+            success = start_ui_server_background(verbose=args.verbose, open_browser=False)
+            if success:
+                main(verbose=args.verbose)
+            else:
+                sys.exit(1)
+        else:
+            # Start UI server in background only
+            success = start_ui_server_background(verbose=args.verbose)
+            sys.exit(0 if success else 1)
     else:
+        # Always cleanup UI on CLI startup (even without --show-ui)
+        cleanup_ui_on_startup(verbose=args.verbose)
         main(verbose=args.verbose)
