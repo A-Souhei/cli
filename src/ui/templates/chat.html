@@ -762,6 +762,9 @@
         const messageDiv = document.createElement('div');
         messageDiv.className = 'flex items-start gap-3 max-w-3xl';
 
+        // Get model name from metadata
+        const modelUsed = metadata?.model_used || '';
+
         // Build steps list
         const stepsHtml = steps.map((step, i) =>
             `<div class="flex gap-2 text-sm">
@@ -782,6 +785,7 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
                     </svg>
                     <p class="dark:text-white text-surface-900 font-semibold text-sm">Code Execution Plan</p>
+                    ${modelUsed ? `<span class="text-xs text-surface-400">(${modelUsed})</span>` : ''}
                 </div>
                 <p class="dark:text-surface-400 text-surface-500 text-xs mb-3">The following ${steps.length} step${steps.length > 1 ? 's' : ''} will be executed:</p>
                 <div class="space-y-2 mb-4 p-3 dark:bg-surface-800 bg-surface-100 rounded-lg">
