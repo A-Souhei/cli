@@ -414,6 +414,140 @@ def handle_model_commands(console, user_input_normalized, model_registry, llm_ch
                     console.print(f"[dim]Error: {str(e)}[/dim]\n")
         return True
 
+    # /model ping
+    if parts[0] == 'ping':
+        console.print("\n🏓 [bold]Pinging all active models...[/bold]\n")
+
+        results = {
+            'available': [],
+            'unavailable': [],
+            'not_configured': []
+        }
+
+        # Check general model
+        general = model_registry.get_active_model('general')
+        if general:
+            console.print(f"[bold cyan]General Model:[/bold cyan]")
+            console.print(f"  Pinging [cyan]{general.model_name}[/cyan] @ {general.url}...", end=" ")
+            is_available = llm_checker.check_model_availability(general.model_id)
+            if is_available:
+                console.print("[green]✓ OK[/green]")
+                results['available'].append(('general', general))
+            else:
+                console.print("[red]✗ FAILED[/red]")
+                results['unavailable'].append(('general', general))
+        else:
+            console.print("[bold cyan]General Model:[/bold cyan] [yellow]Not configured[/yellow]")
+            results['not_configured'].append('general')
+
+        console.print()
+
+        # Check coder model
+        coder = model_registry.get_active_model('coder')
+        if coder:
+            console.print(f"[bold cyan]Coder Model:[/bold cyan]")
+            console.print(f"  Pinging [cyan]{coder.model_name}[/cyan] @ {coder.url}...", end=" ")
+            is_available = llm_checker.check_model_availability(coder.model_id)
+            if is_available:
+                console.print("[green]✓ OK[/green]")
+                results['available'].append(('coder', coder))
+            else:
+                console.print("[red]✗ FAILED[/red]")
+                results['unavailable'].append(('coder', coder))
+        else:
+            console.print("[bold cyan]Coder Model:[/bold cyan] [yellow]Not configured[/yellow]")
+            results['not_configured'].append('coder')
+
+        console.print()
+
+        # Check embedding model
+        embedding = model_registry.get_active_embedding_model()
+        if embedding:
+            console.print(f"[bold cyan]Embedding Model:[/bold cyan]")
+            display_name = embedding.model_name if embedding.model_name else "External service"
+            console.print(f"  Pinging [cyan]{display_name}[/cyan] @ {embedding.url}...", end=" ")
+
+            # Test embedding service
+            try:
+                test_success = False
+
+                # Try Ollama API if model_name is set
+                if embedding.model_name:
+                    try:
+                        test_response = requests.post(
+                            f"{embedding.url}/api/embed",
+                            json={"model": embedding.model_name, "input": "test"},
+                            timeout=5
+                        )
+                        if test_response.status_code == 200:
+                            test_success = True
+                    except requests.exceptions.RequestException:
+                        pass
+
+                # Try GET /embed (transformer service)
+                if not test_success:
+                    try:
+                        test_response = requests.get(
+                            f"{embedding.url}/embed",
+                            params={"text": "test"},
+                            timeout=5
+                        )
+                        if test_response.status_code == 200:
+                            test_success = True
+                    except requests.exceptions.RequestException:
+                        pass
+
+                # Try POST /embed (generic services)
+                if not test_success:
+                    try:
+                        test_response = requests.post(
+                            f"{embedding.url}/embed",
+                            json={"text": "test"},
+                            timeout=5
+                        )
+                        if test_response.status_code == 200:
+                            test_success = True
+                    except requests.exceptions.RequestException:
+                        pass
+
+                if test_success:
+                    console.print("[green]✓ OK[/green]")
+                    results['available'].append(('embedding', embedding))
+                else:
+                    console.print("[red]✗ FAILED[/red]")
+                    results['unavailable'].append(('embedding', embedding))
+            except Exception:
+                console.print("[red]✗ FAILED[/red]")
+                results['unavailable'].append(('embedding', embedding))
+        else:
+            console.print("[bold cyan]Embedding Model:[/bold cyan] [yellow]Using fallback (local transformer)[/yellow]")
+            console.print(f"  Pinging [cyan]local transformer[/cyan] @ {transformer_url}...", end=" ")
+
+            # Check transformer service
+            try:
+                test_response = requests.get(
+                    f"{transformer_url}/embed",
+                    params={"text": "test"},
+                    timeout=5
+                )
+                if test_response.status_code == 200:
+                    console.print("[green]✓ OK[/green]")
+                else:
+                    console.print("[red]✗ FAILED[/red]")
+            except Exception:
+                console.print("[red]✗ FAILED[/red]")
+
+        console.print()
+
+        # Summary
+        console.print("[bold]Summary:[/bold]")
+        console.print(f"  [green]✓ Available:[/green] {len(results['available'])}")
+        console.print(f"  [red]✗ Unavailable:[/red] {len(results['unavailable'])}")
+        console.print(f"  [yellow]⊝ Not configured:[/yellow] {len(results['not_configured'])}")
+        console.print()
+
+        return True
+
     # Unknown model command
     console.print("\n❌ [red]Unknown model command[/red]")
     console.print("\n[bold]Available commands:[/bold]")
@@ -425,5 +559,6 @@ def handle_model_commands(console, user_input_normalized, model_registry, llm_ch
     console.print("  /model <type> use <model_id>")
     console.print("  /model <type> remove <model_id>")
     console.print("  /model check [model_id]")
+    console.print("  /model ping")
     console.print("\n[dim]Where <type> is: general, coder, or embedding[/dim]\n")
     return True

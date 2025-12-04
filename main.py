@@ -1038,13 +1038,15 @@ def main(verbose=False):
                         # Call the simplified code-command endpoint to get steps
                         console.print("📝 [cyan]Analyzing prompt and creating execution steps...[/cyan]")
                         
-                        # Build request payload with optional coder model
+                        # Build request payload with optional coder model and URL
                         code_command_payload = {
                             "text": prompt_text,
                             "session_id": session_id
                         }
                         if coder_model_name:
                             code_command_payload["model"] = coder_model_name
+                        if coder_model:
+                            code_command_payload["ollama_url"] = coder_model.url
                         
                         response = requests.post(
                             f"{POSTGRES_API_URL}/mcp-tools/code-command-simple",
