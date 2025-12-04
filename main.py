@@ -1584,15 +1584,27 @@ def main(verbose=False):
                     console.print(f"\n🎯 [bold cyan]Processing code command...[/bold cyan]")
                     console.print(f"[dim]Prompt: {prompt_text[:100]}{'...' if len(prompt_text) > 100 else ''}[/dim]\n")
 
+                    # Get coder model for all /code operations
+                    coder_model = model_registry.get_active_model('coder')
+                    coder_model_name = coder_model.model_name if coder_model else None
+                    if coder_model_name:
+                        debug_print(f"Using coder model for /code: {coder_model_name}", icon="🤖")
+
                     try:
                         # Call the simplified code-command endpoint to get steps
                         console.print("📝 [cyan]Analyzing prompt and creating execution steps...[/cyan]")
+                        
+                        # Build request payload with optional coder model
+                        code_command_payload = {
+                            "text": prompt_text,
+                            "session_id": session_id
+                        }
+                        if coder_model_name:
+                            code_command_payload["model"] = coder_model_name
+                        
                         response = requests.post(
                             f"{POSTGRES_API_URL}/mcp-tools/code-command-simple",
-                            json={
-                                "text": prompt_text,
-                                "session_id": session_id
-                            },
+                            json=code_command_payload,
                             headers={"Content-Type": "application/json"},
                             timeout=180
                         )
@@ -1721,7 +1733,7 @@ def main(verbose=False):
                                                         console.print(f"  ❌ [red]Error reading file: {str(e)}[/red]\n")
                                                         continue
                                                 else:
-                                                    # Generate code with LLM
+                                                    # Generate code with LLM (use coder model if available)
                                                     console.print(f"  🤖 [yellow]Generating code with LLM...[/yellow]")
 
                                                     chat_manager.add_user_message(step)
@@ -1735,14 +1747,16 @@ def main(verbose=False):
                                                             for chunk in ollama_client.chat(
                                                                 messages=messages,
                                                                 stream=True,
-                                                                temperature=temperature
+                                                                temperature=temperature,
+                                                                model=coder_model_name
                                                             ):
                                                                 full_response += chunk
                                                         else:
                                                             response = ollama_client.chat(
                                                                 messages=messages,
                                                                 stream=False,
-                                                                temperature=temperature
+                                                                temperature=temperature,
+                                                                model=coder_model_name
                                                             )
                                                             full_response = response.get('message', {}).get('content', '')
 
@@ -1817,14 +1831,10 @@ Wrap your output in a markdown code block like this:
 
                                                 spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
 
-                                                # For edit operations with original file, use coder model and allow more tokens
+                                                # For edit operations with original file, allow more tokens
                                                 edit_num_predict = 8192 if original_file_content else None
-                                                # Use coder model from registry if available
-                                                edit_model = None
-                                                if original_file_content:
-                                                    coder_model = model_registry.get_active_model('coder')
-                                                    if coder_model:
-                                                        edit_model = coder_model.model_name
+                                                # Use coder model (already retrieved at start of /code command)
+                                                edit_model = coder_model_name
 
                                                 with Live(spinner, console=console, refresh_per_second=10):
                                                     if stream:

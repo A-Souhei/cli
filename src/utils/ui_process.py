@@ -6,11 +6,32 @@ import signal
 import psutil
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 
 UI_PID_FILE = Path.home() / ".ai_cli_ui.pid"
 UI_PORT = int(os.getenv("UI_PORT", "18080"))
+
+
+def get_pids_using_port(port: int) -> List[int]:
+    """
+    Get PIDs of processes listening on the specified port.
+
+    Args:
+        port: Port number to check
+
+    Returns:
+        List of PIDs using the port
+    """
+    pids = []
+    try:
+        for conn in psutil.net_connections(kind='inet'):
+            if conn.laddr.port == port and conn.status == 'LISTEN':
+                if conn.pid and conn.pid not in pids:
+                    pids.append(conn.pid)
+    except (psutil.AccessDenied, psutil.NoSuchProcess):
+        pass
+    return pids
 
 
 def get_running_ui_pid() -> Optional[int]:
@@ -20,27 +41,37 @@ def get_running_ui_pid() -> Optional[int]:
     Returns:
         PID of running UI server, or None if not running
     """
-    if not UI_PID_FILE.exists():
-        return None
+    # First, check the PID file
+    if UI_PID_FILE.exists():
+        try:
+            pid = int(UI_PID_FILE.read_text().strip())
 
-    try:
-        pid = int(UI_PID_FILE.read_text().strip())
+            # Check if process actually exists
+            if psutil.pid_exists(pid):
+                proc = psutil.Process(pid)
+                # Verify it's a Python process running the UI server
+                cmdline = ' '.join(proc.cmdline())
+                if 'ai-cli' in cmdline or 'main.py' in cmdline or 'ui_server_standalone' in cmdline:
+                    return pid
 
-        # Check if process actually exists
-        if psutil.pid_exists(pid):
+            # Stale PID file, remove it
+            UI_PID_FILE.unlink(missing_ok=True)
+
+        except (ValueError, psutil.NoSuchProcess, psutil.AccessDenied):
+            UI_PID_FILE.unlink(missing_ok=True)
+
+    # Fallback: Check for processes listening on the UI port
+    port_pids = get_pids_using_port(UI_PORT)
+    for pid in port_pids:
+        try:
             proc = psutil.Process(pid)
-            # Verify it's a Python process running the UI server
             cmdline = ' '.join(proc.cmdline())
-            if 'ai-cli' in cmdline or 'main.py' in cmdline or 'ui_server_standalone' in cmdline:
+            if 'ui_server' in cmdline or 'ui/server' in cmdline:
                 return pid
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
 
-        # Stale PID file, remove it
-        UI_PID_FILE.unlink(missing_ok=True)
-        return None
-
-    except (ValueError, psutil.NoSuchProcess, psutil.AccessDenied):
-        UI_PID_FILE.unlink(missing_ok=True)
-        return None
+    return None
 
 
 def stop_ui_server(verbose: bool = False) -> bool:
@@ -53,13 +84,43 @@ def stop_ui_server(verbose: bool = False) -> bool:
     Returns:
         True if server was stopped, False if no server was running
     """
+    stopped_any = False
+    
+    # First, try to find and stop via PID file or port detection
     pid = get_running_ui_pid()
-
-    if pid is None:
+    
+    if pid is not None:
+        stopped_any = _kill_process(pid, verbose)
+    
+    # Also kill any other processes on the UI port as fallback
+    port_pids = get_pids_using_port(UI_PORT)
+    for port_pid in port_pids:
+        if port_pid != pid:  # Don't try to kill same process twice
+            if _kill_process(port_pid, verbose):
+                stopped_any = True
+    
+    # Clean up PID file
+    UI_PID_FILE.unlink(missing_ok=True)
+    
+    if not stopped_any:
         if verbose:
             print("No UI server is currently running.")
         return False
+    
+    return True
 
+
+def _kill_process(pid: int, verbose: bool = False) -> bool:
+    """
+    Kill a process by PID.
+    
+    Args:
+        pid: Process ID to kill
+        verbose: Print status messages
+        
+    Returns:
+        True if process was killed, False otherwise
+    """
     try:
         # Try graceful shutdown first
         os.kill(pid, signal.SIGTERM)
@@ -74,8 +135,7 @@ def stop_ui_server(verbose: bool = False) -> bool:
         # Force kill if still running
         if psutil.pid_exists(pid):
             os.kill(pid, signal.SIGKILL)
-
-        UI_PID_FILE.unlink(missing_ok=True)
+            time.sleep(0.1)
 
         if verbose:
             print(f"✓ UI server (PID {pid}) stopped successfully.")
@@ -84,14 +144,18 @@ def stop_ui_server(verbose: bool = False) -> bool:
 
     except (ProcessLookupError, psutil.NoSuchProcess):
         # Process already dead
-        UI_PID_FILE.unlink(missing_ok=True)
         if verbose:
-            print("UI server process already terminated.")
+            print(f"UI server process (PID {pid}) already terminated.")
         return True
+
+    except PermissionError:
+        if verbose:
+            print(f"✗ Permission denied stopping process {pid}. Try with sudo.")
+        return False
 
     except Exception as e:
         if verbose:
-            print(f"Error stopping UI server: {e}")
+            print(f"Error stopping UI server (PID {pid}): {e}")
         return False
 
 
