@@ -1480,3 +1480,49 @@ def auto_create_session():
             'message': f'Failed to create session: {str(e)}',
             'session_active': False
         }), 500
+
+
+@chat_bp.route('/rate', methods=['POST'])
+def submit_rating():
+    """
+    Submit a rating for a prompt/response pair.
+    Uses the same rating logic as the CLI.
+    """
+    try:
+        from src.utils.ratings import process_rating
+        
+        data = request.get_json()
+        rating = data.get('rating')
+        prompt_text = data.get('prompt', '')
+        response_text = data.get('response', '')
+        
+        # Validate rating
+        if rating is None or not isinstance(rating, int) or rating < 0 or rating > 10:
+            return jsonify({
+                'status': 'error',
+                'message': 'Invalid rating. Must be 0-10.'
+            }), 400
+        
+        if not prompt_text or not response_text:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing prompt or response text.'
+            }), 400
+        
+        # Get session ID if available
+        session_manager = get_session_manager()
+        session_id = session_manager.get_session_id() if session_manager.is_active() else None
+        
+        # Process rating using CLI logic
+        process_rating(rating, prompt_text, response_text, session_id)
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Rating {rating} submitted successfully'
+        })
+    except Exception as e:
+        capture_exception(e)
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to submit rating: {str(e)}'
+        }), 500
