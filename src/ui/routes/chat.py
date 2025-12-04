@@ -658,13 +658,16 @@ def handle_code_command(prompt):
     """Handle /code command - returns steps for user confirmation."""
     import requests
     from src.model_registry import ModelRegistry
+    from flask import current_app
 
     postgres_api_url = os.getenv('POSTGRES_API_URL', 'http://localhost:15000')
     session_manager = get_session_manager()
 
+    # Use configured working directory (from AI_CLI_CWD env var set at startup)
+    working_dir = current_app.config.get('WORKING_DIR', os.getcwd())
+
     # Ensure session is active (like CLI does)
     if not session_manager.is_active():
-        working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
         session_manager.start_session(working_dir=working_dir)
 
     session_id = session_manager.get_session_id()
@@ -770,17 +773,19 @@ def execute_code_steps():
             }), 400
 
         from src.model_registry import ModelRegistry
+        from flask import current_app
 
         postgres_api_url = os.getenv('POSTGRES_API_URL', 'http://localhost:15000')
         session_manager = get_session_manager()
 
+        # Use configured working directory (from AI_CLI_CWD env var set at startup)
+        working_dir = current_app.config.get('WORKING_DIR', os.getcwd())
+
         # Ensure session is active
         if not session_manager.is_active():
-            working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
             session_manager.start_session(working_dir=working_dir)
 
         session_id = session_manager.get_session_id()
-        working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
 
         # Store @ references in session metadata (like CLI)
         if at_references:
