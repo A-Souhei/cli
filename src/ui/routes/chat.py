@@ -474,7 +474,7 @@ def execute_command():
         elif cmd == 'datamap load':
             return handle_datamap_load()
         elif cmd == 'datamap update' or cmd.startswith('datamap update '):
-            args_str = cmd[14:].strip() if len(cmd) > 14 else ''
+            args_str = cmd[15:].strip() if len(cmd) > 15 else ''
             return handle_datamap_update(args_str)
         elif cmd == 'clear':
             return handle_clear()
@@ -550,9 +550,6 @@ def handle_clear():
     """Clear chat and start a new session."""
     session_manager = get_session_manager()
     
-    old_session_id = session_manager.get_session_id() if session_manager.is_active() else None
-    print(f"[handle_clear] Old session ID: {old_session_id}")
-    
     # Always end the current session (save first if it has interactions)
     if session_manager.is_active():
         num_interactions = len(session_manager.session_history)
@@ -564,21 +561,10 @@ def handle_clear():
         # Force end the session
         session_manager.end_session()
     
-    # Force clear the session state to ensure new ID is generated
-    session_manager.active_session = None
-    session_manager.session_history = []
-    session_manager.session_start_time = None
-    session_manager.session_metadata = {}
-    session_manager.session_title = None
-    session_manager._title_generated = False
-    session_manager.session_working_dir = None
-    
     # Start a fresh session
     working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
     session_manager.start_session(working_dir=working_dir)
     new_session_id = session_manager.get_session_id()
-    
-    print(f"[handle_clear] New session ID: {new_session_id}")
     
     return jsonify({
         'status': 'success',
@@ -620,7 +606,14 @@ def handle_repomap_create():
         ]
         
         # Call LLM (non-streaming for simplicity in this context)
-        response = client.chat(messages=messages, stream=False)
+        try:
+            response = client.chat(messages=messages, stream=False)
+        except Exception as llm_error:
+            capture_exception(llm_error)
+            return jsonify({
+                'status': 'error',
+                'message': f'❌ Error calling LLM: {str(llm_error)}'
+            }), 500
         
         if hasattr(response, 'message'):
             full_response = response.message.content
@@ -754,7 +747,14 @@ def handle_repomap_update():
             {'role': 'user', 'content': update_prompt}
         ]
         
-        response = client.chat(messages=messages, stream=False)
+        try:
+            response = client.chat(messages=messages, stream=False)
+        except Exception as llm_error:
+            capture_exception(llm_error)
+            return jsonify({
+                'status': 'error',
+                'message': f'❌ Error calling LLM: {str(llm_error)}'
+            }), 500
         
         if hasattr(response, 'message'):
             full_response = response.message.content
@@ -806,16 +806,7 @@ def handle_datamap_create(args_str: str = ''):
     try:
         working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
         
-        # Parse flags
-        with_files = '--with-files' in args_str or '--files-only' in args_str
-        files_only = '--files-only' in args_str
-        
-        # If no flags provided, default to files only
-        if not with_files and not files_only:
-            files_only = True
-            with_files = True
-        
-        # Collect data files
+        # Collect data files (flags like --with-files, --files-only reserved for future use)
         data_sources = collect_data_files(working_dir)
         
         if not data_sources:
@@ -835,7 +826,14 @@ def handle_datamap_create(args_str: str = ''):
             {'role': 'user', 'content': datamap_prompt}
         ]
         
-        response = client.chat(messages=messages, stream=False)
+        try:
+            response = client.chat(messages=messages, stream=False)
+        except Exception as llm_error:
+            capture_exception(llm_error)
+            return jsonify({
+                'status': 'error',
+                'message': f'❌ Error calling LLM: {str(llm_error)}'
+            }), 500
         
         if hasattr(response, 'message'):
             full_response = response.message.content
@@ -966,7 +964,14 @@ def handle_datamap_update(args_str: str = ''):
             {'role': 'user', 'content': update_prompt}
         ]
         
-        response = client.chat(messages=messages, stream=False)
+        try:
+            response = client.chat(messages=messages, stream=False)
+        except Exception as llm_error:
+            capture_exception(llm_error)
+            return jsonify({
+                'status': 'error',
+                'message': f'❌ Error calling LLM: {str(llm_error)}'
+            }), 500
         
         if hasattr(response, 'message'):
             full_response = response.message.content

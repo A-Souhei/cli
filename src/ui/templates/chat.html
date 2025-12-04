@@ -905,9 +905,11 @@
             console.log('Clear response:', data);
             
             // Update session status using the existing function
-            if (data.session_active !== undefined && data.session_id) {
+            if (response.ok && data.status === 'success' && data.session_active !== undefined && data.session_id) {
                 console.log('Updating session to:', data.session_id);
                 updateSessionStatus(data.session_active, data.session_id);
+            } else if (!response.ok) {
+                console.error('Clear failed:', data.message || 'Unknown error');
             }
         } catch (error) {
             console.error('Error clearing chat:', error);
