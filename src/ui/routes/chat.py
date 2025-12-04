@@ -986,8 +986,14 @@ async def _execute_all_steps_async(steps, at_references, working_dir, session_id
                                 })
                                 continue
                         else:
-                            # Generate code with LLM
-                            code = _generate_code_with_llm_sync(step, model_registry, mcp_client)
+                            # Generate code with LLM (use coder model)
+                            code = _generate_code_with_llm_sync(
+                                step, 
+                                model_registry, 
+                                mcp_client, 
+                                tool_name=tool_name,
+                                use_coder_model=True
+                            )
                             if not code:
                                 execution_results.append({
                                     'step': i,
@@ -1014,8 +1020,8 @@ async def _execute_all_steps_async(steps, at_references, working_dir, session_id
                                 # Ignore file read errors - will proceed without original content
                                 pass
 
-                        # Generate code with LLM (use coder model for edits)
-                        use_coder_model = original_file_content is not None
+                        # Generate code with LLM (always use coder model for code generation)
+                        use_coder_model = True  # Always use coder model for code generation
                         code = _generate_code_with_llm_sync(
                             step, 
                             model_registry,
@@ -1141,7 +1147,25 @@ def _generate_code_with_llm_sync(step: str, model_registry, mcp_client,
         Generated code string, or None if no code detected
     """
     try:
-        ollama_client, config = get_ollama_client()
+        from src.ollama_client.client import OllamaClient
+        
+        # Get the appropriate model based on use_coder_model flag
+        if use_coder_model:
+            coder_model = model_registry.get_active_model('coder')
+            if coder_model:
+                # Create client with coder model's URL and settings
+                ollama_client = OllamaClient(
+                    host=coder_model.url,
+                    model=coder_model.model_name,
+                    timeout=coder_model.timeout
+                )
+                print(f"[_generate_code_with_llm_sync] Using coder model: {coder_model.model_name} at {coder_model.url}")
+            else:
+                # Fallback to general model if no coder model available
+                ollama_client, _ = get_ollama_client()
+                print(f"[_generate_code_with_llm_sync] No coder model available, using general model")
+        else:
+            ollama_client, _ = get_ollama_client()
 
         # Build prompt for edit operations with original file context (like CLI)
         if original_file_content and file_path:
@@ -1150,7 +1174,7 @@ def _generate_code_with_llm_sync(step: str, model_registry, mcp_client,
             lang_name = "R" if is_r_code else "Python"
             code_block_marker = "r" if is_r_code else "python"
             
-            llm_prompt = f"""TASK: Edit the {lang_name} file below. Make ONLY the specific changes requested.
+            llm_prompt = f"""You are a code editor. Edit the {lang_name} file below according to the requested changes.
 
 FILE TO EDIT: {file_path} ({line_count} lines)
 
@@ -1167,39 +1191,87 @@ CRITICAL RULES:
 4. DO NOT change imports, class structure, or method signatures unless specifically requested
 5. Make ONLY the minimal changes needed to fulfill the request
 6. Preserve all docstrings, comments, and formatting
+7. DO NOT add ANY explanatory text, descriptions, or commentary
+8. DO NOT add titles, headers, or sections like "Updated Method" or "Explanation"
+9. ONLY output the code block - nothing before, nothing after
 
-Wrap your output in a markdown code block like this:
+OUTPUT FORMAT (EXACT):
 ```{code_block_marker}
 <the complete updated file content here>
-```"""
-        else:
-            llm_prompt = step
+```
 
-        # Use coder model for edit operations if available
-        model_override = None
-        num_predict = None
-        if use_coder_model:
-            coder_model = model_registry.get_active_model('coder')
-            if coder_model:
-                model_override = coder_model.model_name
-            num_predict = 8192  # Allow more tokens for complete file output
+Start your response with the ``` marker immediately. No text before the code block."""
+        else:
+            # For code generation without original file context, still provide code block instructions
+            is_r_code = tool_name in ['edit_r_code', 'write_r_code', 'run_r_code'] if tool_name else False
+            lang_name = "R" if is_r_code else "Python"
+            code_block_marker = "r" if is_r_code else "python"
+            
+            llm_prompt = f"""You are a code generator. Generate {lang_name} code for the following request.
+
+REQUEST: {step}
+
+CRITICAL RULES:
+1. Output ONLY the code, no explanations
+2. DO NOT add any text before or after the code block
+3. Use proper {lang_name} syntax and best practices
+
+OUTPUT FORMAT (EXACT):
+```{code_block_marker}
+<your code here>
+```
+
+Start your response with the ``` marker immediately. No text before the code block."""
+
+        # Set num_predict for code generation (allow more tokens)
+        num_predict = 8192 if use_coder_model else None
 
         # Call LLM
         messages = [{'role': 'user', 'content': llm_prompt}]
-        response = ollama_client.chat(
-            messages=messages,
-            stream=False,
-            temperature=0.7,
-            num_predict=num_predict,
-            model=model_override
-        )
+        
+        # Debug: Log what we're sending
+        print(f"[_generate_code_with_llm_sync] Prompt length: {len(llm_prompt)} chars, num_predict={num_predict}")
+        
+        try:
+            response = ollama_client.chat(
+                messages=messages,
+                stream=False,
+                temperature=0.7,
+                num_predict=num_predict
+            )
+        except Exception as chat_error:
+            print(f"[_generate_code_with_llm_sync] Chat error: {chat_error}")
+            return None
+        
+        # Debug: Log the raw response
+        print(f"[_generate_code_with_llm_sync] Raw response type: {type(response)}")
 
-        full_response = response.get('message', {}).get('content', '') if isinstance(response, dict) else ''
+        # Handle both dict and object responses (ollama library returns object in newer versions)
+        if isinstance(response, dict):
+            full_response = response.get('message', {}).get('content', '')
+        else:
+            # Handle ollama library response object
+            full_response = response.message.content if hasattr(response, 'message') else str(response)
+        
+        # If response is empty, check if there's an error in the response
+        if not full_response:
+            if isinstance(response, dict):
+                error = response.get('error')
+                if error:
+                    print(f"[_generate_code_with_llm_sync] LLM error: {error}")
+                    return None
+
+        # Debug: Log LLM response for troubleshooting
+        print(f"[_generate_code_with_llm_sync] LLM response length: {len(full_response)} chars")
+        print(f"[_generate_code_with_llm_sync] First 500 chars: {full_response[:500]}")
 
         # Detect code in response using the passed mcp_client
         detected = mcp_client.detect_code(full_response)
         if detected:
+            print(f"[_generate_code_with_llm_sync] Code detected successfully: {len(detected['code'])} chars")
             return detected['code']
+        else:
+            print(f"[_generate_code_with_llm_sync] ERROR: No code detected in LLM response")
         
         return None
 
