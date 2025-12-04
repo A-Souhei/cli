@@ -84,6 +84,10 @@ from src.utils.banner import (
     print_banner,
 )
 
+# Import CLI modules
+from src.cli.initialization import CLIInitializer
+from src.cli.dispatcher import CommandDispatcher
+
 # Apply nest_asyncio once globally to allow nested event loops
 import nest_asyncio
 nest_asyncio.apply()
@@ -208,99 +212,56 @@ def main(verbose=False):
     VERBOSE = verbose
 
     try:
-        # Load configuration
-        config = ConfigManager()
-
-        # Initialize ModelRegistry
-        model_registry = ModelRegistry()
-
-        # Initialize EmbeddingClient with fallback to local transformer
-        transformer_url = os.getenv('TRANSFORMER_API_URL', 'http://localhost:16050')
-        embedding_client = EmbeddingClient(
-            model_registry=model_registry,
-            fallback_url=transformer_url
+        # Initialize all CLI components using CLIInitializer
+        initializer = CLIInitializer(
+            verbose=verbose,
+            debug_print=debug_print,
+            run_async=run_async,
+            get_user_working_dir=get_user_working_dir,
+            console=console,
+            history_file=HISTORY_FILE,
+            postgres_api_url=POSTGRES_API_URL
         )
+        components = initializer.initialize_all()
         
-        # Set embedding client for ratings module
-        set_embedding_client(embedding_client)
-
-        # Run migration from config.yaml to Redis if needed
-        run_migration_if_needed(config, model_registry, verbose=verbose)
-
-        # Check model availability using new ModelAvailabilityChecker
-        llm_checker = ModelAvailabilityChecker(config, model_registry)
-        llm_config = llm_checker.get_available_llm()
-
-        # Initialize Ollama client with the available LLM
-        # Note: If no model is available, llm_config.url will be empty
-        # but we still create the client (graceful degradation)
-        ollama_client = OllamaClient(
-            host=llm_config.url if llm_config.url else 'http://localhost:11434',
-            model=llm_config.model if llm_config.model else 'none',
-            timeout=llm_config.timeout
-        )
-
-        # Initialize chat manager
-        chat_manager = ChatManager(
-            system_prompt=config.get_system_prompt(),
-            max_context_length=config.get_max_context_length()
-        )
-
-        # Initialize session title generator (uses local tinyollama)
-        title_generator = None
-        if config.has_tinyollama_config():
-            title_generator = SessionTitleGenerator(
-                ollama_url=config.get_tinyollama_url(),
-                model=config.get_tinyollama_model(),
-                timeout=config.get_tinyollama_timeout()
-            )
-
-        # Initialize session manager with title generator
-        session_manager = SessionManager(title_generator=title_generator)
-
-        # Initialize MCP client
-        system_mcps_dir = Path(__file__).parent / "system_mcps"
-        mcp_client = MCPClient(
-            system_mcps_dir=system_mcps_dir,
-            postgres_url=POSTGRES_API_URL,
+        # Extract components
+        config = components['config']
+        model_registry = components['model_registry']
+        embedding_client = components['embedding_client']
+        transformer_url = components['transformer_url']
+        llm_checker = components['llm_checker']
+        llm_config = components['llm_config']
+        ollama_client = components['ollama_client']
+        chat_manager = components['chat_manager']
+        session_manager = components['session_manager']
+        mcp_client = components['mcp_client']
+        temperature = components['temperature']
+        stream = components['stream']
+        history = components['history']
+        combined_completer = components['combined_completer']
+        
+        # Initialize command dispatcher
+        dispatcher = CommandDispatcher(
+            console=console,
+            config=config,
+            ollama_client=ollama_client,
+            chat_manager=chat_manager,
+            mcp_client=mcp_client,
+            session_manager=session_manager,
+            model_registry=model_registry,
+            llm_checker=llm_checker,
+            transformer_url=transformer_url,
+            get_user_working_dir=get_user_working_dir,
+            set_user_working_dir=set_user_working_dir,
+            run_async=run_async,
+            debug_print=debug_print,
+            InteractiveSelector=InteractiveSelector,
+            CombinedCompleter=CombinedCompleter,
+            list_system_mcps=list_system_mcps,
+            get_mcp_tools=get_mcp_tools,
+            WorkingDirectoryMismatchError=WorkingDirectoryMismatchError,
             verbose=verbose
         )
-
-        # Set up debug callback for MCP client
-        mcp_client.set_debug_callback(debug_print)
-
-        # Initialize MCP tools in database (async operation)
-        debug_print("Initializing MCP tools...", icon="🔧")
-        try:
-            run_async(mcp_client.initialize_tools_in_db())
-        except Exception as e:
-            debug_print(f"Failed to initialize MCP tools: {e}", icon="⚠️")
-
-        # Get configuration
-        temperature = config.get_temperature()
-        stream = config.get_stream_enabled()
-
-        # Clear the screen
-        console.clear()
-
-        print_banner(console)
-        
-        # Show LLM status with fallback indicator
-        if llm_config.is_tinyollama:
-            console.print(f"  📦 Model: [bold yellow]{llm_config.model}[/bold yellow] [dim](fallback - remote unreachable)[/dim]")
-            console.print(f"  🔗 Server: [dim]{llm_config.url}[/dim]")
-            if llm_config.disabled_features:
-                console.print(f"  ⚠️  [dim]Disabled features: {', '.join(llm_config.disabled_features)}[/dim]")
-        else:
-            console.print(f"  📦 Model: [bold]{llm_config.model}[/bold]")
-            console.print(f"  🔗 Server: [dim]{llm_config.url}[/dim]")
-        console.print()
-
-        # Initialize command history
-        history = FileHistory(str(HISTORY_FILE))
-
-        # Initialize combined completer for / commands and @ file paths
-        combined_completer = CombinedCompleter(working_dir=get_user_working_dir())
 
         # Main chat loop
         while True:
@@ -315,596 +276,21 @@ def main(verbose=False):
                 # Normalize command input - support both with and without / prefix
                 user_input_normalized = user_input.lstrip('/').strip()
 
-                # Handle special commands
-                if user_input_normalized.lower() in ['exit', 'quit']:
-                    # Cleanup MCP client
-                    console.print("\n👋 [bold]Goodbye![/bold]")
-                    try:
-                        run_async(mcp_client.cleanup())
-                    except (Exception, KeyboardInterrupt) as e:
-                        # Suppress cleanup errors on exit
-                        if verbose:
-                            debug_print(f"Cleanup: {e}", icon="🧹")
-                    # Redirect stderr to suppress prompt_toolkit task cleanup warnings
-                    # Open /dev/null without context manager since we exit immediately
-                    sys.stderr = open(os.devnull, 'w')
-                    sys.exit(0)
-
-                if user_input_normalized.lower() == 'clear':
-                    chat_manager.clear_history()
-                    console.print("\n🗑️ [yellow]Chat history cleared[/yellow]\n")
+                # Try to dispatch the command to a handler
+                dispatch_result = dispatcher.dispatch(user_input_normalized)
+                
+                # Handle dispatch results
+                if dispatch_result is None:
+                    # Command requested exit
+                    return
+                elif dispatch_result is True:
+                    # Command was handled, continue to next iteration
+                    # Check if completer was updated
+                    updated_completer = dispatcher.get_updated_completer()
+                    if updated_completer:
+                        combined_completer = updated_completer
                     continue
-
-                # Handle /wd (working directory) commands
-                if user_input_normalized.lower() == 'wd' or user_input_normalized.lower() == 'wd show':
-                    console.print(f"\n📂 [bold]Working Directory:[/bold] [cyan]{get_user_working_dir()}[/cyan]\n")
-                    continue
-
-                if user_input_normalized.lower().startswith('wd change ') or user_input_normalized.lower().startswith('wd cd '):
-                    # Extract path - handle both 'wd change' and 'wd cd'
-                    if user_input_normalized.lower().startswith('wd change '):
-                        new_path = user_input_normalized[10:].strip()
-                    else:
-                        new_path = user_input_normalized[6:].strip()
-                    
-                    if not new_path:
-                        console.print("\n❌ [red]Usage: /wd change <path>[/red]")
-                        console.print("[dim]Example: /wd change ~/projects/myapp[/dim]\n")
-                        continue
-                    
-                    # Expand ~ to home directory
-                    new_path = os.path.expanduser(new_path)
-                    
-                    if set_user_working_dir(new_path):
-                        console.print(f"\n✓ [green]Working directory changed to:[/green] [cyan]{get_user_working_dir()}[/cyan]")
-                        # Update file completer with new working directory
-                        combined_completer = CombinedCompleter(working_dir=get_user_working_dir())
-                        console.print("[dim]File completion paths updated[/dim]\n")
-                    else:
-                        console.print(f"\n❌ [red]Directory not found:[/red] {new_path}\n")
-                    continue
-
-                # Handle /models as alias for /model (support both)
-                if user_input_normalized.lower().startswith('models '):
-                    # Convert /models <cmd> to /model <cmd>
-                    user_input_normalized = 'model ' + user_input_normalized[7:]
-
-                if user_input_normalized.lower() == 'models':
-                    console.print("\n📋 [bold]Available models:[/bold]")
-                    try:
-                        models = ollama_client.list_models()
-                        for model in models:
-                            if model == ollama_client.model:
-                                console.print(f"  • {model} [cyan](current)[/cyan]")
-                            else:
-                                console.print(f"  • {model}")
-                    except Exception as e:
-                        console.print(f"❌ [red]Error listing models: {e}[/red]")
-                    console.print()
-                    continue
-
-                if user_input_normalized.lower() == 'switch':
-                    console.print()
-                    try:
-                        models = ollama_client.list_models()
-                        if not models:
-                            console.print("❌ [red]No models available[/red]\n")
-                            continue
-
-                        # Show interactive selector
-                        selector = InteractiveSelector(
-                            title="🔄 Select Model",
-                            choices=models,
-                            current=ollama_client.model
-                        )
-                        selected = selector.show()
-
-                        if selected and selected != ollama_client.model:
-                            # Update the model
-                            ollama_client.model = selected
-                            console.print(f"\n✓ [green]Switched to model:[/green] [bold]{selected}[/bold]\n")
-                        elif selected:
-                            console.print(f"\n[dim]Already using {selected}[/dim]\n")
-                        else:
-                            console.print("\n[dim]Cancelled[/dim]\n")
-                    except Exception as e:
-                        console.print(f"\n❌ [red]Error switching model: {e}[/red]\n")
-                    continue
-
-                if user_input_normalized.lower() == 'mcps':
-                    list_system_mcps()
-                    continue
-
-                if user_input_normalized.lower().startswith('mcp-tools '):
-                    mcp_name = user_input_normalized[10:].strip()
-                    if not mcp_name:
-                        console.print("❌ [red]Usage: /mcp-tools <mcp_name>[/red]\n")
-                    else:
-                        try:
-                            run_async(get_mcp_tools(mcp_name))
-                        except Exception as e:
-                            console.print(f"❌ [red]Error: {e}[/red]\n")
-                    continue
-
-                # Handle session commands
-                if user_input_normalized.lower() == 'session start':
-                    if session_manager.is_active():
-                        console.print("\n⚠️  [yellow]Session already active. End current session first.[/yellow]\n")
-                    else:
-                        session_manager.start_session(working_dir=get_user_working_dir())
-                        console.print()
-                    continue
-
-                if user_input_normalized.lower() == 'session end':
-                    summary = session_manager.end_session()
-                    if summary:
-                        # Auto-save session when ending
-                        try:
-                            session_manager.save_to_redis()
-                        except Exception as e:
-                            debug_print(f"Failed to save session on end: {e}", icon="⚠️")
-                        console.print()
-                    continue
-
-                if user_input_normalized.lower() == 'session info':
-                    info = session_manager.get_session_info()
-                    if info:
-                        console.print("\n📊 [bold]Session Info:[/bold]")
-                        console.print(f"  • Session ID: [cyan]{info['session_id'][:16]}...[/cyan]")
-                        console.print(f"  • Duration: [cyan]{int(info['duration_seconds'])}s[/cyan]")
-                        console.print(f"  • Interactions: [cyan]{info['num_interactions']}[/cyan]")
-                        console.print()
-                    else:
-                        console.print("\n⚠️  [yellow]No active session[/yellow]\n")
-                    continue
-
-                if user_input_normalized.lower().startswith('session restore '):
-                    session_id = user_input_normalized[16:].strip()
-                    if not session_id:
-                        console.print("\n❌ [red]Usage: /session restore <session_id>[/red]\n")
-                    else:
-                        if session_manager.is_active():
-                            console.print("\n⚠️  [yellow]Please end current session before restoring.[/yellow]\n")
-                        else:
-                            try:
-                                success = session_manager.restore_from_redis(
-                                    session_id,
-                                    current_working_dir=get_user_working_dir()
-                                )
-                                if success:
-                                    console.print()
-                            except WorkingDirectoryMismatchError as e:
-                                console.print(f"\n❌ [red]Cannot restore session: working directory mismatch.[/red]")
-                                console.print(f"[dim]Session was created in: {e.stored_dir}[/dim]")
-                                console.print(f"[dim]Current directory is: {e.current_dir}[/dim]\n")
-                    continue
-
-                if user_input_normalized.lower().startswith('session delete '):
-                    session_id = user_input_normalized[15:].strip()
-                    if not session_id:
-                        console.print("\n❌ [red]Usage: /session delete <session_id>[/red]\n")
-                    else:
-                        success = session_manager.delete_session(session_id)
-                        if success:
-                            console.print()
-                    continue
-
-                if user_input_normalized.lower() in ['session list', 'sessions list', 'sessions']:
-                    console.print("\n📋 [bold]Saved Sessions:[/bold]")
-                    sessions = session_manager.list_saved_sessions()
-                    if sessions:
-                        for sess in sessions:
-                            console.print(f"  • [cyan]{sess['session_id'][:16]}...[/cyan]")
-                            working_dir = sess.get('working_dir')
-                            if working_dir:
-                                if len(working_dir) > 30:
-                                    working_dir_info = f", Dir: {working_dir[:30]}..."
-                                else:
-                                    working_dir_info = f", Dir: {working_dir}"
-                            else:
-                                working_dir_info = ""
-                            console.print(f"    Interactions: {sess.get('num_interactions', 0)}, "
-                                        f"Started: {sess.get('start_time', 'N/A')}{working_dir_info}")
-                    else:
-                        console.print("  [dim]No saved sessions found[/dim]")
-                    console.print()
-                    continue
-
-                if user_input_normalized.lower() in ['session clear', 'clear sessions']:
-                    console.print()
-                    try:
-                        # Interactive confirmation
-                        selector = InteractiveSelector(
-                            title="⚠️  Clear ALL saved sessions?",
-                            choices=["No", "Yes"],
-                            current="No"
-                        )
-                        choice = selector.show()
-
-                        if choice == "Yes":
-                            count = session_manager.clear_all_sessions()
-                            console.print(f"\n✅ [green]Cleared {count} session{'s' if count != 1 else ''}.[/green]\n")
-                        else:
-                            console.print("\n[dim]Cancelled[/dim]\n")
-                    except Exception as e:
-                        console.print(f"❌ [red]Error clearing sessions: {e}[/red]\n")
-                    continue
-
-                # Handle /model commands
-                if user_input_normalized.lower().startswith('model '):
-                    model_cmd = user_input_normalized[6:].strip()
-
-                    # /model status
-                    if model_cmd == 'status':
-                        console.print("\n📊 [bold]Model Status:[/bold]\n")
-
-                        # General model
-                        general = model_registry.get_active_model('general')
-                        if general:
-                            availability_icon = "✓" if llm_checker.check_model_availability(general.model_id) else "✗"
-                            console.print(f"[bold cyan]General Model:[/bold cyan]")
-                            console.print(f"  {availability_icon} [cyan]{general.model_name}[/cyan] @ {general.url}")
-                            console.print(f"  ID: [dim]{general.model_id}[/dim]")
-                        else:
-                            console.print("[bold cyan]General Model:[/bold cyan] [yellow]Not configured[/yellow]")
-                            console.print("  Use: [dim]/model general add <url> <model_name>[/dim]")
-
-                        console.print()
-
-                        # Coder model
-                        coder = model_registry.get_active_model('coder')
-                        if coder:
-                            availability_icon = "✓" if llm_checker.check_model_availability(coder.model_id) else "✗"
-                            console.print(f"[bold cyan]Coder Model:[/bold cyan]")
-                            console.print(f"  {availability_icon} [cyan]{coder.model_name}[/cyan] @ {coder.url}")
-                            console.print(f"  ID: [dim]{coder.model_id}[/dim]")
-                        else:
-                            console.print("[bold cyan]Coder Model:[/bold cyan] [yellow]Not configured[/yellow]")
-                            console.print("  Use: [dim]/model coder add <url> <model_name>[/dim]")
-
-                        console.print()
-
-                        # Embedding model
-                        embedding = model_registry.get_active_embedding_model()
-                        if embedding:
-                            console.print(f"[bold cyan]Embedding Model:[/bold cyan]")
-                            if embedding.model_name:
-                                console.print(f"  ✓ [cyan]{embedding.model_name}[/cyan] @ {embedding.url}")
-                            else:
-                                console.print(f"  ✓ [cyan]Generic service[/cyan] @ {embedding.url}")
-                            if embedding.embedding_dimensions:
-                                console.print(f"  Dimensions: [cyan]{embedding.embedding_dimensions}[/cyan]")
-                            console.print(f"  ID: [dim]{embedding.model_id}[/dim]")
-                        else:
-                            console.print("[bold cyan]Embedding Model:[/bold cyan] [yellow]Using fallback (local transformer)[/yellow]")
-                            console.print(f"  Fallback URL: [dim]{transformer_url}[/dim]")
-                            console.print("  Use: [dim]/model embedding add <url> [model_name][/dim]")
-
-                        console.print()
-
-                        # Fallback
-                        if config.has_tinyollama_config():
-                            tinyollama_url = config.get_tinyollama_url()
-                            tinyollama_available = llm_checker.check_ollama_available(tinyollama_url)
-                            fallback_icon = "✓" if tinyollama_available else "✗"
-                            console.print(f"[bold cyan]Fallback (Tinyollama):[/bold cyan]")
-                            console.print(f"  {fallback_icon} [cyan]{config.get_tinyollama_model()}[/cyan] @ {tinyollama_url}")
-
-                        console.print()
-                        continue
-
-                    # /model list or /model <type> list
-                    parts = model_cmd.split()
-                    if len(parts) == 1 and parts[0] == 'list':
-                        # List all models
-                        console.print("\n📋 [bold]All Models:[/bold]\n")
-                        for model_type in ['general', 'coder', 'embedding']:
-                            models = model_registry.list_models(model_type)
-                            console.print(f"[bold cyan]{model_type.capitalize()} Models:[/bold cyan]")
-                            if models:
-                                for m in models:
-                                    active_marker = "→" if m.is_active else " "
-                                    if model_type == 'embedding':
-                                        console.print(f"  {active_marker} [cyan]External service[/cyan] @ {m.url}")
-                                        if m.embedding_dimensions:
-                                            console.print(f"    Dimensions: [cyan]{m.embedding_dimensions}[/cyan]")
-                                    else:
-                                        console.print(f"  {active_marker} [cyan]{m.model_name}[/cyan] @ {m.url}")
-                                    console.print(f"    ID: [dim]{m.model_id}[/dim]")
-                            else:
-                                console.print("  [dim]No models configured[/dim]")
-                            console.print()
-                        continue
-
-                    # /model <type> list
-                    if len(parts) == 2 and parts[1] == 'list':
-                        model_type = parts[0]
-                        if model_type not in ['general', 'coder', 'embedding']:
-                            console.print(f"\n❌ [red]Invalid model type: {model_type}[/red]")
-                            console.print("[dim]Valid types: general, coder, embedding[/dim]\n")
-                            continue
-
-                        models = model_registry.list_models(model_type)
-                        console.print(f"\n📋 [bold]{model_type.capitalize()} Models:[/bold]\n")
-                        if models:
-                            for m in models:
-                                active_marker = "→" if m.is_active else " "
-                                if model_type == 'embedding':
-                                    console.print(f"  {active_marker} [cyan]External service[/cyan] @ {m.url}")
-                                    if m.embedding_dimensions:
-                                        console.print(f"    Dimensions: [cyan]{m.embedding_dimensions}[/cyan]")
-                                else:
-                                    console.print(f"  {active_marker} [cyan]{m.model_name}[/cyan] @ {m.url}")
-                                console.print(f"    ID: [dim]{m.model_id}[/dim]")
-                        else:
-                            console.print("  [dim]No models configured[/dim]")
-                        console.print()
-                        continue
-
-                    # /model embedding add <url> [model_name] [timeout]
-                    # For generic services: /model embedding add http://localhost:16050
-                    # For Ollama: /model embedding add http://host:11434 nomic-embed-text:v1.5
-                    if len(parts) >= 3 and parts[0] == 'embedding' and parts[1] == 'add':
-                        url = parts[2]
-                        model_name = ''
-                        timeout = 60
-                        
-                        # Check if model_name is provided (for Ollama)
-                        if len(parts) > 3:
-                            # Check if it's a timeout (number) or model name
-                            if parts[3].isdigit():
-                                timeout = int(parts[3])
-                            else:
-                                model_name = parts[3]
-                                if len(parts) > 4 and parts[4].isdigit():
-                                    timeout = int(parts[4])
-
-                        console.print(f"\n🔍 [yellow]Testing embedding service at {url}...[/yellow]")
-                        if model_name:
-                            console.print(f"   [dim]Model: {model_name}[/dim]")
-                        
-                        # Test the embedding service with a sample text
-                        try:
-                            test_data = None
-                            service_type = None
-                            
-                            # If model_name is provided, try Ollama API first
-                            if model_name:
-                                try:
-                                    test_response = requests.post(
-                                        f"{url}/api/embed",
-                                        json={"model": model_name, "input": "test"},
-                                        timeout=15
-                                    )
-                                    if test_response.status_code == 200:
-                                        test_data = test_response.json()
-                                        service_type = 'ollama'
-                                except requests.exceptions.RequestException:
-                                    pass
-                            
-                            # Try GET first (local transformer service format)
-                            if test_data is None:
-                                try:
-                                    test_response = requests.get(
-                                        f"{url}/embed",
-                                        params={"text": "test"},
-                                        timeout=10
-                                    )
-                                    if test_response.status_code == 200:
-                                        test_data = test_response.json()
-                                        service_type = 'transformer'
-                                except requests.exceptions.RequestException:
-                                    pass
-                            
-                            # If GET failed, try POST /embed (generic external services format)
-                            if test_data is None or ('embedding' not in test_data and 'embeddings' not in test_data):
-                                try:
-                                    test_response = requests.post(
-                                        f"{url}/embed",
-                                        json={"text": "test"},
-                                        timeout=10
-                                    )
-                                    if test_response.status_code == 200:
-                                        test_data = test_response.json()
-                                        service_type = 'generic'
-                                except requests.exceptions.RequestException:
-                                    pass
-                            
-                            if test_data is None or ('embedding' not in test_data and 'embeddings' not in test_data):
-                                console.print(f"❌ [red]Could not get embeddings from service[/red]")
-                                console.print(f"[dim]Tried: Ollama API, GET /embed, POST /embed[/dim]\n")
-                                continue
-                            
-                            # Auto-detect dimensions
-                            embedding = None
-                            if 'embedding' in test_data:
-                                embedding = test_data['embedding']
-                            elif 'embeddings' in test_data and test_data['embeddings']:
-                                embedding = test_data['embeddings'][0]
-                            
-                            if embedding and isinstance(embedding, list) and len(embedding) > 0:
-                                dimensions = len(embedding)
-                            else:
-                                dimensions = None
-                            
-                            model = model_registry.add_model(
-                                model_type='embedding',
-                                url=url,
-                                model_name=model_name,  # Store model name for Ollama
-                                timeout=timeout,
-                                set_active=True,
-                                embedding_dimensions=dimensions
-                            )
-                            console.print(f"\n✅ [green]Embedding model registered successfully![/green]")
-                            console.print(f"  ID: [cyan]{model.model_id}[/cyan]")
-                            console.print(f"  URL: [cyan]{model.url}[/cyan]")
-                            if model_name:
-                                console.print(f"  Model: [cyan]{model_name}[/cyan]")
-                            console.print(f"  Service Type: [cyan]{service_type}[/cyan]")
-                            if dimensions:
-                                console.print(f"  Dimensions: [cyan]{dimensions}[/cyan] (auto-detected)")
-                            console.print(f"  Timeout: [cyan]{timeout}s[/cyan]")
-                            console.print(f"  Status: [green]Active[/green]\n")
-                        except requests.exceptions.RequestException as e:
-                            console.print(f"❌ [red]Cannot reach embedding service at {url}[/red]")
-                            console.print(f"[dim]Error: {str(e)}[/dim]\n")
-                        except Exception as e:
-                            console.print(f"\n❌ [red]Failed to add embedding model: {e}[/red]\n")
-                        continue
-
-                    # /model <type> add <url> <model_name>
-                    if len(parts) >= 4 and parts[1] == 'add':
-                        model_type = parts[0]
-                        url = parts[2]
-                        model_name = parts[3]
-                        timeout = 120
-
-                        if model_type not in ['general', 'coder']:
-                            console.print(f"\n❌ [red]Invalid model type: {model_type}[/red]")
-                            console.print("[dim]Valid types: general, coder[/dim]\n")
-                            continue
-
-                        console.print(f"\n🔍 [yellow]Checking availability of {model_name} @ {url}...[/yellow]")
-                        if not llm_checker.check_ollama_available(url):
-                            console.print(f"❌ [red]Cannot reach Ollama service at {url}[/red]\n")
-                            continue
-
-                        try:
-                            model = model_registry.add_model(
-                                model_type=model_type,
-                                url=url,
-                                model_name=model_name,
-                                timeout=timeout,
-                                set_active=True
-                            )
-                            console.print(f"\n✅ [green]Model registered successfully![/green]")
-                            console.print(f"  ID: [cyan]{model.model_id}[/cyan]")
-                            console.print(f"  Type: [cyan]{model.model_type}[/cyan]")
-                            console.print(f"  Model: [cyan]{model.model_name}[/cyan]")
-                            console.print(f"  URL: [cyan]{model.url}[/cyan]")
-                            console.print(f"  Status: [green]Active[/green]\n")
-
-                            # Refresh llm_checker cache
-                            llm_checker.reset()
-                        except Exception as e:
-                            console.print(f"\n❌ [red]Failed to add model: {e}[/red]\n")
-                        continue
-
-                    # /model <type> use <model_id>
-                    if len(parts) == 3 and parts[1] == 'use':
-                        model_type = parts[0]
-                        model_id = parts[2]
-
-                        if model_type not in ['general', 'coder', 'embedding']:
-                            console.print(f"\n❌ [red]Invalid model type: {model_type}[/red]")
-                            console.print("[dim]Valid types: general, coder, embedding[/dim]\n")
-                            continue
-
-                        try:
-                            success = model_registry.set_active_model(model_id)
-                            if success:
-                                model = model_registry.get_model(model_id)
-                                console.print(f"\n✅ [green]Active {model_type} model set to:[/green]")
-                                if model_type == 'embedding':
-                                    console.print(f"  [cyan]External service[/cyan] @ {model.url}")
-                                    if model.embedding_dimensions:
-                                        console.print(f"  Dimensions: [cyan]{model.embedding_dimensions}[/cyan]")
-                                else:
-                                    console.print(f"  [cyan]{model.model_name}[/cyan] @ {model.url}")
-                                console.print()
-
-                                # Refresh llm_checker cache
-                                llm_checker.reset()
-                            else:
-                                console.print(f"\n❌ [red]Model not found: {model_id}[/red]\n")
-                        except Exception as e:
-                            console.print(f"\n❌ [red]Failed to set active model: {e}[/red]\n")
-                        continue
-
-                    # /model <type> remove <model_id>
-                    if len(parts) == 3 and parts[1] == 'remove':
-                        model_type = parts[0]
-                        model_id = parts[2]
-
-                        if model_type not in ['general', 'coder', 'embedding']:
-                            console.print(f"\n❌ [red]Invalid model type: {model_type}[/red]")
-                            console.print("[dim]Valid types: general, coder, embedding[/dim]\n")
-                            continue
-
-                        try:
-                            model = model_registry.get_model(model_id)
-                            if not model:
-                                console.print(f"\n❌ [red]Model not found: {model_id}[/red]\n")
-                                continue
-
-                            success = model_registry.remove_model(model_id)
-                            if success:
-                                console.print(f"\n✅ [green]Removed model:[/green]")
-                                if model_type == 'embedding':
-                                    console.print(f"  [cyan]External service[/cyan] @ {model.url}\n")
-                                else:
-                                    console.print(f"  [cyan]{model.model_name}[/cyan] @ {model.url}\n")
-
-                                # Refresh llm_checker cache
-                                llm_checker.reset()
-                            else:
-                                console.print(f"\n❌ [red]Failed to remove model[/red]\n")
-                        except Exception as e:
-                            console.print(f"\n❌ [red]Failed to remove model: {e}[/red]\n")
-                        continue
-
-                    # /model check [model_id]
-                    if parts[0] == 'check':
-                        if len(parts) == 1:
-                            # Check all active models
-                            console.print("\n🔍 [bold]Checking all active models...[/bold]\n")
-                            for model_type in ['general', 'coder']:
-                                model = model_registry.get_active_model(model_type)
-                                if model:
-                                    is_available = llm_checker.check_model_availability(model.model_id)
-                                    status_icon = "✓" if is_available else "✗"
-                                    status_text = "[green]Available[/green]" if is_available else "[red]Unavailable[/red]"
-                                    console.print(f"{status_icon} {model_type.capitalize()}: [cyan]{model.model_name}[/cyan] - {status_text}")
-                                else:
-                                    console.print(f"  {model_type.capitalize()}: [yellow]Not configured[/yellow]")
-                            console.print()
-                        else:
-                            # Check specific model
-                            model_id = parts[1]
-                            model = model_registry.get_model(model_id)
-                            if not model:
-                                console.print(f"\n❌ [red]Model not found: {model_id}[/red]\n")
-                            else:
-                                console.print(f"\n🔍 [yellow]Checking {model.model_name}...[/yellow]")
-                                try:
-                                    is_available = llm_checker.check_model_availability(model_id)
-                                    if is_available:
-                                        console.print(f"✓ [green]Model is available[/green]\n")
-                                    else:
-                                        console.print(f"✗ [red]Model is unavailable[/red]")
-                                        console.print(f"[dim]Possible reasons:[/dim]")
-                                        console.print(f"[dim]  - Ollama service at {model.url} is not running[/dim]")
-                                        console.print(f"[dim]  - Network connection issues[/dim]")
-                                        console.print(f"[dim]  - Model '{model.model_name}' not pulled on server[/dim]")
-                                        console.print(f"[dim]  - Timeout or authentication failure[/dim]\n")
-                                except Exception as e:
-                                    console.print(f"✗ [red]Model is unavailable[/red]")
-                                    console.print(f"[dim]Error: {str(e)}[/dim]\n")
-                        continue
-
-                    # Unknown model command
-                    console.print("\n❌ [red]Unknown model command[/red]")
-                    console.print("\n[bold]Available commands:[/bold]")
-                    console.print("  /model status")
-                    console.print("  /model list")
-                    console.print("  /model <type> list")
-                    console.print("  /model <type> add <url> <model_name>")
-                    console.print("  /model embedding add <url> [model_name] [timeout]  (model_name for Ollama)")
-                    console.print("  /model <type> use <model_id>")
-                    console.print("  /model <type> remove <model_id>")
-                    console.print("  /model check [model_id]")
-                    console.print("\n[dim]Where <type> is: general, coder, or embedding[/dim]\n")
-                    continue
+                # elif dispatch_result is False: command not recognized, continue to handle below
 
                 # Handle /repomap create command
                 if user_input_normalized.lower() == 'repomap create':
