@@ -1247,7 +1247,7 @@ def main(verbose=False):
                                                     code_block_marker = "r" if is_r_code else "python"
                                                     comment_prefix = "#" if is_r_code else "#"  # Both use # for comments
                                                     
-                                                    edit_prompt = f"""TASK: Edit the {lang_name} file below. Make ONLY the specific changes requested.
+                                                    edit_prompt = f"""You are a code editor. Edit the {lang_name} file below according to the requested changes.
 
 FILE TO EDIT: {file_path} ({line_count} lines)
 
@@ -1264,11 +1264,16 @@ CRITICAL RULES:
 4. DO NOT change imports, class structure, or method signatures unless specifically requested
 5. Make ONLY the minimal changes needed to fulfill the request
 6. Preserve all docstrings, comments, and formatting
+7. DO NOT add ANY explanatory text, descriptions, or commentary
+8. DO NOT add titles, headers, or sections like "Updated Method" or "Explanation"
+9. ONLY output the code block - nothing before, nothing after
 
-Wrap your output in a markdown code block like this:
+OUTPUT FORMAT (EXACT):
 ```{code_block_marker}
 <the complete updated file content here>
-```"""
+```
+
+Start your response with the ``` marker immediately. No text before the code block."""
                                                     chat_manager.add_user_message(edit_prompt)
                                                 else:
                                                     chat_manager.add_user_message(step)

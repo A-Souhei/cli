@@ -546,6 +546,8 @@ def call_ollama(prompt, model="tinyllama", temperature=0.3, max_tokens=1000, oll
     # Use custom URL if provided, otherwise use the default from config
     api_url = ollama_url or OLLAMA_API_URL
 
+    print(f"[call_ollama] Calling {api_url}/api/generate with model={model}, max_tokens={max_tokens}")
+
     try:
         response = requests.post(
             f"{api_url}/api/generate",
@@ -563,19 +565,21 @@ def call_ollama(prompt, model="tinyllama", temperature=0.3, max_tokens=1000, oll
 
         if response.status_code == 200:
             data = response.json()
-            return data.get('response', '').strip()
+            response_text = data.get('response', '').strip()
+            print(f"[call_ollama] Success: received {len(response_text)} chars")
+            return response_text
         else:
-            print(f"Error calling Ollama: {response.status_code} - {response.text}")
+            print(f"[call_ollama] ERROR: Status {response.status_code} - {response.text[:200]}")
             return None
 
     except requests.exceptions.Timeout:
-        print("Ollama request timed out")
+        print(f"[call_ollama] ERROR: Request timed out after {OLLAMA_TIMEOUT}s")
         return None
-    except requests.exceptions.ConnectionError:
-        print(f"Could not connect to Ollama at {api_url}")
+    except requests.exceptions.ConnectionError as e:
+        print(f"[call_ollama] ERROR: Could not connect to Ollama at {api_url}: {e}")
         return None
     except Exception as e:
-        print(f"Error calling Ollama: {e}")
+        print(f"[call_ollama] ERROR: Unexpected error: {e}")
         return None
 
 
@@ -1258,15 +1262,22 @@ Return ONLY a JSON array of step strings. No explanation, just the array:
 
         # Step 4: Call LLM
         print(f"[code-command-simple] Calling LLM to split prompt (length: {len(text)})")
+        print(f"[code-command-simple] Model: {model}")
         if ollama_url:
             print(f"[code-command-simple] Using custom Ollama URL: {ollama_url}")
+        else:
+            print(f"[code-command-simple] Using default Ollama URL: {OLLAMA_API_URL}")
+
         llm_response = call_ollama(llm_prompt, model=model, temperature=0.3, max_tokens=2000, ollama_url=ollama_url)
 
         if not llm_response:
+            print(f"[code-command-simple] ERROR: LLM returned None")
             return jsonify({
                 'status': 'error',
                 'message': 'Failed to get response from LLM. Make sure Ollama is running.'
             }), 503
+
+        print(f"[code-command-simple] LLM response received ({len(llm_response)} chars)")
 
         # Step 5: Parse LLM response to extract steps
         try:

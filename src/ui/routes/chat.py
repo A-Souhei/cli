@@ -657,24 +657,36 @@ def handle_mcps():
 def handle_code_command(prompt):
     """Handle /code command - returns steps for user confirmation."""
     import requests
+    from src.model_registry import ModelRegistry
 
     postgres_api_url = os.getenv('POSTGRES_API_URL', 'http://localhost:15000')
     session_manager = get_session_manager()
-    
+
     # Ensure session is active (like CLI does)
     if not session_manager.is_active():
         working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
         session_manager.start_session(working_dir=working_dir)
-    
+
     session_id = session_manager.get_session_id()
+
+    # Get coder model for /code operations
+    model_registry = ModelRegistry()
+    coder_model = model_registry.get_active_model('coder')
+
+    # Build request payload with coder model and URL
+    code_command_payload = {
+        'text': prompt,
+        'session_id': session_id
+    }
+
+    if coder_model:
+        code_command_payload['model'] = coder_model.model_name
+        code_command_payload['ollama_url'] = coder_model.url
 
     try:
         response = requests.post(
             f"{postgres_api_url}/mcp-tools/code-command-simple",
-            json={
-                'text': prompt,
-                'session_id': session_id
-            },
+            json=code_command_payload,
             timeout=180
         )
 
