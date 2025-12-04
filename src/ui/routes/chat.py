@@ -1316,7 +1316,7 @@ Start your response with the ``` marker immediately. No text before the code blo
             )
         except Exception as chat_error:
             print(f"[_generate_code_with_llm_sync] Chat error: {chat_error}")
-            return None
+            return (None, model_name_used)
         
         # Debug: Log the raw response
         print(f"[_generate_code_with_llm_sync] Raw response type: {type(response)}")
@@ -1334,7 +1334,7 @@ Start your response with the ``` marker immediately. No text before the code blo
                 error = response.get('error')
                 if error:
                     print(f"[_generate_code_with_llm_sync] LLM error: {error}")
-                    return None
+                    return (None, model_name_used)
 
         # Debug: Log LLM response for troubleshooting
         print(f"[_generate_code_with_llm_sync] LLM response length: {len(full_response)} chars")

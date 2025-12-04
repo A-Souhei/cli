@@ -482,7 +482,7 @@ def handle_model_commands(console, user_input_normalized, model_registry, llm_ch
                         if test_response.status_code == 200:
                             test_success = True
                     except requests.exceptions.RequestException:
-                        pass
+                        pass  # Ollama API not available, try next method
 
                 # Try GET /embed (transformer service)
                 if not test_success:
@@ -495,7 +495,7 @@ def handle_model_commands(console, user_input_normalized, model_registry, llm_ch
                         if test_response.status_code == 200:
                             test_success = True
                     except requests.exceptions.RequestException:
-                        pass
+                        pass  # GET /embed not available, try next method
 
                 # Try POST /embed (generic services)
                 if not test_success:
@@ -508,7 +508,7 @@ def handle_model_commands(console, user_input_normalized, model_registry, llm_ch
                         if test_response.status_code == 200:
                             test_success = True
                     except requests.exceptions.RequestException:
-                        pass
+                        pass  # POST /embed not available, all methods exhausted
 
                 if test_success:
                     console.print("[green]✓ OK[/green]")
