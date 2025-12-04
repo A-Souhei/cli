@@ -892,6 +892,7 @@
     
     clearChatBtn.addEventListener('click', async function() {
         // Call the backend to clear chat and create new session
+        let clearSucceeded = false;
         try {
             const response = await fetch('/api/chat/command', {
                 method: 'POST',
@@ -908,12 +909,18 @@
             if (response.ok && data.status === 'success' && data.session_active !== undefined && data.session_id) {
                 console.log('Updating session to:', data.session_id);
                 updateSessionStatus(data.session_active, data.session_id);
+                clearSucceeded = true;
             } else if (!response.ok) {
                 console.error('Clear failed:', data.message || 'Unknown error');
+                alert('Failed to clear chat: ' + (data.message || 'Unknown error'));
             }
         } catch (error) {
             console.error('Error clearing chat:', error);
+            alert('Failed to clear chat. Please try again.');
         }
+        
+        // Only clear the UI if backend call succeeded
+        if (!clearSucceeded) return;
         
         // Clear the UI
         chatMessages.innerHTML = `
