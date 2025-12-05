@@ -1696,7 +1696,59 @@ def _generate_code_with_llm_sync(step: str, model_registry, mcp_client,
             lang_name = "R" if is_r_code else "Python"
             code_block_marker = "r" if is_r_code else "python"
             
-            llm_prompt = f"""You are a code editor. Edit the {lang_name} file below according to the requested changes.
+            # For edit operations, instruct LLM to generate unified diff
+            if tool_name in ['edit_python_code', 'edit_r_code']:
+                llm_prompt = f"""You are a code editor that generates UNIFIED DIFFS for file modifications.
+
+FILE TO EDIT: {file_path} ({line_count} lines)
+
+=== ORIGINAL FILE START ===
+{original_file_content}
+=== ORIGINAL FILE END ===
+
+REQUESTED CHANGES: {step}
+
+CRITICAL RULES:
+1. Generate a UNIFIED DIFF showing ONLY the changes
+2. Use standard unified diff format:
+   --- {file_path}
+   +++ {file_path}
+   @@ -old_start,old_count +new_start,new_count @@
+3. Include 3 lines of context before and after each change
+4. Context lines start with ' ' (space)
+5. Deleted lines start with '-' (minus)
+6. Added lines start with '+' (plus)
+7. DO NOT include the entire file - only changed sections with context
+8. DO NOT add explanatory text before or after the diff
+9. ONLY output the diff block - nothing else
+
+EXAMPLE FORMAT:
+```diff
+--- {file_path}
++++ {file_path}
+@@ -10,7 +10,7 @@
+ def existing_function():
+     # Some context
+     old_line = 123
+-    line_to_change = "old value"
++    line_to_change = "new value"
+     another_line = 456
+     # More context
+
+@@ -25,6 +25,9 @@
+ def another_function():
+     # Context before
+     existing_code = True
++    # New lines being added
++    new_feature = "added"
++    more_code = 123
+     # Context after
+```
+
+Start your response with the ```diff marker immediately. No text before the diff block."""
+            else:
+                # For write operations, use full file approach
+                llm_prompt = f"""You are a code editor. Edit the {lang_name} file below according to the requested changes.
 
 FILE TO EDIT: {file_path} ({line_count} lines)
 

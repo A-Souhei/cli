@@ -1245,9 +1245,9 @@ def main(verbose=False):
                                                     is_r_code = tool_name == 'edit_r_code'
                                                     lang_name = "R" if is_r_code else "Python"
                                                     code_block_marker = "r" if is_r_code else "python"
-                                                    comment_prefix = "#" if is_r_code else "#"  # Both use # for comments
                                                     
-                                                    edit_prompt = f"""You are a code editor. Edit the {lang_name} file below according to the requested changes.
+                                                    # For edit operations, generate unified diff
+                                                    edit_prompt = f"""You are a code editor that generates UNIFIED DIFFS for file modifications.
 
 FILE TO EDIT: {file_path} ({line_count} lines)
 
@@ -1258,22 +1258,43 @@ FILE TO EDIT: {file_path} ({line_count} lines)
 REQUESTED CHANGES: {step}
 
 CRITICAL RULES:
-1. Output the COMPLETE file with ALL {line_count} lines (or close to it)
-2. DO NOT remove, truncate, or summarize any existing functions, classes, or code
-3. DO NOT add comments like "{comment_prefix} Rest of your methods..." or "{comment_prefix} ... existing code ..."
-4. DO NOT change imports, class structure, or method signatures unless specifically requested
-5. Make ONLY the minimal changes needed to fulfill the request
-6. Preserve all docstrings, comments, and formatting
-7. DO NOT add ANY explanatory text, descriptions, or commentary
-8. DO NOT add titles, headers, or sections like "Updated Method" or "Explanation"
-9. ONLY output the code block - nothing before, nothing after
+1. Generate a UNIFIED DIFF showing ONLY the changes
+2. Use standard unified diff format:
+   --- {file_path}
+   +++ {file_path}
+   @@ -old_start,old_count +new_start,new_count @@
+3. Include 3 lines of context before and after each change
+4. Context lines start with ' ' (space)
+5. Deleted lines start with '-' (minus)
+6. Added lines start with '+' (plus)
+7. DO NOT include the entire file - only changed sections with context
+8. DO NOT add explanatory text before or after the diff
+9. ONLY output the diff block - nothing else
 
-OUTPUT FORMAT (EXACT):
-```{code_block_marker}
-<the complete updated file content here>
+EXAMPLE FORMAT:
+```diff
+--- {file_path}
++++ {file_path}
+@@ -10,7 +10,7 @@
+ def existing_function():
+     # Some context
+     old_line = 123
+-    line_to_change = "old value"
++    line_to_change = "new value"
+     another_line = 456
+     # More context
+
+@@ -25,6 +25,9 @@
+ def another_function():
+     # Context before
+     existing_code = True
++    # New lines being added
++    new_feature = "added"
++    more_code = 123
+     # Context after
 ```
 
-Start your response with the ``` marker immediately. No text before the code block."""
+Start your response with the ```diff marker immediately. No text before the diff block."""
                                                     chat_manager.add_user_message(edit_prompt)
                                                 else:
                                                     chat_manager.add_user_message(step)
