@@ -1247,7 +1247,7 @@ def main(verbose=False):
                                                     code_block_marker = "r" if is_r_code else "python"
                                                     comment_prefix = "#" if is_r_code else "#"  # Both use # for comments
                                                     
-                                                    edit_prompt = f"""You are a code editor. Edit the {lang_name} file below according to the requested changes.
+                                                    edit_prompt = f"""You are a precise code editor. Make MINIMAL changes to the {lang_name} file below.
 
 FILE TO EDIT: {file_path} ({line_count} lines)
 
@@ -1257,20 +1257,27 @@ FILE TO EDIT: {file_path} ({line_count} lines)
 
 REQUESTED CHANGES: {step}
 
-CRITICAL RULES:
-1. Output the COMPLETE file with ALL {line_count} lines (or close to it)
-2. DO NOT remove, truncate, or summarize any existing functions, classes, or code
-3. DO NOT add comments like "{comment_prefix} Rest of your methods..." or "{comment_prefix} ... existing code ..."
-4. DO NOT change imports, class structure, or method signatures unless specifically requested
-5. Make ONLY the minimal changes needed to fulfill the request
-6. Preserve all docstrings, comments, and formatting
-7. DO NOT add ANY explanatory text, descriptions, or commentary
-8. DO NOT add titles, headers, or sections like "Updated Method" or "Explanation"
-9. ONLY output the code block - nothing before, nothing after
+CRITICAL RULES FOR MINIMAL EDITS:
+1. Output ONLY the specific sections you need to modify
+2. For small changes (import statements, single function edits):
+   - Output ONLY the changed section (e.g., just the import line, or just the modified function)
+   - The system will automatically merge it with the original file
+3. For larger changes (multiple functions, entire classes):
+   - Output the complete file ONLY if you're modifying more than 50% of the content
+4. DO NOT include placeholder comments like "{comment_prefix} ... rest of code ..." or "{comment_prefix} existing methods ..."
+5. DO NOT add ANY explanatory text before or after the code
+6. Preserve exact formatting, indentation, and style
+7. Make ONLY the changes explicitly requested - nothing more
+
+EXAMPLES:
+- If asked to add an import: Output just the import section
+- If asked to modify one function: Output just that function with its exact indentation
+- If asked to add a method to a class: Output just the new method
+- If making extensive changes: Output the complete file
 
 OUTPUT FORMAT (EXACT):
 ```{code_block_marker}
-<the complete updated file content here>
+<minimal code changes here - just what needs to be modified>
 ```
 
 Start your response with the ``` marker immediately. No text before the code block."""
@@ -1613,7 +1620,7 @@ Start your response with the ``` marker immediately. No text before the code blo
                     })
 
                 # Detect file modification actions (refactor, update, create, etc.)
-                action_keywords = ['refactor', 'create', 'update', 'modify', 'edit', 'change', 'rewrite', 'add']
+                action_keywords = config.get_file_action_keywords()
                 user_input_lower = clean_user_input.lower()
                 has_action = any(keyword in user_input_lower for keyword in action_keywords)
 
@@ -1801,7 +1808,10 @@ Ensure all imports are correct, syntax is valid, and the code runs without error
                             mcp_client,
                             full_response,
                             at_context['files'],
-                            at_context['non_existing']
+                            at_context['non_existing'],
+                            get_user_working_dir,
+                            console,
+                            debug_print
                         ))
 
                         # Offer to verify modifications by running one of the files

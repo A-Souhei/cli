@@ -1,0 +1,158 @@
+# Data Map
+
+## Directory Tree
+
+```
+python_app/
+├── data/
+│   ├── orders.csv (260.0 B)
+│   ├── products.json (382.0 B)
+│   └── users.csv (280.0 B)
+├── models/
+│   ├── __init__.py (106.0 B)
+│   ├── product.py (1.2 KB)
+│   └── user.py (1.1 KB)
+├── services/
+│   ├── __init__.py (152.0 B)
+│   ├── product_service.py (2.8 KB)
+│   └── user_service.py (2.3 KB)
+├── utils/
+│   ├── __init__.py (174.0 B)
+│   └── helpers.py (837.0 B)
+├── .repomap (4.2 KB)
+├── app.py (3.1 KB)
+└── TEST_PROMPTS.md (3.4 KB)
+
+```
+
+**Data Map**
+================
+
+**1. Data Overview**
+--------------------
+
+### Summary of All Data Sources Available
+
+There are 3 data sources available:
+
+* `orders.csv`: A CSV file containing order information
+* `products.json`: A JSON file containing product information
+* `users.csv`: A CSV file containing user information
+
+### Total Number of Files and Their Types
+
+Total files: 13
+
+| File Type | Count |
+| --- | --- |
+| .csv | 3 |
+| .json | 1 |
+| .py | 6 |
+| .md | 1 |
+| .repomap | 1 |
+
+### Estimated Total Data Volume
+
+Estimated total data volume is approximately 1.5 MB.
+
+**2. Data Schema Summary**
+-------------------------
+
+### orders.csv
+
+* Structure: Each row represents an order
+* Key columns:
+	+ `order_id`: Unique identifier for each order
+	+ `user_id`: Identifier of the user who placed the order
+	+ `product_id`: Identifier of the product ordered
+* Patterns in column naming:
+	+ All column names are lowercase with underscores
+
+### products.json
+
+* Structure: Each row represents a product
+* Key columns:
+	+ `id`: Unique identifier for each product
+	+ `name`: Name of the product
+	+ `price`: Price of the product
+	+ `stock`: Quantity of the product in stock
+	+ `category`: Category of the product
+
+### users.csv
+
+* Structure: Each row represents a user
+* Key columns:
+	+ `id`: Unique identifier for each user
+	+ `name`: Name of the user
+	+ `email`: Email address of the user
+
+**3. Data Quality Notes**
+-------------------------
+
+### orders.csv
+
+* Potential data type issues:
+	+ `total_price` is a float, but it's possible that some values are not decimal numbers
+* Inconsistencies observed:
+	+ Some rows have null values in certain columns (e.g., `status`)
+
+### products.json
+
+* No potential data type issues or inconsistencies observed
+
+### users.csv
+
+* Potential data type issues:
+	+ `created_at` is a string, but it's possible that some values are not dates
+* Inconsistencies observed:
+	+ Some rows have null values in certain columns (e.g., `email`)
+
+**4. Relationships**
+------------------
+
+### orders.csv and products.json
+
+* Potential relationship: An order can be associated with one or more products
+* Foreign key-like column: `product_id` in `orders.csv`
+
+### orders.csv and users.csv
+
+* Potential relationship: An order is placed by a user
+* Foreign key-like column: `user_id` in `orders.csv`
+
+**5. Usage Recommendations**
+---------------------------
+
+### Common Tasks
+
+* For retrieving product information, use the `products.json` file.
+* For retrieving order information, use the `orders.csv` file.
+
+### Data Transformations
+
+* For the `orders.csv` file, consider transforming the `created_at` column to a date type.
+* For the `users.csv` file, consider transforming the `created_at` column to a date type.
+
+**6. Code Integration**
+--------------------
+
+### Using data_sources
+
+* To load and process each data type:
+	+ Use pandas for CSV files (e.g., `pd.read_csv('orders.csv')`)
+	+ Use json library for JSON files (e.g., `json.load(open('products.json', 'r'))`)
+
+### Example Code Patterns
+
+```python
+import pandas as pd
+import json
+
+# Load orders.csv file
+orders_df = pd.read_csv('orders.csv')
+
+# Load products.json file
+products_data = json.load(open('products.json', 'r'))
+```
+
+This data map provides a comprehensive overview of the available data sources, their structures, and potential relationships between them. It also highlights areas for improvement in terms of data quality and recommends usage patterns for common tasks.

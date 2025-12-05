@@ -33,3 +33,29 @@ chat:
   max_context_length: 10
   temperature: 0.7
   stream: true
+
+# File modification action keywords
+# When these keywords are detected with @file references, the system will
+# automatically instruct the LLM to use MCP tools for file modifications
+file_action_keywords:
+  - refactor      # Restructure/reorganize code
+  - create        # Create new files/functions
+  - update        # Update existing code
+  - modify        # Modify code
+  - edit          # Edit files
+  - change        # Change code
+  - rewrite       # Rewrite sections
+  - add           # Add code/imports
+  - import        # Import modules/functions
+  - include       # Include code/modules
+  - remove        # Remove code/imports
+  - delete        # Delete code sections
+  - replace       # Replace code
+  - rename        # Rename functions/classes/variables
+  - move          # Move code between files
+  - insert        # Insert code
+  - append        # Append to end
+  - prepend       # Prepend to start
+  - fix           # Fix bugs
+  - implement     # Implement features
+  - extend        # Extend classes/functions

@@ -478,6 +478,10 @@ def execute_command():
             return handle_datamap_update(args_str)
         elif cmd == 'clear':
             return handle_clear()
+        elif cmd == 'context show':
+            return handle_context_show_ui()
+        elif cmd == 'context clear':
+            return handle_context_clear_ui()
         else:
             return jsonify({
                 'status': 'error',
@@ -603,6 +607,76 @@ def handle_clear():
         'response': '🗑️ Chat cleared. New session started.',
         'session_active': True,
         'session_id': new_session_id
+    })
+
+
+def handle_context_show_ui():
+    """Show current context in UI."""
+    session_manager = get_session_manager()
+    
+    response = "📋 **Current Context**\n\n"
+    
+    # Session info
+    if session_manager.is_active():
+        info = session_manager.get_session_info()
+        response += "**Session:** Active\n"
+        response += f"- ID: `{info['session_id'][:16]}...`\n"
+        if info.get('title'):
+            response += f"- Title: {info['title']}\n"
+        response += f"- Duration: {int(info['duration_seconds'])}s\n"
+        response += f"- Interactions: {info['num_interactions']}\n"
+        
+        if session_manager.session_working_dir:
+            response += f"- Working Dir: `{session_manager.session_working_dir}`\n"
+        
+        # Session metadata
+        if session_manager.session_metadata:
+            response += "\n**Session Metadata:**\n"
+            for key, value in session_manager.session_metadata.items():
+                if isinstance(value, str) and len(value) > 50:
+                    value = value[:50] + "..."
+                elif isinstance(value, (list, dict)):
+                    value = f"{type(value).__name__} with {len(value)} items"
+                response += f"- {key}: {value}\n"
+        
+        # Session history summary
+        if session_manager.session_history:
+            response += f"\n**Session History:** {len(session_manager.session_history)} interactions\n"
+            for i, interaction in enumerate(session_manager.session_history[-3:], 1):
+                prompt = interaction.get('prompt', '')[:50]
+                if len(interaction.get('prompt', '')) > 50:
+                    prompt += "..."
+                response += f"{i}. {prompt}\n"
+            if len(session_manager.session_history) > 3:
+                response += f"... and {len(session_manager.session_history) - 3} more\n"
+    else:
+        response += "**Session:** Not active\n"
+    
+    return jsonify({
+        'status': 'success',
+        'response': response,
+        'session_active': session_manager.is_active(),
+        'session_id': session_manager.get_session_id() if session_manager.is_active() else None
+    })
+
+
+def handle_context_clear_ui():
+    """Clear context in UI (keeps session active)."""
+    session_manager = get_session_manager()
+    
+    # Clear session context but keep session active
+    if session_manager.is_active():
+        session_manager.session_history.clear()
+        session_manager.session_metadata.clear()
+        response = "🗑️ Context cleared (session still active)."
+    else:
+        response = "🗑️ Context cleared."
+    
+    return jsonify({
+        'status': 'success',
+        'response': response,
+        'session_active': session_manager.is_active(),
+        'session_id': session_manager.get_session_id() if session_manager.is_active() else None
     })
 
 
