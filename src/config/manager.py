@@ -94,3 +94,21 @@ class ConfigManager:
     def has_tinyollama_config(self) -> bool:
         """Check if tinyollama configuration exists."""
         return 'tinyollama' in self.config
+
+    def get_file_action_keywords(self) -> List[str]:
+        """
+        Get list of keywords that indicate file modification actions.
+
+        These keywords are used to detect when the user wants to modify files
+        with @ prefix references, triggering automatic MCP tool usage.
+
+        Returns:
+            List of action keywords (lowercase)
+        """
+        default_keywords = [
+            'refactor', 'create', 'update', 'modify', 'edit', 'change',
+            'rewrite', 'add', 'import', 'include', 'remove', 'delete',
+            'replace', 'rename', 'move', 'insert', 'append', 'prepend',
+            'fix', 'implement', 'extend'
+        ]
+        return self.config.get('file_action_keywords', default_keywords)

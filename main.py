@@ -1620,7 +1620,7 @@ Start your response with the ``` marker immediately. No text before the code blo
                     })
 
                 # Detect file modification actions (refactor, update, create, etc.)
-                action_keywords = ['refactor', 'create', 'update', 'modify', 'edit', 'change', 'rewrite', 'add']
+                action_keywords = config.get_file_action_keywords()
                 user_input_lower = clean_user_input.lower()
                 has_action = any(keyword in user_input_lower for keyword in action_keywords)
 
@@ -1808,7 +1808,10 @@ Ensure all imports are correct, syntax is valid, and the code runs without error
                             mcp_client,
                             full_response,
                             at_context['files'],
-                            at_context['non_existing']
+                            at_context['non_existing'],
+                            get_user_working_dir,
+                            console,
+                            debug_print
                         ))
 
                         # Offer to verify modifications by running one of the files
