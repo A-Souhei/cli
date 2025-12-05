@@ -85,7 +85,6 @@ from src.session.title_generator import SessionTitleGenerator
 from src.mcp import MCPClient
 from src.file_completer import extract_at_context
 from src.utils.file_action_handler import build_system_messages, detect_file_actions
-from src.utils.code_handlers import handle_file_modifications
 
 chat_bp = Blueprint('chat', __name__)
 
@@ -413,18 +412,10 @@ def send_message():
             action_result = detect_file_actions(message, at_context, config)
             
             if action_result['has_action'] and (action_result['files_to_modify'] or action_result['files_to_create']):
-                # Create MCP client for file modifications
-                from pathlib import Path
-                current_file = Path(__file__)
-                project_root = current_file.parent.parent.parent.parent
-                system_mcps_dir = project_root / 'system_mcps'
-                postgres_url = os.getenv('POSTGRES_API_URL', 'http://localhost:15000')
-                
-                # We need to handle file modifications asynchronously
-                # For UI, we'll process this in the background and return info to user
+                # TODO: Full MCP integration for file modifications in UI
+                # For now, we inform the user that file modifications were detected
+                # Future enhancement: Integrate async MCP handling similar to CLI
                 try:
-                    # Note: This is a simplified version for UI - full integration would need async handling
-                    # For now, we'll just inform the user that file modifications were detected
                     modification_info = {
                         'detected': True,
                         'files_to_modify': action_result['files_to_modify'],

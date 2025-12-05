@@ -87,6 +87,7 @@ from src.utils.banner import (
 # Import file action handler from separate module
 from src.utils.file_action_handler import (
     build_system_messages,
+    detect_file_actions,
 )
 
 # Import CLI modules
@@ -1697,7 +1698,6 @@ Start your response with the ``` marker immediately. No text before the code blo
                 # Check for code and offer to execute or write to file
                 try:
                     # Re-detect file actions for post-response handling
-                    from src.utils.file_action_handler import detect_file_actions
                     action_result = detect_file_actions(clean_user_input, at_context, config)
                     
                     if action_result['has_action'] and (at_context['files'] or at_context['non_existing']):
