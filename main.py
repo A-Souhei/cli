@@ -977,47 +977,52 @@ def main(verbose=False):
 
                     session_id = session_manager.get_session_id()
 
-                    # Load .repomap file into context if it exists and not already loaded in this session
-                    repomap_path = os.path.join(get_user_working_dir(), '.repomap')
-                    repomap_loaded_key = f'repomap_loaded_{repomap_path}'
-                    if os.path.exists(repomap_path) and not session_manager.session_metadata.get(repomap_loaded_key):
-                        console.print("[cyan]📦 Loading repository map into context...[/cyan]")
-                        try:
-                            repomap_result = run_async(load_repomap_to_context(
-                                mcp_client,
-                                '.repomap',
-                                get_user_working_dir(),
-                                session_id
-                            ))
-                            if repomap_result.get('status') == 'success':
-                                console.print("[green]✓ Repository map loaded[/green]")
-                                # Mark repomap as loaded for this session
-                                session_manager.session_metadata[repomap_loaded_key] = True
-                            else:
-                                debug_print(f"Repomap load warning: {repomap_result.get('message')}", icon="⚠️")
-                        except Exception as e:
-                            debug_print(f"Failed to load repomap: {e}", icon="⚠️")
+                    # NOTE: Automatic repomap/datamap loading is disabled.
+                    # Users can manually load them with:
+                    #   /repomap load
+                    #   /datamap load
+                    
+                    # # Load .repomap file into context if it exists and not already loaded in this session
+                    # repomap_path = os.path.join(get_user_working_dir(), '.repomap')
+                    # repomap_loaded_key = f'repomap_loaded_{repomap_path}'
+                    # if os.path.exists(repomap_path) and not session_manager.session_metadata.get(repomap_loaded_key):
+                    #     console.print("[cyan]📦 Loading repository map into context...[/cyan]")
+                    #     try:
+                    #         repomap_result = run_async(load_repomap_to_context(
+                    #             mcp_client,
+                    #             '.repomap',
+                    #             get_user_working_dir(),
+                    #             session_id
+                    #         ))
+                    #         if repomap_result.get('status') == 'success':
+                    #             console.print("[green]✓ Repository map loaded[/green]")
+                    #             # Mark repomap as loaded for this session
+                    #             session_manager.session_metadata[repomap_loaded_key] = True
+                    #         else:
+                    #             debug_print(f"Repomap load warning: {repomap_result.get('message')}", icon="⚠️")
+                    #     except Exception as e:
+                    #         debug_print(f"Failed to load repomap: {e}", icon="⚠️")
 
-                    # Load .datamap file into context if it exists and not already loaded in this session
-                    datamap_path = os.path.join(get_user_working_dir(), '.datamap')
-                    datamap_loaded_key = f'datamap_loaded_{datamap_path}'
-                    if os.path.exists(datamap_path) and not session_manager.session_metadata.get(datamap_loaded_key):
-                        console.print("[cyan]📊 Loading data map into context...[/cyan]")
-                        try:
-                            datamap_result = run_async(load_datamap_to_context(
-                                mcp_client,
-                                '.datamap',
-                                get_user_working_dir(),
-                                session_id
-                            ))
-                            if datamap_result.get('status') == 'success':
-                                console.print("[green]✓ Data map loaded[/green]")
-                                # Mark datamap as loaded for this session
-                                session_manager.session_metadata[datamap_loaded_key] = True
-                            else:
-                                debug_print(f"Datamap load warning: {datamap_result.get('message')}", icon="⚠️")
-                        except Exception as e:
-                            debug_print(f"Failed to load datamap: {e}", icon="⚠️")
+                    # # Load .datamap file into context if it exists and not already loaded in this session
+                    # datamap_path = os.path.join(get_user_working_dir(), '.datamap')
+                    # datamap_loaded_key = f'datamap_loaded_{datamap_path}'
+                    # if os.path.exists(datamap_path) and not session_manager.session_metadata.get(datamap_loaded_key):
+                    #     console.print("[cyan]📊 Loading data map into context...[/cyan]")
+                    #     try:
+                    #         datamap_result = run_async(load_datamap_to_context(
+                    #             mcp_client,
+                    #             '.datamap',
+                    #             get_user_working_dir(),
+                    #             session_id
+                    #         ))
+                    #         if datamap_result.get('status') == 'success':
+                    #             console.print("[green]✓ Data map loaded[/green]")
+                    #             # Mark datamap as loaded for this session
+                    #             session_manager.session_metadata[datamap_loaded_key] = True
+                    #         else:
+                    #             debug_print(f"Datamap load warning: {datamap_result.get('message')}", icon="⚠️")
+                    #     except Exception as e:
+                    #         debug_print(f"Failed to load datamap: {e}", icon="⚠️")
 
                     # Store @ references in session metadata for access by all tools
                     if at_references:
@@ -1246,55 +1251,19 @@ def main(verbose=False):
                                                     lang_name = "R" if is_r_code else "Python"
                                                     code_block_marker = "r" if is_r_code else "python"
                                                     
-                                                    # For edit operations, generate unified diff
-                                                    edit_prompt = f"""You are a code editor that generates UNIFIED DIFFS for file modifications.
+                                                    # Simple prompt - just ask LLM to output the modified file
+                                                    edit_prompt = f"""Modify this {lang_name} file: {step}
 
-FILE TO EDIT: {file_path} ({line_count} lines)
+Here is the current file ({line_count} lines):
 
-=== ORIGINAL FILE START ===
+```{code_block_marker}
 {original_file_content}
-=== ORIGINAL FILE END ===
-
-REQUESTED CHANGES: {step}
-
-CRITICAL RULES:
-1. Generate a UNIFIED DIFF showing ONLY the changes
-2. Use standard unified diff format:
-   --- {file_path}
-   +++ {file_path}
-   @@ -old_start,old_count +new_start,new_count @@
-3. Include 3 lines of context before and after each change
-4. Context lines start with ' ' (space)
-5. Deleted lines start with '-' (minus)
-6. Added lines start with '+' (plus)
-7. DO NOT include the entire file - only changed sections with context
-8. DO NOT add explanatory text before or after the diff
-9. ONLY output the diff block - nothing else
-
-EXAMPLE FORMAT:
-```diff
---- {file_path}
-+++ {file_path}
-@@ -10,7 +10,7 @@
- def existing_function():
-     # Some context
-     old_line = 123
--    line_to_change = "old value"
-+    line_to_change = "new value"
-     another_line = 456
-     # More context
-
-@@ -25,6 +25,9 @@
- def another_function():
-     # Context before
-     existing_code = True
-+    # New lines being added
-+    new_feature = "added"
-+    more_code = 123
-     # Context after
 ```
 
-Start your response with the ```diff marker immediately. No text before the diff block."""
+IMPORTANT: Output the COMPLETE file with your modification. Include ALL {line_count} lines.
+Start your response with ```{code_block_marker} and end with ```:
+
+```{code_block_marker}"""
                                                     chat_manager.add_user_message(edit_prompt)
                                                 else:
                                                     chat_manager.add_user_message(step)
@@ -1331,14 +1300,57 @@ Start your response with the ```diff marker immediately. No text before the diff
 
                                                 chat_manager.add_assistant_message(full_response)
 
-                                                detected = mcp_client.detect_code(full_response)
+                                                # For edit operations, try to extract diff or search/replace block first
+                                                if tool_name in ['edit_python_code', 'edit_r_code'] and original_file_content:
+                                                    debug_print(f"Trying to extract edit format from LLM response ({len(full_response)} chars)", icon="🔍")
+                                                    debug_print(f"LLM response preview: {full_response[:300]}", icon="📝")
+                                                    
+                                                    # Try search/replace format first (preferred for smaller models)
+                                                    if '<<<SEARCH>>>' in full_response or '<<<SEARCH' in full_response:
+                                                        # Extract search/replace blocks
+                                                        sr_pattern = re.compile(
+                                                            r'(<<<\s*SEARCH\s*>>>.*?<<<\s*END\s*>>>)',
+                                                            re.DOTALL | re.IGNORECASE
+                                                        )
+                                                        sr_matches = sr_pattern.findall(full_response)
+                                                        if sr_matches:
+                                                            code = '\n'.join(sr_matches)
+                                                            console.print(f"  ✓ [green]Search/Replace blocks extracted ({len(code)} chars)[/green]")
+                                                            debug_print(f"Search/Replace preview: {code[:200]}", icon="📝")
+                                                        else:
+                                                            # Pass full response - parser is lenient
+                                                            code = full_response
+                                                            console.print(f"  ✓ [green]Search/Replace format detected ({len(code)} chars)[/green]")
+                                                    elif '---' in full_response and '+++' in full_response and '@@' in full_response:
+                                                        # Try diff format - look for diff markers
+                                                        diff_match = re.search(r'```diff\s*\n(.*?)```', full_response, re.DOTALL)
+                                                        if diff_match:
+                                                            code = diff_match.group(1).strip()
+                                                        else:
+                                                            # Try to extract diff without code fences
+                                                            code = full_response
+                                                        console.print(f"  ✓ [green]Diff format detected ({len(code)} chars)[/green]")
+                                                        debug_print(f"Diff preview: {code[:200]}", icon="📝")
+                                                    else:
+                                                        # LLM didn't follow format - extract code and pass it anyway
+                                                        # The server will reject it with a proper error message
+                                                        console.print(f"  ⚠️  [yellow]LLM did not generate search/replace or diff format[/yellow]")
+                                                        console.print(f"  ⚠️  [yellow]LLM response preview: {full_response[:150]}...[/yellow]")
+                                                        detected = mcp_client.detect_code(full_response)
+                                                        if detected:
+                                                            code = detected['code']
+                                                        else:
+                                                            # Pass raw response - server will handle the error
+                                                            code = full_response
+                                                else:
+                                                    detected = mcp_client.detect_code(full_response)
 
-                                                if not detected:
-                                                    console.print(f"  ⚠️  [yellow]No code detected in LLM response, skipping tool execution[/yellow]\n")
-                                                    continue
+                                                    if not detected:
+                                                        console.print(f"  ⚠️  [yellow]No code detected in LLM response, skipping tool execution[/yellow]\n")
+                                                        continue
 
-                                                code = detected['code']
-                                                console.print(f"  ✓ [green]Code generated ({len(code)} chars)[/green]\n")
+                                                    code = detected['code']
+                                                    console.print(f"  ✓ [green]Code generated ({len(code)} chars)[/green]\n")
 
                                                 extracted_params = best_match.get('extracted_params', {})
                                                 extracted_params['code'] = code

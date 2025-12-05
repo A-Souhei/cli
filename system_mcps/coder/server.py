@@ -81,6 +81,60 @@ except ImportError:
     class MalformedDiffLineError(Exception):
         pass
 
+# Import search/replace parser
+try:
+    from src.utils.search_replace_parser import (
+        detect_search_replace_format,
+        parse_search_replace_blocks,
+        apply_search_replace_to_file,
+        SearchReplaceError,
+        SearchBlockNotFoundError,
+        MultipleMatchesError,
+        InvalidFormatError,
+    )
+    SEARCH_REPLACE_AVAILABLE = True
+except ImportError:
+    # Graceful fallback if search_replace_parser is not available
+    def detect_search_replace_format(text: str) -> bool:
+        """Fallback: always return False."""
+        return False
+    
+    def parse_search_replace_blocks(text: str):
+        """Fallback: not available."""
+        return []
+    
+    def apply_search_replace_to_file(file_path: str, blocks, working_dir: str = None):
+        """Fallback: not available."""
+        return False, "Search/replace parser not available", 0
+    
+    class SearchReplaceError(Exception):
+        pass
+    class SearchBlockNotFoundError(SearchReplaceError):
+        pass
+    class MultipleMatchesError(SearchReplaceError):
+        pass
+    class InvalidFormatError(SearchReplaceError):
+        pass
+    SEARCH_REPLACE_AVAILABLE = False
+
+# Import smart merge (fallback for when LLM doesn't follow format)
+try:
+    from src.utils.smart_merge import (
+        smart_merge,
+        is_safe_to_merge,
+    )
+    SMART_MERGE_AVAILABLE = True
+except ImportError:
+    def smart_merge(original: str, llm_output: str):
+        """Fallback: not available."""
+        return False, "Smart merge not available", "unavailable"
+    
+    def is_safe_to_merge(original: str, merged: str):
+        """Fallback: always unsafe."""
+        return False, "Smart merge not available"
+    
+    SMART_MERGE_AVAILABLE = False
+
 # Initialize the MCP server
 app = Server("coder")
 
@@ -450,6 +504,7 @@ def edit_file_with_diff(file_path: str, code: str, working_dir: str) -> dict:
     
     # Detect if code is a diff or full file content
     is_diff = detect_diff_format(code)
+    is_search_replace = detect_search_replace_format(code)
     
     if is_diff:
         # Diff-based editing path
@@ -509,15 +564,176 @@ def edit_file_with_diff(file_path: str, code: str, working_dir: str) -> dict:
                 "file_path": file_path,
                 "diff_applied": False
             }
+    elif is_search_replace:
+        # Search/Replace editing path
+        try:
+            # Parse search/replace blocks
+            blocks = parse_search_replace_blocks(code)
+            
+            if not blocks:
+                return {
+                    "status": "error",
+                    "message": "No search/replace blocks found in the input",
+                    "file_path": file_path,
+                    "diff_applied": False
+                }
+            
+            # Apply search/replace blocks
+            success, message, blocks_applied = apply_search_replace_to_file(
+                file_path, blocks, working_dir
+            )
+            
+            if not success:
+                return {
+                    "status": "error",
+                    "message": f"Search/replace failed: {message}",
+                    "file_path": file_path,
+                    "diff_applied": False
+                }
+            
+            return {
+                "status": "success",
+                "message": message,
+                "file_path": file_path,
+                "diff_applied": True,
+                "format_used": "search_replace",
+                "blocks_applied": blocks_applied
+            }
+            
+        except (SearchBlockNotFoundError, MultipleMatchesError, InvalidFormatError) as e:
+            return {
+                "status": "error",
+                "message": f"Search/replace error: {str(e)}",
+                "file_path": file_path,
+                "diff_applied": False
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Unexpected error applying search/replace: {str(e)}",
+                "file_path": file_path,
+                "diff_applied": False
+            }
     else:
-        # Fallback to full-file replacement (backward compatibility)
-        success, message = write_file_safe(file_path, code, working_dir)
-        return {
-            "status": "success" if success else "error",
-            "message": message,
-            "file_path": file_path,
-            "diff_applied": False  # Indicates fallback mode
-        }
+        # LLM didn't generate edit format - try to use the code
+        print(f"[INFO] LLM generated code for {file_path}")
+        print(f"[INFO] Code length: {len(code)} chars")
+
+        # Read original file for comparison
+        try:
+            success_read, original_content = read_file_safe(file_path, working_dir)
+            if not success_read:
+                # File doesn't exist - create new file
+                original_content = ""
+            
+            original_lines = len(original_content.splitlines()) if original_content else 0
+            generated_lines = len(code.splitlines())
+            print(f"[INFO] Original file: {original_lines} lines, Generated: {generated_lines} lines")
+            
+            code_stripped = code.strip()
+            
+            # Check if the generated code looks valid
+            is_python_like = (
+                'def ' in code or 
+                'class ' in code or 
+                'import ' in code or 
+                'from ' in code or
+                '=' in code
+            )
+            
+            if not is_python_like:
+                return {
+                    "status": "error",
+                    "message": f"Generated code doesn't look like valid Python code:\n```\n{code[:300]}...\n```",
+                    "file_path": file_path,
+                    "diff_applied": False
+                }
+            
+            # If the output is a complete file (>= 70% of original), replace directly
+            if original_lines == 0 or generated_lines >= original_lines * 0.7:
+                full_path = file_path if os.path.isabs(file_path) else os.path.join(working_dir, file_path)
+                try:
+                    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                    
+                    with open(full_path, 'w', encoding='utf-8') as f:
+                        f.write(code_stripped)
+                    
+                    return {
+                        "status": "success",
+                        "message": f"File updated successfully ({generated_lines} lines)",
+                        "file_path": file_path,
+                        "diff_applied": True,
+                        "format_used": "full_replacement",
+                        "lines_before": original_lines,
+                        "lines_after": generated_lines
+                    }
+                except Exception as e:
+                    return {
+                        "status": "error",
+                        "message": f"Failed to write file: {str(e)}",
+                        "file_path": file_path,
+                        "diff_applied": False
+                    }
+            
+            # LLM output is smaller than expected - try smart merge
+            print(f"[INFO] Generated code is smaller ({generated_lines} vs {original_lines} lines), trying smart merge...")
+            
+            if SMART_MERGE_AVAILABLE:
+                success, result, method = smart_merge(original_content, code_stripped)
+                
+                if success:
+                    # Verify the merge is safe
+                    is_safe, safety_msg = is_safe_to_merge(original_content, result)
+                    
+                    if is_safe:
+                        full_path = file_path if os.path.isabs(file_path) else os.path.join(working_dir, file_path)
+                        try:
+                            with open(full_path, 'w', encoding='utf-8') as f:
+                                f.write(result)
+                            
+                            result_lines = len(result.splitlines())
+                            return {
+                                "status": "success",
+                                "message": f"File updated via smart merge ({result_lines} lines)",
+                                "file_path": file_path,
+                                "diff_applied": True,
+                                "format_used": method,
+                                "lines_before": original_lines,
+                                "lines_after": result_lines
+                            }
+                        except Exception as e:
+                            return {
+                                "status": "error",
+                                "message": f"Failed to write merged file: {str(e)}",
+                                "file_path": file_path,
+                                "diff_applied": False
+                            }
+                    else:
+                        print(f"[WARN] Smart merge result not safe: {safety_msg}")
+                else:
+                    print(f"[WARN] Smart merge failed: {result}")
+            
+            # If we get here, smart merge wasn't available or failed
+            return {
+                "status": "error",
+                "message": (
+                    f"⚠️  Generated code is too small ({generated_lines} lines vs original {original_lines} lines).\n\n"
+                    f"The LLM only output a snippet instead of the full file.\n"
+                    f"Smart merge was {'attempted but failed' if SMART_MERGE_AVAILABLE else 'not available'}.\n\n"
+                    f"**Generated code preview:**\n```\n{code[:400]}...\n```"
+                ),
+                "file_path": file_path,
+                "diff_applied": False
+            }
+            
+        except Exception as e:
+            print(f"[ERROR] File operation error: {str(e)}")
+            return {
+                "status": "error",
+                "message": f"File operation failed: {str(e)}",
+                "file_path": file_path,
+                "diff_applied": False
+            }
 
 
 def read_directory_recursive(dir_path: str, working_dir: str) -> tuple[bool, str, list]:

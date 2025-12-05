@@ -1696,56 +1696,30 @@ def _generate_code_with_llm_sync(step: str, model_registry, mcp_client,
             lang_name = "R" if is_r_code else "Python"
             code_block_marker = "r" if is_r_code else "python"
             
-            # For edit operations, instruct LLM to generate unified diff
+            # For edit operations, instruct LLM to generate SEARCH/REPLACE blocks
             if tool_name in ['edit_python_code', 'edit_r_code']:
-                llm_prompt = f"""You are a code editor that generates UNIFIED DIFFS for file modifications.
+                # Use a very explicit format that's easy for LLMs to follow
+                llm_prompt = f"""You must output SEARCH/REPLACE blocks to edit the file. Do NOT output the full file.
 
-FILE TO EDIT: {file_path} ({line_count} lines)
+FILE: {file_path}
+TASK: {step}
 
-=== ORIGINAL FILE START ===
+ORIGINAL FILE:
+```
 {original_file_content}
-=== ORIGINAL FILE END ===
-
-REQUESTED CHANGES: {step}
-
-CRITICAL RULES:
-1. Generate a UNIFIED DIFF showing ONLY the changes
-2. Use standard unified diff format:
-   --- {file_path}
-   +++ {file_path}
-   @@ -old_start,old_count +new_start,new_count @@
-3. Include 3 lines of context before and after each change
-4. Context lines start with ' ' (space)
-5. Deleted lines start with '-' (minus)
-6. Added lines start with '+' (plus)
-7. DO NOT include the entire file - only changed sections with context
-8. DO NOT add explanatory text before or after the diff
-9. ONLY output the diff block - nothing else
-
-EXAMPLE FORMAT:
-```diff
---- {file_path}
-+++ {file_path}
-@@ -10,7 +10,7 @@
- def existing_function():
-     # Some context
-     old_line = 123
--    line_to_change = "old value"
-+    line_to_change = "new value"
-     another_line = 456
-     # More context
-
-@@ -25,6 +25,9 @@
- def another_function():
-     # Context before
-     existing_code = True
-+    # New lines being added
-+    new_feature = "added"
-+    more_code = 123
-     # Context after
 ```
 
-Start your response with the ```diff marker immediately. No text before the diff block."""
+OUTPUT INSTRUCTIONS:
+- Find the exact code section to change in the original file above
+- Output it in this EXACT format (copy the code exactly from original):
+
+<<<SEARCH>>>
+[paste the exact lines from original file here]
+<<<REPLACE>>>
+[paste the modified version here]
+<<<END>>>
+
+IMPORTANT: Start your response with <<<SEARCH>>> - no other text before it!"""
             else:
                 # For write operations, use full file approach
                 llm_prompt = f"""You are a code editor. Edit the {lang_name} file below according to the requested changes.
@@ -1838,6 +1812,56 @@ Start your response with the ``` marker immediately. No text before the code blo
         # Debug: Log LLM response for troubleshooting
         print(f"[_generate_code_with_llm_sync] LLM response length: {len(full_response)} chars")
         print(f"[_generate_code_with_llm_sync] First 500 chars: {full_response[:500]}")
+        print(f"[_generate_code_with_llm_sync] Tool name: {tool_name}")
+        print(f"[_generate_code_with_llm_sync] Model used: {model_name_used}")
+
+        # For edit operations, check if response is a diff format or search/replace format
+        # If so, extract the content without going through detect_code
+        if tool_name in ['edit_python_code', 'edit_r_code']:
+            print(f"[_generate_code_with_llm_sync] Processing edit operation, checking for search/replace format")
+            print(f"[_generate_code_with_llm_sync] Response preview: {full_response[:300]}")
+            
+            # Try to extract search/replace blocks first (preferred format for smaller models)
+            if '<<<SEARCH>>>' in full_response or '<<<SEARCH' in full_response:
+                # Find all search/replace content - pass as-is, parser will handle extraction
+                print(f"[_generate_code_with_llm_sync] Found search/replace format")
+                # Extract just the search/replace portions, excluding any explanation text
+                sr_pattern = re.compile(
+                    r'(<<<\s*SEARCH\s*>>>.*?<<<\s*END\s*>>>)',
+                    re.DOTALL | re.IGNORECASE
+                )
+                sr_matches = sr_pattern.findall(full_response)
+                if sr_matches:
+                    sr_content = '\n'.join(sr_matches)
+                    print(f"[_generate_code_with_llm_sync] Extracted search/replace content: {len(sr_content)} chars")
+                    return (sr_content, model_name_used)
+                else:
+                    # If pattern didn't match cleanly, pass the whole response - parser is lenient
+                    print(f"[_generate_code_with_llm_sync] Passing full response for search/replace parsing")
+                    return (full_response, model_name_used)
+            
+            # Check for diff markers
+            elif '---' in full_response and '+++' in full_response and '@@' in full_response:
+                # Try to extract diff block (for models that can produce proper diffs)
+                diff_match = re.search(r'```diff\s*\n(.*?)```', full_response, re.DOTALL)
+                if diff_match:
+                    diff_content = diff_match.group(1).strip()
+                    print(f"[_generate_code_with_llm_sync] Extracted diff content: {len(diff_content)} chars")
+                    return (diff_content, model_name_used)
+                else:
+                    # Try raw diff without fences
+                    print(f"[_generate_code_with_llm_sync] Passing full response as diff")
+                    return (full_response, model_name_used)
+            else:
+                # LLM didn't follow format - pass what we have, server will handle error
+                print(f"[_generate_code_with_llm_sync] WARNING: No search/replace or diff format found")
+                print(f"[_generate_code_with_llm_sync] LLM output (first 200 chars): {full_response[:200]}")
+                # Still try to extract code and pass it - server will reject with helpful error
+                detected = mcp_client.detect_code(full_response)
+                if detected:
+                    return (detected['code'], model_name_used)
+                else:
+                    return (full_response, model_name_used)
 
         # Detect code in response using the passed mcp_client
         detected = mcp_client.detect_code(full_response)
@@ -1846,7 +1870,7 @@ Start your response with the ``` marker immediately. No text before the code blo
             return (detected['code'], model_name_used)
         else:
             print(f"[_generate_code_with_llm_sync] ERROR: No code detected in LLM response")
-        
+
         return (None, model_name_used)
 
     except Exception as e:
