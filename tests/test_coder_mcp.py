@@ -941,5 +941,445 @@ summary(data)
             assert len(result_data["sequence"]) >= 3
 
 
+class TestDiffBasedEditing:
+    """Test diff-based editing for edit_python_code and edit_r_code."""
+
+    @pytest.fixture
+    def server_path(self):
+        """Get path to coder MCP server."""
+        return Path(__file__).parent.parent / "system_mcps" / "coder" / "server.py"
+
+    @pytest.fixture
+    def temp_working_dir(self, tmp_path):
+        """Create a temporary working directory."""
+        return str(tmp_path)
+
+    @pytest.mark.asyncio
+    async def test_edit_python_code_with_valid_diff(self, server_path, temp_working_dir):
+        """Test editing Python file with a valid unified diff."""
+        # Create test file
+        test_file = Path(temp_working_dir) / "test.py"
+        test_file.write_text("""def hello():
+    print("hello")
+    return 42
+
+def goodbye():
+    print("bye")
+    return 0
+""")
+
+        # Create a unified diff
+        diff_content = """--- test.py
++++ test.py
+@@ -1,4 +1,4 @@
+ def hello():
+-    print("hello")
++    print("Hello, World!")
+     return 42
+ 
+"""
+
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0.0"}
+                }
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "edit_python_code",
+                    "arguments": {
+                        "file_path": "test.py",
+                        "code": diff_content,
+                        "working_dir": temp_working_dir
+                    }
+                }
+            }
+        ]
+
+        responses = await communicate_with_mcp(server_path, requests)
+
+        assert len(responses) >= 2
+        result_response = responses[1]
+
+        if "error" in result_response:
+            pytest.skip(f"MCP server returned error: {result_response['error']}")
+
+        assert "result" in result_response
+        content = result_response["result"]["content"]
+        result_text = content[0]["text"]
+        result_data = json.loads(result_text)
+
+        # Verify success
+        assert result_data["status"] == "success"
+        assert result_data["diff_applied"] is True
+        assert result_data["hunks_applied"] == 1
+
+        # Verify file was modified correctly
+        modified_content = test_file.read_text()
+        assert 'print("Hello, World!")' in modified_content
+        assert 'print("hello")' not in modified_content
+        assert "def goodbye():" in modified_content  # Should be preserved
+
+    @pytest.mark.asyncio
+    async def test_edit_python_code_with_invalid_diff(self, server_path, temp_working_dir):
+        """Test that invalid diff doesn't modify file."""
+        # Create test file
+        test_file = Path(temp_working_dir) / "test.py"
+        original_content = """def hello():
+    print("hello")
+    return 42
+"""
+        test_file.write_text(original_content)
+
+        # Create an invalid diff (context doesn't match)
+        diff_content = """--- test.py
++++ test.py
+@@ -1,3 +1,3 @@
+ def hello():
+-    print("wrong_line")
++    print("Hello, World!")
+     return 42
+"""
+
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0.0"}
+                }
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "edit_python_code",
+                    "arguments": {
+                        "file_path": "test.py",
+                        "code": diff_content,
+                        "working_dir": temp_working_dir
+                    }
+                }
+            }
+        ]
+
+        responses = await communicate_with_mcp(server_path, requests)
+
+        assert len(responses) >= 2
+        result_response = responses[1]
+
+        if "error" in result_response:
+            pytest.skip(f"MCP server returned error: {result_response['error']}")
+
+        assert "result" in result_response
+        content = result_response["result"]["content"]
+        result_text = content[0]["text"]
+        result_data = json.loads(result_text)
+
+        # Verify error response
+        assert result_data["status"] == "error"
+        assert result_data["diff_applied"] is False
+        assert "Invalid diff" in result_data["message"]
+
+        # Verify file was NOT modified
+        current_content = test_file.read_text()
+        assert current_content == original_content
+
+    @pytest.mark.asyncio
+    async def test_edit_python_code_with_full_file_fallback(self, server_path, temp_working_dir):
+        """Test fallback to full-file replacement when not a diff."""
+        # Create test file
+        test_file = Path(temp_working_dir) / "test.py"
+        test_file.write_text("""def hello():
+    print("hello")
+""")
+
+        # Provide full file content (not a diff)
+        full_file_content = """def hello():
+    print("Hello, World!")
+"""
+
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0.0"}
+                }
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "edit_python_code",
+                    "arguments": {
+                        "file_path": "test.py",
+                        "code": full_file_content,
+                        "working_dir": temp_working_dir
+                    }
+                }
+            }
+        ]
+
+        responses = await communicate_with_mcp(server_path, requests)
+
+        assert len(responses) >= 2
+        result_response = responses[1]
+
+        if "error" in result_response:
+            pytest.skip(f"MCP server returned error: {result_response['error']}")
+
+        assert "result" in result_response
+        content = result_response["result"]["content"]
+        result_text = content[0]["text"]
+        result_data = json.loads(result_text)
+
+        # Verify success with fallback mode
+        assert result_data["status"] == "success"
+        assert result_data["diff_applied"] is False  # Fallback mode indicator
+
+        # Verify file was replaced
+        modified_content = test_file.read_text()
+        assert modified_content == full_file_content
+
+    @pytest.mark.asyncio
+    async def test_edit_python_code_with_multiple_hunks(self, server_path, temp_working_dir):
+        """Test editing with multiple hunks in a diff."""
+        # Create test file
+        test_file = Path(temp_working_dir) / "test.py"
+        test_file.write_text("""def hello():
+    print("hello")
+    return 42
+
+def goodbye():
+    print("bye")
+    return 0
+
+def maybe():
+    print("maybe")
+    return 1
+""")
+
+        # Create diff with multiple hunks
+        diff_content = """--- test.py
++++ test.py
+@@ -1,4 +1,4 @@
+ def hello():
+-    print("hello")
++    print("Hello!")
+     return 42
+ 
+@@ -5,4 +5,4 @@
+ def goodbye():
+-    print("bye")
++    print("Goodbye!")
+     return 0
+ 
+"""
+
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0.0"}
+                }
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "edit_python_code",
+                    "arguments": {
+                        "file_path": "test.py",
+                        "code": diff_content,
+                        "working_dir": temp_working_dir
+                    }
+                }
+            }
+        ]
+
+        responses = await communicate_with_mcp(server_path, requests)
+
+        assert len(responses) >= 2
+        result_response = responses[1]
+
+        if "error" in result_response:
+            pytest.skip(f"MCP server returned error: {result_response['error']}")
+
+        assert "result" in result_response
+        content = result_response["result"]["content"]
+        result_text = content[0]["text"]
+        result_data = json.loads(result_text)
+
+        # Verify success with multiple hunks
+        assert result_data["status"] == "success"
+        assert result_data["diff_applied"] is True
+        assert result_data["hunks_applied"] == 2
+
+        # Verify both changes applied
+        modified_content = test_file.read_text()
+        assert 'print("Hello!")' in modified_content
+        assert 'print("Goodbye!")' in modified_content
+        assert 'print("maybe")' in modified_content  # Should be preserved
+
+    @pytest.mark.asyncio
+    async def test_edit_r_code_with_valid_diff(self, server_path, temp_working_dir):
+        """Test editing R file with a valid unified diff."""
+        # Create test file
+        test_file = Path(temp_working_dir) / "test.R"
+        test_file.write_text("""hello <- function() {
+  print("hello")
+  return(42)
+}
+""")
+
+        # Create a unified diff
+        diff_content = """--- test.R
++++ test.R
+@@ -1,4 +1,4 @@
+ hello <- function() {
+-  print("hello")
++  print("Hello, World!")
+   return(42)
+ }
+"""
+
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0.0"}
+                }
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "edit_r_code",
+                    "arguments": {
+                        "file_path": "test.R",
+                        "code": diff_content,
+                        "working_dir": temp_working_dir
+                    }
+                }
+            }
+        ]
+
+        responses = await communicate_with_mcp(server_path, requests)
+
+        assert len(responses) >= 2
+        result_response = responses[1]
+
+        if "error" in result_response:
+            pytest.skip(f"MCP server returned error: {result_response['error']}")
+
+        assert "result" in result_response
+        content = result_response["result"]["content"]
+        result_text = content[0]["text"]
+        result_data = json.loads(result_text)
+
+        # Verify success
+        assert result_data["status"] == "success"
+        assert result_data["diff_applied"] is True
+        assert result_data["hunks_applied"] == 1
+
+        # Verify file was modified correctly
+        modified_content = test_file.read_text()
+        assert 'print("Hello, World!")' in modified_content
+        assert 'print("hello")' not in modified_content
+
+    @pytest.mark.asyncio
+    async def test_edit_python_code_malformed_diff(self, server_path, temp_working_dir):
+        """Test that malformed diff is treated as full file content (fallback)."""
+        # Create test file
+        test_file = Path(temp_working_dir) / "test.py"
+        original_content = """def hello():
+    print("hello")
+"""
+        test_file.write_text(original_content)
+
+        # Malformed diff (missing @@ header) - should be treated as full file content
+        diff_content = """--- test.py
++++ test.py
+ def hello():
+-    print("hello")
++    print("Hi")
+"""
+
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0.0"}
+                }
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "edit_python_code",
+                    "arguments": {
+                        "file_path": "test.py",
+                        "code": diff_content,
+                        "working_dir": temp_working_dir
+                    }
+                }
+            }
+        ]
+
+        responses = await communicate_with_mcp(server_path, requests)
+
+        assert len(responses) >= 2
+        result_response = responses[1]
+
+        if "error" in result_response:
+            pytest.skip(f"MCP server returned error: {result_response['error']}")
+
+        assert "result" in result_response
+        content = result_response["result"]["content"]
+        result_text = content[0]["text"]
+        result_data = json.loads(result_text)
+
+        # Should fall back to full-file replacement since it's not a valid diff
+        assert result_data["status"] == "success"
+        assert result_data["diff_applied"] is False  # Fallback to full-file mode
+        
+        # File should be replaced with the malformed diff content
+        modified_content = test_file.read_text()
+        assert modified_content == diff_content
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

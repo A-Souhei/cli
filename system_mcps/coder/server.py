@@ -52,6 +52,35 @@ except ImportError:
             'stats': {'files': 0, 'directories': 0, 'total_size': 0}
         }
 
+# Import diff parser
+try:
+    from src.utils.diff_parser import (
+        parse_unified_diff,
+        validate_diff_hunks,
+        apply_diff_to_file,
+        detect_diff_format,
+        InvalidDiffFormatError,
+        MissingHunkHeaderError,
+        MalformedDiffLineError,
+    )
+except ImportError:
+    # Graceful fallback if diff_parser is not available
+    def detect_diff_format(code_text: str) -> bool:
+        """Fallback: always return False to use full-file mode."""
+        return False
+    
+    def apply_diff_to_file(file_path: str, diff_hunks, working_dir: str):
+        """Fallback: not available."""
+        return False, "Diff parser not available"
+    
+    # Define dummy exceptions for fallback
+    class InvalidDiffFormatError(Exception):
+        pass
+    class MissingHunkHeaderError(Exception):
+        pass
+    class MalformedDiffLineError(Exception):
+        pass
+
 # Initialize the MCP server
 app = Server("coder")
 
@@ -389,6 +418,106 @@ def write_file_safe(file_path: str, content: str, working_dir: str) -> tuple[boo
 
     except Exception as e:
         return False, f"Error writing file: {str(e)}"
+
+
+def edit_file_with_diff(file_path: str, code: str, working_dir: str) -> dict:
+    """
+    Edit a file using either diff-based editing or full-file replacement.
+    
+    This function:
+    1. Detects if the code is a unified diff or full file content
+    2. If diff: validates and applies it atomically
+    3. If full file: falls back to direct replacement
+    4. Returns a structured result with status and details
+    
+    Args:
+        file_path: Path to file (relative or absolute)
+        code: Either unified diff or full file content
+        working_dir: Working directory for relative paths
+        
+    Returns:
+        Dict with keys: status, message, file_path, diff_applied, hunks_applied (optional)
+    """
+    # Check if file exists
+    full_path = file_path if os.path.isabs(file_path) else os.path.join(working_dir, file_path)
+    if not Path(full_path).exists():
+        return {
+            "status": "error",
+            "message": f"File does not exist: {file_path}. Use write_python_code or write_r_code to create new files.",
+            "file_path": file_path,
+            "diff_applied": False
+        }
+    
+    # Detect if code is a diff or full file content
+    is_diff = detect_diff_format(code)
+    
+    if is_diff:
+        # Diff-based editing path
+        try:
+            # Parse the diff
+            diff_hunks = parse_unified_diff(code)
+            
+            # Read original file for validation
+            success, content_or_error = read_file_safe(file_path, working_dir)
+            if not success:
+                return {
+                    "status": "error",
+                    "message": f"Cannot read file: {content_or_error}",
+                    "file_path": file_path,
+                    "diff_applied": False
+                }
+            
+            # Validate diff hunks
+            is_valid, error_msg = validate_diff_hunks(content_or_error, diff_hunks)
+            if not is_valid:
+                return {
+                    "status": "error",
+                    "message": f"Invalid diff: {error_msg}",
+                    "file_path": file_path,
+                    "diff_applied": False
+                }
+            
+            # Apply diff
+            success, message = apply_diff_to_file(file_path, diff_hunks, working_dir)
+            if not success:
+                return {
+                    "status": "error",
+                    "message": f"Failed to apply diff: {message}",
+                    "file_path": file_path,
+                    "diff_applied": False
+                }
+            
+            return {
+                "status": "success",
+                "message": message,
+                "file_path": file_path,
+                "diff_applied": True,
+                "hunks_applied": len(diff_hunks)
+            }
+            
+        except (InvalidDiffFormatError, MissingHunkHeaderError, MalformedDiffLineError) as e:
+            return {
+                "status": "error",
+                "message": f"Diff parsing error: {str(e)}",
+                "file_path": file_path,
+                "diff_applied": False
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Unexpected error applying diff: {str(e)}",
+                "file_path": file_path,
+                "diff_applied": False
+            }
+    else:
+        # Fallback to full-file replacement (backward compatibility)
+        success, message = write_file_safe(file_path, code, working_dir)
+        return {
+            "status": "success" if success else "error",
+            "message": message,
+            "file_path": file_path,
+            "diff_applied": False  # Indicates fallback mode
+        }
 
 
 def read_directory_recursive(dir_path: str, working_dir: str) -> tuple[bool, str, list]:
@@ -1011,21 +1140,9 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
         if not is_valid:
             return [TextContent(type="text", text=f"Error: {error_msg}")]
 
-        # Check if file exists
-        full_path = file_path if os.path.isabs(file_path) else os.path.join(working_dir, file_path)
-        if not Path(full_path).exists():
-            return [TextContent(type="text", text=f"Error: File does not exist: {file_path}. Use write_python_code to create new files.")]
-
-        # Write file
-        success, message = write_file_safe(file_path, code, working_dir)
-        if success:
-            return [TextContent(type="text", text=json.dumps({
-                "status": "success",
-                "message": message,
-                "file_path": file_path
-            }, indent=2))]
-        else:
-            return [TextContent(type="text", text=f"Error: {message}")]
+        # Use diff-based editing with fallback to full-file replacement
+        result = edit_file_with_diff(file_path, code, working_dir)
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
     elif name == "edit_r_code":
         file_path = arguments.get("file_path", "")
@@ -1040,21 +1157,9 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
         if not is_valid:
             return [TextContent(type="text", text=f"Error: {error_msg}")]
 
-        # Check if file exists
-        full_path = file_path if os.path.isabs(file_path) else os.path.join(working_dir, file_path)
-        if not Path(full_path).exists():
-            return [TextContent(type="text", text=f"Error: File does not exist: {file_path}. Use write_r_code to create new files.")]
-
-        # Write file
-        success, message = write_file_safe(file_path, code, working_dir)
-        if success:
-            return [TextContent(type="text", text=json.dumps({
-                "status": "success",
-                "message": message,
-                "file_path": file_path
-            }, indent=2))]
-        else:
-            return [TextContent(type="text", text=f"Error: {message}")]
+        # Use diff-based editing with fallback to full-file replacement
+        result = edit_file_with_diff(file_path, code, working_dir)
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
     elif name == "add_file_context":
         file_path = arguments.get("file_path", "")
