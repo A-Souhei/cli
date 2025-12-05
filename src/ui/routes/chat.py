@@ -83,6 +83,9 @@ from src.sentry_config import capture_exception
 from src.session.manager import SessionManager
 from src.session.title_generator import SessionTitleGenerator
 from src.mcp import MCPClient
+from src.file_completer import extract_at_context
+from src.utils.file_action_handler import build_system_messages, detect_file_actions
+from src.utils.code_handlers import handle_file_modifications
 
 chat_bp = Blueprint('chat', __name__)
 
@@ -306,6 +309,7 @@ def send_message():
     Request body:
         message: The user message
         model: Optional model name (defaults to config model)
+        file_contents: Optional dict of file contents (for UI file uploads)
     """
     # Handle GET requests with a clear error message
     if request.method == 'GET':
@@ -346,18 +350,35 @@ def send_message():
         if not model:
             model = config.get_ollama_model()
         
-        # Build the message with file contents included
-        full_message = message
-        if file_contents:
-            file_context = "\n\n--- Attached Files ---\n"
-            for filename, content in file_contents.items():
-                file_context += f"\n### File: {filename}\n```\n{content}\n```\n"
-            full_message = file_context + "\n--- User Message ---\n" + message
+        # Extract @ prefixed file/directory paths for file action detection
+        at_context = extract_at_context(message, working_dir)
         
-        # Prepare messages for the API
-        messages = [
-            {"role": "user", "content": full_message}
-        ]
+        # Build injected context parts from file_contents (UI uploads)
+        injected_context_parts = []
+        if file_contents:
+            for filename, content in file_contents.items():
+                injected_context_parts.append(f"File: {filename}\n```\n{content}\n```")
+        
+        # Build system messages using shared file action handler
+        system_messages = build_system_messages(
+            at_context=at_context,
+            user_input=message,
+            config=config,
+            injected_context_parts=injected_context_parts,
+            target_file=None,  # UI doesn't use target_file feature
+            session_context=None,  # Could add session context here if needed
+            guidance=None  # Could add RAG guidance here if needed
+        )
+        
+        # Build the message with system messages
+        messages = []
+        
+        # Add system messages first
+        if system_messages:
+            messages.extend(system_messages)
+        
+        # Add user message
+        messages.append({"role": "user", "content": message})
         
         # Call Ollama API - use the underlying client directly for non-streaming
         try:
@@ -387,6 +408,41 @@ def send_message():
             
             # Always save to UI in-memory store for display
             _save_current_session_to_ui_store()
+            
+            # Check for file modification actions and process them
+            action_result = detect_file_actions(message, at_context, config)
+            
+            if action_result['has_action'] and (action_result['files_to_modify'] or action_result['files_to_create']):
+                # Create MCP client for file modifications
+                from pathlib import Path
+                current_file = Path(__file__)
+                project_root = current_file.parent.parent.parent.parent
+                system_mcps_dir = project_root / 'system_mcps'
+                postgres_url = os.getenv('POSTGRES_API_URL', 'http://localhost:15000')
+                
+                # We need to handle file modifications asynchronously
+                # For UI, we'll process this in the background and return info to user
+                try:
+                    # Note: This is a simplified version for UI - full integration would need async handling
+                    # For now, we'll just inform the user that file modifications were detected
+                    modification_info = {
+                        'detected': True,
+                        'files_to_modify': action_result['files_to_modify'],
+                        'files_to_create': action_result['files_to_create'],
+                        'message': 'File modification actions detected. Use CLI for full file modification support.'
+                    }
+                    
+                    return jsonify({
+                        'status': 'success',
+                        'response': content,
+                        'model': model,
+                        'session_active': session_manager.is_active(),
+                        'session_id': session_manager.get_session_id(),
+                        'file_modifications': modification_info
+                    })
+                except Exception as mod_error:
+                    capture_exception(mod_error)
+                    # Continue without file modifications if there's an error
             
             return jsonify({
                 'status': 'success',
