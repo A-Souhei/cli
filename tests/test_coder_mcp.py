@@ -941,5 +941,186 @@ summary(data)
             assert len(result_data["sequence"]) >= 3
 
 
+    @pytest.mark.asyncio
+    async def test_edit_python_code_with_partial_output(self, server_path, tmp_path):
+        """Test edit_python_code protects against partial LLM output using smart merge."""
+        # Create a temporary Python file with substantial content
+        test_file = tmp_path / "test_edit.py"
+        original_content = """def function_one():
+    print("This is function one")
+    return 1
+
+def function_two():
+    print("This is function two")
+    return 2
+
+def function_three():
+    print("This is function three")
+    return 3
+
+def main():
+    result1 = function_one()
+    result2 = function_two()
+    result3 = function_three()
+    print(f"Results: {result1}, {result2}, {result3}")
+
+if __name__ == "__main__":
+    main()
+"""
+        test_file.write_text(original_content)
+
+        # Simulate LLM outputting only a partial edit (just function_two modified)
+        partial_llm_output = """def function_two():
+    print("This is the MODIFIED function two")
+    return 42
+"""
+
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0.0"}
+                }
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "edit_python_code",
+                    "arguments": {
+                        "file_path": str(test_file),
+                        "code": partial_llm_output,
+                        "working_dir": str(tmp_path)
+                    }
+                }
+            }
+        ]
+
+        responses = await communicate_with_mcp(server_path, requests)
+
+        assert len(responses) == 2
+        result_response = responses[1]
+        assert "result" in result_response
+
+        content = result_response["result"]["content"]
+        result_text = content[0]["text"]
+        result_data = json.loads(result_text)
+
+        # Check that edit was successful
+        assert result_data["status"] == "success"
+        assert "merge_applied" in result_data
+
+        # Verify file still contains all original functions
+        edited_content = test_file.read_text()
+
+        # All original functions should still be present
+        assert "def function_one():" in edited_content
+        assert "def function_two():" in edited_content
+        assert "def function_three():" in edited_content
+        assert "def main():" in edited_content
+
+        # The modification should be applied
+        assert "MODIFIED function two" in edited_content
+        assert "return 42" in edited_content
+
+        # Original code should be preserved
+        assert "function_one" in edited_content
+        assert "function_three" in edited_content
+
+    @pytest.mark.asyncio
+    async def test_edit_r_code_with_partial_output(self, server_path, tmp_path):
+        """Test edit_r_code protects against partial LLM output using smart merge."""
+        # Create a temporary R file with substantial content
+        test_file = tmp_path / "test_edit.R"
+        original_content = """calculate_mean <- function(data) {
+    mean_value <- mean(data)
+    return(mean_value)
+}
+
+calculate_median <- function(data) {
+    median_value <- median(data)
+    return(median_value)
+}
+
+calculate_sd <- function(data) {
+    sd_value <- sd(data)
+    return(sd_value)
+}
+
+main <- function() {
+    data <- c(1, 2, 3, 4, 5)
+    print(calculate_mean(data))
+    print(calculate_median(data))
+    print(calculate_sd(data))
+}
+"""
+        test_file.write_text(original_content)
+
+        # Simulate LLM outputting only a partial edit
+        partial_llm_output = """calculate_median <- function(data) {
+    # MODIFIED median calculation
+    median_value <- median(data, na.rm = TRUE)
+    return(median_value)
+}
+"""
+
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0.0"}
+                }
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "edit_r_code",
+                    "arguments": {
+                        "file_path": str(test_file),
+                        "code": partial_llm_output,
+                        "working_dir": str(tmp_path)
+                    }
+                }
+            }
+        ]
+
+        responses = await communicate_with_mcp(server_path, requests)
+
+        assert len(responses) == 2
+        result_response = responses[1]
+        assert "result" in result_response
+
+        content = result_response["result"]["content"]
+        result_text = content[0]["text"]
+        result_data = json.loads(result_text)
+
+        # Check that edit was successful
+        assert result_data["status"] == "success"
+
+        # Verify file still contains all original functions
+        edited_content = test_file.read_text()
+
+        # All original functions should still be present
+        assert "calculate_mean" in edited_content
+        assert "calculate_median" in edited_content
+        assert "calculate_sd" in edited_content
+        assert "main <- function()" in edited_content
+
+        # The modification should be applied
+        assert "MODIFIED median calculation" in edited_content
+        assert "na.rm = TRUE" in edited_content
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

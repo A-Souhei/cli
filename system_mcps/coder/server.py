@@ -391,6 +391,132 @@ def write_file_safe(file_path: str, content: str, working_dir: str) -> tuple[boo
         return False, f"Error writing file: {str(e)}"
 
 
+def smart_merge_code(original_content: str, llm_output: str) -> str:
+    """
+    Intelligently merge LLM output with original file content.
+
+    This function protects against LLM-generated partial content by:
+    1. Detecting if LLM output is significantly shorter than original
+    2. Finding similar sections in the original content
+    3. Replacing only the similar section with LLM output
+    4. Preserving all other original content
+
+    Strategy:
+    - For partial output (<50% of original size): Find similar section and replace it
+    - For complete rewrites (>=50% of original): Use LLM output directly
+
+    Args:
+        original_content: Original file content
+        llm_output: LLM-generated code
+
+    Returns:
+        Merged content that preserves original code while applying LLM changes
+    """
+    import difflib
+    import re
+
+    # Split into lines for comparison
+    original_lines = original_content.splitlines(keepends=True)
+    llm_lines = llm_output.splitlines(keepends=True)
+
+    original_size = len(original_content)
+    llm_size = len(llm_output)
+
+    # If LLM output is very small compared to original, it's likely partial output
+    # Using 0.5 threshold (50%) to catch more partial edits
+    if llm_size < original_size * 0.5 and original_size > 100:
+        debug_print(f"Detected partial LLM output: {llm_size} bytes vs original {original_size} bytes")
+
+        # Strategy: Find the most similar continuous section in the original
+        # and replace it with the LLM output
+
+        # First, try to identify what the LLM is trying to edit by looking for:
+        # 1. Function/class definitions
+        # 2. Similar variable names
+        # 3. Similar structure
+
+        llm_text_stripped = llm_output.strip()
+
+        # Extract the first significant line from LLM output (skip empty lines)
+        llm_first_line = None
+        for line in llm_lines:
+            stripped = line.strip()
+            if stripped and not stripped.startswith('#'):
+                llm_first_line = stripped
+                break
+
+        if llm_first_line:
+            # Try to find a similar line in the original
+            # Use fuzzy matching with SequenceMatcher
+            best_match_score = 0.0
+            best_match_idx = -1
+
+            for idx, orig_line in enumerate(original_lines):
+                orig_stripped = orig_line.strip()
+                if orig_stripped:
+                    # Calculate similarity
+                    matcher = difflib.SequenceMatcher(None, llm_first_line, orig_stripped)
+                    score = matcher.ratio()
+
+                    if score > best_match_score:
+                        best_match_score = score
+                        best_match_idx = idx
+
+            # If we found a reasonable match (>0.6 similarity)
+            if best_match_score > 0.6 and best_match_idx >= 0:
+                debug_print(f"Found similar section at line {best_match_idx} (score: {best_match_score:.2f})")
+
+                # Determine the extent of the section to replace
+                # Count the number of non-empty lines in LLM output
+                llm_line_count = sum(1 for line in llm_lines if line.strip())
+
+                # Find the end of the corresponding section in original
+                # Look for the next function/class definition or similar structural element
+                end_idx = best_match_idx + 1
+
+                # Simple heuristic: extend to include similar number of lines or until next def/class
+                for i in range(best_match_idx + 1, len(original_lines)):
+                    line = original_lines[i].strip()
+
+                    # Stop if we hit another function/class definition
+                    # Python: def function_name, class ClassName
+                    # R: name <- function(, function name(
+                    if (line.startswith('def ') or
+                        line.startswith('class ') or
+                        ('<- function(' in line and not line.startswith('#')) or
+                        (line.endswith('(') and 'function' in original_lines[i+1].strip() if i+1 < len(original_lines) else False)):
+                        break
+
+                    # Stop if we've gone far enough based on LLM line count
+                    if i - best_match_idx >= llm_line_count * 2:
+                        break
+
+                    end_idx = i + 1
+
+                    # If we find a blank line after some content, that might be the section boundary
+                    if not line and (i - best_match_idx) >= llm_line_count:
+                        break
+
+                # Build merged content
+                merged_lines = (
+                    original_lines[:best_match_idx] +
+                    llm_lines +
+                    original_lines[end_idx:]
+                )
+
+                debug_print(f"Replaced lines {best_match_idx}-{end_idx} with LLM output")
+                return ''.join(merged_lines)
+
+        # Fallback: If no good match found, trust the LLM output
+        # User explicitly asked for changes, so allow it through
+        debug_print("Warning: No matching section found, using LLM output as-is")
+        return llm_output
+
+    # If sizes are comparable or LLM output is larger, assume it's a complete rewrite
+    debug_print(f"LLM output size ({llm_size}) >= 50% of original ({original_size}), using as complete rewrite")
+    return llm_output
+
+
 def read_directory_recursive(dir_path: str, working_dir: str) -> tuple[bool, str, list]:
     """
     Recursively read all files in a directory.
@@ -1016,13 +1142,22 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
         if not Path(full_path).exists():
             return [TextContent(type="text", text=f"Error: File does not exist: {file_path}. Use write_python_code to create new files.")]
 
-        # Write file
-        success, message = write_file_safe(file_path, code, working_dir)
+        # Read original file content for smart merge
+        success_read, original_content = read_file_safe(file_path, working_dir)
+        if not success_read:
+            return [TextContent(type="text", text=f"Error reading original file: {original_content}")]
+
+        # Apply smart merge to protect against partial LLM output
+        merged_code = smart_merge_code(original_content, code)
+
+        # Write merged file
+        success, message = write_file_safe(file_path, merged_code, working_dir)
         if success:
             return [TextContent(type="text", text=json.dumps({
                 "status": "success",
                 "message": message,
-                "file_path": file_path
+                "file_path": file_path,
+                "merge_applied": merged_code != code  # Indicate if merge protection was triggered
             }, indent=2))]
         else:
             return [TextContent(type="text", text=f"Error: {message}")]
@@ -1045,13 +1180,22 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
         if not Path(full_path).exists():
             return [TextContent(type="text", text=f"Error: File does not exist: {file_path}. Use write_r_code to create new files.")]
 
-        # Write file
-        success, message = write_file_safe(file_path, code, working_dir)
+        # Read original file content for smart merge
+        success_read, original_content = read_file_safe(file_path, working_dir)
+        if not success_read:
+            return [TextContent(type="text", text=f"Error reading original file: {original_content}")]
+
+        # Apply smart merge to protect against partial LLM output
+        merged_code = smart_merge_code(original_content, code)
+
+        # Write merged file
+        success, message = write_file_safe(file_path, merged_code, working_dir)
         if success:
             return [TextContent(type="text", text=json.dumps({
                 "status": "success",
                 "message": message,
-                "file_path": file_path
+                "file_path": file_path,
+                "merge_applied": merged_code != code  # Indicate if merge protection was triggered
             }, indent=2))]
         else:
             return [TextContent(type="text", text=f"Error: {message}")]
