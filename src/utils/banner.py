@@ -60,6 +60,8 @@ def print_banner(console, base_path=None):
     console.print("  [bold]'/session restore <id>'[/bold] - Restore a saved session")
     console.print("  [bold]'/session list'[/bold] - List all saved sessions")
     console.print("  [bold]'/session clear'[/bold] - Clear all saved sessions")
+    console.print("  [bold]'/context show'[/bold] - Show current context (chat, session, metadata)")
+    console.print("  [bold]'/context clear'[/bold] - Clear current context (keeps session active)")
     console.print("  [bold]'/repomap create'[/bold] - Create a repository map from working directory")
     console.print("  [bold]'/repomap load'[/bold] - Load existing .repomap file into context")
     console.print("  [bold]'/repomap update'[/bold] - Update existing .repomap with new files")

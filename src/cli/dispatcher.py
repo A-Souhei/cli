@@ -11,6 +11,7 @@ from src.cli.commands.session import (
     handle_session_restore, handle_session_delete, handle_session_list,
     handle_session_clear
 )
+from src.cli.commands.context import handle_context_show, handle_context_clear
 from src.cli.commands.mcp import handle_mcps, handle_mcp_tools
 from src.cli.commands.model import (
     handle_models_alias, handle_models_list, handle_switch_model,
@@ -137,6 +138,13 @@ class CommandDispatcher:
         if user_input_normalized.lower() in ['session clear', 'clear sessions']:
             return handle_session_clear(self.console, self.session_manager,
                                        self.InteractiveSelector)
+        
+        # Handle context commands
+        if user_input_normalized.lower() == 'context show':
+            return handle_context_show(self.console, self.chat_manager, self.session_manager)
+        
+        if user_input_normalized.lower() == 'context clear':
+            return handle_context_clear(self.console, self.chat_manager, self.session_manager)
         
         # Handle model commands
         if user_input_normalized.lower().startswith('model '):
