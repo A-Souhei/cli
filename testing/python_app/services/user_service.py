@@ -1,8 +1,8 @@
 """User service layer."""
 
+import re
 from typing import List, Optional
 from ..models import User
-import validate_email
 
 
 class UserService:
@@ -27,7 +27,9 @@ class UserService:
         Raises:
             ValueError: If email is invalid
         """
-        if not validate_email.validate_email(email):
+        # Simple email validation using regex
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_pattern, email):
             raise ValueError("Invalid email address")
         user = User(id=self._next_id, name=name, email=email)
         self.users.append(user)
