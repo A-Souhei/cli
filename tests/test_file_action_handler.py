@@ -9,7 +9,7 @@ from src.utils.file_action_handler import (
     generate_execution_message,
     build_system_messages
 )
-from src.config import ConfigManager
+from src.config.manager import ConfigManager
 
 
 class TestFileActionDetection:
