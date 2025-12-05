@@ -462,25 +462,22 @@ def execute_command():
             code_prompt = command[5:].strip() if command.startswith('/') else command[4:].strip()
             return handle_code_command(code_prompt)
         elif cmd == 'repomap create':
-            return jsonify({
-                'status': 'success',
-                'response': '⚠️ **Repomap Create** is a long-running operation.\n\nPlease use the CLI to run:\n```\n/repomap create\n```'
-            })
+            return handle_repomap_create()
         elif cmd == 'repomap load':
-            return jsonify({
-                'status': 'success',
-                'response': '⚠️ **Repomap Load** requires CLI context.\n\nPlease use the CLI to run:\n```\n/repomap load\n```'
-            })
+            return handle_repomap_load()
         elif cmd == 'repomap update':
-            return jsonify({
-                'status': 'success',
-                'response': '⚠️ **Repomap Update** is a long-running operation.\n\nPlease use the CLI to run:\n```\n/repomap update\n```'
-            })
+            return handle_repomap_update()
+        elif cmd.startswith('datamap create'):
+            # Parse flags from the command
+            args_str = cmd[14:].strip() if len(cmd) > 14 else ''
+            return handle_datamap_create(args_str)
+        elif cmd == 'datamap load':
+            return handle_datamap_load()
+        elif cmd == 'datamap update' or cmd.startswith('datamap update '):
+            args_str = cmd[15:].strip() if len(cmd) > 15 else ''
+            return handle_datamap_update(args_str)
         elif cmd == 'clear':
-            return jsonify({
-                'status': 'success',
-                'response': '🗑️ Chat history cleared.'
-            })
+            return handle_clear()
         else:
             return jsonify({
                 'status': 'error',
@@ -547,6 +544,456 @@ def handle_session_end():
         'response': f'✅ **Session ended!**\n\n{summary if summary else "Session saved."}',
         'session_active': False
     })
+
+
+def _call_llm_for_map(prompt: str, system_msg: str) -> str:
+    """
+    Helper function to call LLM for generating repository/data maps.
+    
+    Args:
+        prompt: The user prompt to send to the LLM
+        system_msg: The system message describing the assistant's role
+        
+    Returns:
+        The LLM response content as a string
+        
+    Raises:
+        Exception: If the LLM call fails
+    """
+    client, config = get_ollama_client()
+    
+    messages = [
+        {'role': 'system', 'content': system_msg},
+        {'role': 'user', 'content': prompt}
+    ]
+    
+    response = client.chat(messages=messages, stream=False)
+    
+    # Extract response content
+    if hasattr(response, 'message'):
+        return response.message.content
+    elif isinstance(response, dict):
+        return response.get('message', {}).get('content', '')
+    else:
+        return str(response)
+
+
+def handle_clear():
+    """Clear chat and start a new session."""
+    session_manager = get_session_manager()
+    
+    # Always end the current session (save first if it has interactions)
+    if session_manager.is_active():
+        num_interactions = len(session_manager.session_history)
+        if num_interactions > 0:
+            try:
+                session_manager.save_to_redis()
+            except Exception as e:
+                capture_exception(e)
+        # Force end the session
+        session_manager.end_session()
+    
+    # Start a fresh session
+    working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
+    session_manager.start_session(working_dir=working_dir)
+    new_session_id = session_manager.get_session_id()
+    
+    return jsonify({
+        'status': 'success',
+        'response': '🗑️ Chat cleared. New session started.',
+        'session_active': True,
+        'session_id': new_session_id
+    })
+
+
+def handle_repomap_create():
+    """Create a repository map."""
+    from src.utils.repomap import collect_source_files, generate_repomap_prompt
+    from src.utils.tree import generate_tree
+    
+    try:
+        working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
+        
+        # Collect source files
+        source_files = collect_source_files(working_dir)
+        
+        if not source_files:
+            return jsonify({
+                'status': 'error',
+                'message': '❌ No source code files found in the working directory.'
+            }), 400
+        
+        # Generate directory tree
+        tree_output = generate_tree(working_dir, max_depth=5)
+        
+        # Generate the LLM prompt
+        repomap_prompt = generate_repomap_prompt(source_files, tree_output=tree_output)
+        
+        # Call LLM to generate the repomap
+        try:
+            full_response = _call_llm_for_map(
+                prompt=repomap_prompt,
+                system_msg='You are a helpful assistant that creates repository maps.'
+            )
+        except Exception as llm_error:
+            capture_exception(llm_error)
+            return jsonify({
+                'status': 'error',
+                'message': f'❌ Error calling LLM: {str(llm_error)}'
+            }), 500
+        
+        # Prepend the tree to the repomap output
+        repomap_content = f"""# Repository Map
+
+## Directory Tree
+
+```
+{tree_output}
+```
+
+{full_response}
+"""
+        
+        # Write the repomap to file
+        repomap_path = os.path.join(working_dir, '.repomap')
+        with open(repomap_path, 'w', encoding='utf-8') as f:
+            f.write(repomap_content)
+        
+        return jsonify({
+            'status': 'success',
+            'response': f'''✅ **Repository map created successfully!**
+
+📄 Saved to: `{repomap_path}`
+
+**Summary:**
+- Found **{len(source_files)}** source files
+- Generated directory tree
+- Analyzed codebase structure
+
+Use `/repomap load` to load it into context.'''
+        })
+        
+    except Exception as e:
+        capture_exception(e)
+        return jsonify({
+            'status': 'error',
+            'message': f'Error creating repository map: {str(e)}'
+        }), 500
+
+
+def handle_repomap_load():
+    """Load an existing repomap into context."""
+    try:
+        working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
+        repomap_path = os.path.join(working_dir, '.repomap')
+        
+        if not os.path.exists(repomap_path):
+            return jsonify({
+                'status': 'error',
+                'message': "❌ No `.repomap` file found.\n\nUse `/repomap create` to generate a repository map first."
+            }), 400
+        
+        # Read the repomap file directly
+        with open(repomap_path, 'r', encoding='utf-8') as f:
+            context = f.read()
+        
+        if context:
+            # Preview the first part
+            preview = context[:500] + '...' if len(context) > 500 else context
+            return jsonify({
+                'status': 'success',
+                'response': f'''✅ **Repository map loaded!**
+
+The repository context is now available for the current conversation.
+
+**Preview:**
+```
+{preview}
+```'''
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': "❌ Repository map file is empty."
+            }), 400
+            
+    except Exception as e:
+        capture_exception(e)
+        return jsonify({
+            'status': 'error',
+            'message': f'Error loading repository map: {str(e)}'
+        }), 500
+
+
+def handle_repomap_update():
+    """Update an existing repomap."""
+    from src.utils.repomap import collect_source_files, generate_repomap_update_prompt
+    from src.utils.tree import generate_tree
+    
+    try:
+        working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
+        repomap_path = os.path.join(working_dir, '.repomap')
+        
+        if not os.path.exists(repomap_path):
+            return jsonify({
+                'status': 'error',
+                'message': "❌ No `.repomap` file found.\n\nUse `/repomap create` to generate a repository map first."
+            }), 400
+        
+        # Load existing repomap by reading the file directly
+        with open(repomap_path, 'r', encoding='utf-8') as f:
+            existing_repomap = f.read()
+        
+        # Collect source files
+        source_files = collect_source_files(working_dir)
+        
+        if not source_files:
+            return jsonify({
+                'status': 'error',
+                'message': '❌ No source code files found in the working directory.'
+            }), 400
+        
+        # Generate directory tree
+        tree_output = generate_tree(working_dir, max_depth=5)
+        
+        # Generate the update prompt
+        update_prompt = generate_repomap_update_prompt(source_files, existing_repomap, tree_output=tree_output)
+        
+        # Call LLM to generate the updated repomap
+        try:
+            full_response = _call_llm_for_map(
+                prompt=update_prompt,
+                system_msg='You are a helpful assistant that updates repository maps.'
+            )
+        except Exception as llm_error:
+            capture_exception(llm_error)
+            return jsonify({
+                'status': 'error',
+                'message': f'❌ Error calling LLM: {str(llm_error)}'
+            }), 500
+        
+        # Prepend the tree to the repomap output
+        repomap_content = f"""# Repository Map (Updated)
+
+## Directory Tree
+
+```
+{tree_output}
+```
+
+{full_response}
+"""
+        
+        # Write the repomap to file
+        with open(repomap_path, 'w', encoding='utf-8') as f:
+            f.write(repomap_content)
+        
+        return jsonify({
+            'status': 'success',
+            'response': f'''✅ **Repository map updated successfully!**
+
+📄 Saved to: `{repomap_path}`
+
+**Summary:**
+- Found **{len(source_files)}** source files
+- Updated directory tree
+- Refreshed codebase analysis'''
+        })
+        
+    except Exception as e:
+        capture_exception(e)
+        return jsonify({
+            'status': 'error',
+            'message': f'Error updating repository map: {str(e)}'
+        }), 500
+
+
+def handle_datamap_create(args_str: str = ''):
+    """Create a data map."""
+    from src.utils.datamap import collect_data_files, generate_datamap_prompt
+    
+    try:
+        working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
+        
+        # Collect data files (flags like --with-files, --files-only reserved for future use)
+        data_sources = collect_data_files(working_dir)
+        
+        if not data_sources:
+            return jsonify({
+                'status': 'error',
+                'message': '❌ No data files found in the working directory.\n\nSupported formats: CSV, JSON, Excel, Parquet, Feather'
+            }), 400
+        
+        # Generate the LLM prompt
+        datamap_prompt = generate_datamap_prompt(data_sources)
+        
+        # Call LLM to generate the datamap
+        try:
+            full_response = _call_llm_for_map(
+                prompt=datamap_prompt,
+                system_msg='You are a helpful assistant that creates data maps describing data files and their schemas.'
+            )
+        except Exception as llm_error:
+            capture_exception(llm_error)
+            return jsonify({
+                'status': 'error',
+                'message': f'❌ Error calling LLM: {str(llm_error)}'
+            }), 500
+        
+        # Create datamap content
+        datamap_content = f"""# Data Map
+
+{full_response}
+"""
+        
+        # Write the datamap to file
+        datamap_path = os.path.join(working_dir, '.datamap')
+        with open(datamap_path, 'w', encoding='utf-8') as f:
+            f.write(datamap_content)
+        
+        # Show summary of file types
+        extensions = {}
+        for source in data_sources:
+            ext = source.get('extension', 'unknown')
+            extensions[ext] = extensions.get(ext, 0) + 1
+        
+        ext_summary = '\n'.join([f"  - {ext}: {count} file(s)" for ext, count in extensions.items()])
+        
+        return jsonify({
+            'status': 'success',
+            'response': f'''✅ **Data map created successfully!**
+
+📄 Saved to: `{datamap_path}`
+
+**Summary:**
+- Found **{len(data_sources)}** data files
+{ext_summary}
+
+Use `/datamap load` to load it into context.'''
+        })
+        
+    except Exception as e:
+        capture_exception(e)
+        return jsonify({
+            'status': 'error',
+            'message': f'Error creating data map: {str(e)}'
+        }), 500
+
+
+def handle_datamap_load():
+    """Load an existing datamap into context."""
+    try:
+        working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
+        datamap_path = os.path.join(working_dir, '.datamap')
+        
+        if not os.path.exists(datamap_path):
+            return jsonify({
+                'status': 'error',
+                'message': "❌ No `.datamap` file found.\n\nUse `/datamap create` to generate a data map first."
+            }), 400
+        
+        # Read the datamap file directly
+        with open(datamap_path, 'r', encoding='utf-8') as f:
+            context = f.read()
+        
+        if context:
+            # Preview the first part
+            preview = context[:500] + '...' if len(context) > 500 else context
+            return jsonify({
+                'status': 'success',
+                'response': f'''✅ **Data map loaded!**
+
+The data context is now available for the current conversation.
+
+**Preview:**
+```
+{preview}
+```'''
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': "❌ Data map file is empty."
+            }), 400
+            
+    except Exception as e:
+        capture_exception(e)
+        return jsonify({
+            'status': 'error',
+            'message': f'Error loading data map: {str(e)}'
+        }), 500
+
+
+def handle_datamap_update(args_str: str = ''):
+    """Update an existing datamap."""
+    from src.utils.datamap import collect_data_files, generate_datamap_update_prompt
+    
+    try:
+        working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
+        datamap_path = os.path.join(working_dir, '.datamap')
+        
+        if not os.path.exists(datamap_path):
+            return jsonify({
+                'status': 'error',
+                'message': "❌ No `.datamap` file found.\n\nUse `/datamap create` to generate a data map first."
+            }), 400
+        
+        # Load existing datamap by reading the file directly
+        with open(datamap_path, 'r', encoding='utf-8') as f:
+            existing_datamap = f.read()
+        
+        # Collect data files
+        data_sources = collect_data_files(working_dir)
+        
+        if not data_sources:
+            return jsonify({
+                'status': 'error',
+                'message': '❌ No data files found in the working directory.'
+            }), 400
+        
+        # Generate the update prompt
+        update_prompt = generate_datamap_update_prompt(data_sources, existing_datamap)
+        
+        # Call LLM to generate the updated datamap
+        try:
+            full_response = _call_llm_for_map(
+                prompt=update_prompt,
+                system_msg='You are a helpful assistant that updates data maps.'
+            )
+        except Exception as llm_error:
+            capture_exception(llm_error)
+            return jsonify({
+                'status': 'error',
+                'message': f'❌ Error calling LLM: {str(llm_error)}'
+            }), 500
+        
+        # Create updated datamap content
+        datamap_content = f"""# Data Map (Updated)
+
+{full_response}
+"""
+        
+        # Write the datamap to file
+        with open(datamap_path, 'w', encoding='utf-8') as f:
+            f.write(datamap_content)
+        
+        return jsonify({
+            'status': 'success',
+            'response': f'''✅ **Data map updated successfully!**
+
+📄 Saved to: `{datamap_path}`
+
+**Summary:**
+- Found **{len(data_sources)}** data files
+- Refreshed data analysis'''
+        })
+        
+    except Exception as e:
+        capture_exception(e)
+        return jsonify({
+            'status': 'error',
+            'message': f'Error updating data map: {str(e)}'
+        }), 500
 
 
 def handle_session_info():

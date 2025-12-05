@@ -2,6 +2,7 @@
 
 from typing import List, Optional
 from ..models import User
+import validate_email
 
 
 class UserService:
@@ -26,6 +27,8 @@ class UserService:
         Raises:
             ValueError: If email is invalid
         """
+        if not validate_email.validate_email(email):
+            raise ValueError("Invalid email address")
         user = User(id=self._next_id, name=name, email=email)
         self.users.append(user)
         self._next_id += 1
