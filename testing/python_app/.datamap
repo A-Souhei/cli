@@ -33,7 +33,7 @@ python_app/
 
 ### Summary of All Data Sources Available
 
-There are 4 data sources available:
+There are 3 data sources available:
 
 * `orders.csv`: A CSV file containing order information
 * `products.json`: A JSON file containing product information
@@ -41,14 +41,15 @@ There are 4 data sources available:
 
 ### Total Number of Files and Their Types
 
-Total files: 9
+Total files: 13
 
 | File Type | Count |
 | --- | --- |
 | .csv | 3 |
 | .json | 1 |
-| .py | 4 |
+| .py | 6 |
 | .md | 1 |
+| .repomap | 1 |
 
 ### Estimated Total Data Volume
 
@@ -141,7 +142,6 @@ Estimated total data volume is approximately 1.5 MB.
 	+ Use pandas for CSV files (e.g., `pd.read_csv('orders.csv')`)
 	+ Use json library for JSON files (e.g., `json.load(open('products.json', 'r'))`)
 
-```markdown
 ### Example Code Patterns
 
 ```python

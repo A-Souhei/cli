@@ -413,7 +413,10 @@ def smart_merge_code(original_content: str, llm_output: str) -> str:
         Merged content that preserves original code while applying LLM changes
     """
     import difflib
-    import re
+
+    # Constants for thresholds
+    PARTIAL_OUTPUT_THRESHOLD = 0.5  # Detect as partial if LLM output is less than 50% of original size
+    SIMILARITY_THRESHOLD = 0.6  # Minimum similarity score to consider a match
 
     # Split into lines for comparison
     original_lines = original_content.splitlines(keepends=True)
@@ -423,21 +426,13 @@ def smart_merge_code(original_content: str, llm_output: str) -> str:
     llm_size = len(llm_output)
 
     # If LLM output is very small compared to original, it's likely partial output
-    # Using 0.5 threshold (50%) to catch more partial edits
-    if llm_size < original_size * 0.5 and original_size > 100:
+    if llm_size < original_size * PARTIAL_OUTPUT_THRESHOLD and original_size > 100:
         debug_print(f"Detected partial LLM output: {llm_size} bytes vs original {original_size} bytes")
 
         # Strategy: Find the most similar continuous section in the original
         # and replace it with the LLM output
 
-        # First, try to identify what the LLM is trying to edit by looking for:
-        # 1. Function/class definitions
-        # 2. Similar variable names
-        # 3. Similar structure
-
-        llm_text_stripped = llm_output.strip()
-
-        # Extract the first significant line from LLM output (skip empty lines)
+        # Extract the first significant line from LLM output (skip empty lines and comments)
         llm_first_line = None
         for line in llm_lines:
             stripped = line.strip()
@@ -462,8 +457,8 @@ def smart_merge_code(original_content: str, llm_output: str) -> str:
                         best_match_score = score
                         best_match_idx = idx
 
-            # If we found a reasonable match (>0.6 similarity)
-            if best_match_score > 0.6 and best_match_idx >= 0:
+            # If we found a reasonable match
+            if best_match_score > SIMILARITY_THRESHOLD and best_match_idx >= 0:
                 debug_print(f"Found similar section at line {best_match_idx} (score: {best_match_score:.2f})")
 
                 # Determine the extent of the section to replace
@@ -484,7 +479,7 @@ def smart_merge_code(original_content: str, llm_output: str) -> str:
                     if (line.startswith('def ') or
                         line.startswith('class ') or
                         ('<- function(' in line and not line.startswith('#')) or
-                        (line.endswith('(') and 'function' in original_lines[i+1].strip() if i+1 < len(original_lines) else False)):
+                        (line.endswith('(') and i+1 < len(original_lines) and 'function' in original_lines[i+1].strip())):
                         break
 
                     # Stop if we've gone far enough based on LLM line count
