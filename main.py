@@ -84,6 +84,11 @@ from src.utils.banner import (
     print_banner,
 )
 
+# Import file action handler from separate module
+from src.utils.file_action_handler import (
+    build_system_messages,
+)
+
 # Import CLI modules
 from src.cli.initialization import CLIInitializer
 from src.cli.dispatcher import CommandDispatcher
@@ -1608,130 +1613,19 @@ Start your response with the ``` marker immediately. No text before the code blo
                 # Get messages and inject guidance if available
                 messages = chat_manager.get_messages()
 
-                # Collect all system messages to inject before the user's message
-                system_messages_to_inject = []
+                # Build all system messages using shared file action handler
+                system_messages_to_inject = build_system_messages(
+                    at_context=at_context,
+                    user_input=clean_user_input,
+                    config=config,
+                    injected_context_parts=injected_context_parts,
+                    target_file=target_file,
+                    session_context=session_context,
+                    guidance=guidance
+                )
 
-                # Inject file/directory context from @ prefix
-                if injected_context_parts:
-                    context_content = "\n\n".join(injected_context_parts)
-                    system_messages_to_inject.append({
-                        'role': 'system',
-                        'content': f"The user has provided the following files/directories as context:\n\n{context_content}"
-                    })
-
-                # Detect file modification actions (refactor, update, create, etc.)
-                action_keywords = config.get_file_action_keywords()
-                user_input_lower = clean_user_input.lower()
-                has_action = any(keyword in user_input_lower for keyword in action_keywords)
-
-                # If action keywords present with @ prefixed files, instruct to use MCP tools
-                if has_action and (at_context['files'] or at_context['non_existing']):
-                    tool_instructions = []
-
-                    # Collect all files that need to be modified or created
-                    all_files_to_modify = list(at_context['files'])
-                    all_files_to_create = list(at_context['non_existing'])
-
-                    # Look for additional files to create mentioned in the prompt (like "create base.py")
-                    create_pattern = r'create\s+((?:[\w/]+/)?[\w.]+\.(?:py|r|R))'
-                    create_matches = re.findall(create_pattern, user_input_lower)
-                    if create_matches:
-                        for matched_file in create_matches:
-                            # Add to create list if not already present
-                            if matched_file not in all_files_to_create and matched_file not in all_files_to_modify:
-                                all_files_to_create.append(matched_file)
-
-                    # Build comprehensive instruction with explicit format requirements
-                    instruction_parts = []
-
-                    if all_files_to_modify:
-                        instruction_parts.append(
-                            f"The user wants to MODIFY these existing files: {', '.join(all_files_to_modify)}"
-                        )
-
-                    if all_files_to_create:
-                        instruction_parts.append(
-                            f"The user wants to CREATE these new files: {', '.join(all_files_to_create)}"
-                        )
-
-                    if instruction_parts:
-                        # Add explicit format instructions
-                        format_instruction = """
-IMPORTANT: For EACH file you need to create or modify, you MUST use this EXACT format:
-
-file: <full_file_path>
-```python
-<complete file code here>
-```
-
-Example:
-file: testing/python_app/models/base.py
-```python
-class BaseModel:
-    pass
-```
-
-file: testing/python_app/models/user.py
-```python
-from .base import BaseModel
-
-class User(BaseModel):
-    pass
-```
-
-Do NOT just explain the changes - provide the COMPLETE, RUNNABLE code for each file in the format above.
-Each file should have its own "file: <path>" line followed by a code block.
-
-VERIFICATION: After modifications, one of the files will be executed to verify the changes work correctly.
-Ensure all imports are correct, syntax is valid, and the code runs without errors.
-"""
-                        full_instruction = "\n".join(instruction_parts) + format_instruction
-                        tool_instructions.append(full_instruction)
-
-                    if tool_instructions:
-                        system_messages_to_inject.append({
-                            'role': 'system',
-                            'content': "\n\n".join(tool_instructions)
-                        })
-
-                # If target file is specified, instruct LLM to generate code for that file
-                if target_file:
-                    file_ext = os.path.splitext(target_file)[1]
-                    lang = "Python" if file_ext == ".py" else "R" if file_ext in [".R", ".r"] else "appropriate"
-                    system_messages_to_inject.append({
-                        'role': 'system',
-                        'content': (
-                            f"The user wants to write code to the file: {target_file}. "
-                            f"Generate {lang} code in a code block that will be automatically written to this file. "
-                            "Provide complete, working code that can be directly written to the file."
-                        )
-                    })
-
-                # If user asks to run/execute code, instruct LLM not to predict output
-                run_keywords = ['run', 'execute', 'exec']
-                if any(keyword in clean_user_input.lower() for keyword in run_keywords):
-                    system_messages_to_inject.append({
-                        'role': 'system',
-                        'content': (
-                            "The user wants to execute code. Provide ONLY the code in a code block. "
-                            "Do NOT predict, guess, or show what the output will be. "
-                            "The code will be automatically executed and the real output will be displayed to the user."
-                        )
-                    })
-
-                # Inject session context if available
-                if session_context:
-                    system_messages_to_inject.append({
-                        'role': 'system',
-                        'content': session_context
-                    })
-
-                # Add guidance if available
+                # Display guidance if available (for debugging)
                 if guidance:
-                    system_messages_to_inject.append({
-                        'role': 'system',
-                        'content': guidance
-                    })
                     debug_print(guidance, icon="🧠", style="magenta")
 
                 # Inject all system messages before the last user message
@@ -1802,7 +1696,11 @@ Ensure all imports are correct, syntax is valid, and the code runs without error
 
                 # Check for code and offer to execute or write to file
                 try:
-                    if has_action and (at_context['files'] or at_context['non_existing']):
+                    # Re-detect file actions for post-response handling
+                    from src.utils.file_action_handler import detect_file_actions
+                    action_result = detect_file_actions(clean_user_input, at_context, config)
+                    
+                    if action_result['has_action'] and (at_context['files'] or at_context['non_existing']):
                         # Handle file modifications (refactor, update, create, etc.)
                         mod_result = run_async(handle_file_modifications(
                             mcp_client,
