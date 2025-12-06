@@ -1090,6 +1090,9 @@ def main(verbose=False):
                         # Execute each step iteratively with tool matching
                         console.print("⚡ [cyan]Executing steps with tool matching...[/cyan]\n")
 
+                        # Accumulate context from previous steps for code generation
+                        accumulated_file_contexts = {}  # {file_path: file_content}
+
                         for i, step in enumerate(steps, 1):
                             console.print(f"[bold]Step {i}/{len(steps)}:[/bold] {step}")
                             console.print()
@@ -1188,7 +1191,17 @@ def main(verbose=False):
                                                     # Generate code with LLM (use coder model if available)
                                                     console.print(f"  🤖 [yellow]Generating code with LLM...[/yellow]")
 
-                                                    chat_manager.add_user_message(step)
+                                                    # Add context if available
+                                                    context_section = ""
+                                                    if accumulated_file_contexts:
+                                                        context_section = "\n\n=== REFERENCE: FILES LOADED IN PREVIOUS STEPS (FOR YOUR REFERENCE ONLY - DO NOT COPY THIS TEXT) ===\n"
+                                                        for ctx_path, ctx_content in accumulated_file_contexts.items():
+                                                            truncated_content = ctx_content[:2000] + "..." if len(ctx_content) > 2000 else ctx_content
+                                                            context_section += f"\nReference File: {ctx_path}\n{truncated_content}\n"
+                                                        context_section += "=== END REFERENCE FILES ===\n\n"
+
+                                                    prompt_with_context = f"{context_section}{step}" if context_section else step
+                                                    chat_manager.add_user_message(prompt_with_context)
                                                     messages = chat_manager.get_messages()
 
                                                     spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
@@ -1252,44 +1265,53 @@ def main(verbose=False):
                                                     lang_name = "R" if is_r_code else "Python"
                                                     code_block_marker = "r" if is_r_code else "python"
                                                     comment_prefix = "#" if is_r_code else "#"  # Both use # for comments
-                                                    
-                                                    edit_prompt = f"""You are a precise code editor. Make MINIMAL changes to the {lang_name} file below.
 
-FILE TO EDIT: {file_path} ({line_count} lines)
+                                                    # Build accumulated context section from previous steps
+                                                    context_section = ""
+                                                    if accumulated_file_contexts:
+                                                        context_section = "\n\n=== REFERENCE: FILES LOADED IN PREVIOUS STEPS (FOR YOUR REFERENCE ONLY - DO NOT COPY THIS TEXT) ===\n"
+                                                        for ctx_path, ctx_content in accumulated_file_contexts.items():
+                                                            # Limit context to first 2000 chars per file to avoid token limits
+                                                            truncated_content = ctx_content[:2000] + "..." if len(ctx_content) > 2000 else ctx_content
+                                                            context_section += f"\nReference File: {ctx_path}\n{truncated_content}\n"
+                                                        context_section += "=== END REFERENCE FILES ===\n\n"
 
-=== ORIGINAL FILE START ===
+                                                    edit_prompt = f"""Edit this {lang_name} file. ONLY make the requested changes. Do NOT modify anything else.
+
+ORIGINAL FILE ({line_count} lines):
 {original_file_content}
-=== ORIGINAL FILE END ===
+{context_section}
+REQUESTED CHANGE: {step}
 
-REQUESTED CHANGES: {step}
+STRICT RULES - Read carefully:
+1. Copy the ENTIRE original file exactly as-is
+2. Make ONLY the specific change requested - nothing more
+3. Do NOT remove or change existing docstrings (keep triple-quote docstring blocks exactly as they are)
+4. Do NOT refactor code (keep list comprehensions, loops, etc. exactly as written)
+5. Do NOT add comments to explain your changes
+6. Output complete valid {lang_name} code, NOT a git diff
 
-CRITICAL RULES FOR MINIMAL EDITS:
-1. Output ONLY the specific sections you need to modify
-2. For small changes (import statements, single function edits):
-   - Output ONLY the changed section (e.g., just the import line, or just the modified function)
-   - The system will automatically merge it with the original file
-3. For larger changes (multiple functions, entire classes):
-   - Output the complete file ONLY if you're modifying more than 50% of the content
-4. DO NOT include placeholder comments like "{comment_prefix} ... rest of code ..." or "{comment_prefix} existing methods ..."
-5. DO NOT add ANY explanatory text before or after the code
-6. Preserve exact formatting, indentation, and style
-7. Make ONLY the changes explicitly requested - nothing more
+IMPORTANT: The file has {line_count} lines. Your output must also have approximately {line_count} lines.
+Do NOT shorten functions at the end of the file. Keep everything identical except your specific change.
 
-EXAMPLES:
-- If asked to add an import: Output just the import section
-- If asked to modify one function: Output just that function with its exact indentation
-- If asked to add a method to a class: Output just the new method
-- If making extensive changes: Output the complete file
-
-OUTPUT FORMAT (EXACT):
+Output format:
 ```{code_block_marker}
-<minimal code changes here - just what needs to be modified>
-```
-
-Start your response with the ``` marker immediately. No text before the code block."""
+[paste complete file with only the requested change]
+```"""
                                                     chat_manager.add_user_message(edit_prompt)
                                                 else:
-                                                    chat_manager.add_user_message(step)
+                                                    # For non-edit code generation, still add context if available
+                                                    context_section = ""
+                                                    if accumulated_file_contexts:
+                                                        context_section = "\n\n=== REFERENCE: FILES LOADED IN PREVIOUS STEPS (FOR YOUR REFERENCE ONLY - DO NOT COPY THIS TEXT) ===\n"
+                                                        for ctx_path, ctx_content in accumulated_file_contexts.items():
+                                                            truncated_content = ctx_content[:2000] + "..." if len(ctx_content) > 2000 else ctx_content
+                                                            context_section += f"\nReference File: {ctx_path}\n{truncated_content}\n"
+                                                        context_section += "=== END REFERENCE FILES ===\n\n"
+
+                                                    # Add context before the step if available
+                                                    prompt_with_context = f"{context_section}{step}" if context_section else step
+                                                    chat_manager.add_user_message(prompt_with_context)
                                                 
                                                 messages = chat_manager.get_messages()
 
@@ -1379,6 +1401,25 @@ Start your response with the ``` marker immediately. No text before the code blo
 
                                             if result_data.get('status') == 'success':
                                                 console.print(f"  ✓ [green]Success[/green]")
+
+                                                # Store file context from add_file_context for use in later steps
+                                                if tool_name == 'add_file_context':
+                                                    file_content = result_data.get('content', '')  # MCP returns 'content', not 'file_content'
+                                                    file_path_loaded = result_data.get('file_path', '')
+                                                    if file_content and file_path_loaded:
+                                                        accumulated_file_contexts[file_path_loaded] = file_content
+                                                        debug_print(f"Stored context for {file_path_loaded}: {len(file_content)} chars", icon="📦")
+
+                                                # Store directory context from add_directory_context
+                                                if tool_name == 'add_directory_context':
+                                                    files = result_data.get('files_content', [])  # MCP returns 'files_content'
+                                                    for file_info in files:
+                                                        if isinstance(file_info, dict):
+                                                            fpath = file_info.get('full_path', file_info.get('path', ''))  # Try full_path first, then path
+                                                            fcontent = file_info.get('content', '')
+                                                            if fpath and fcontent:
+                                                                accumulated_file_contexts[fpath] = fcontent
+                                                                debug_print(f"Stored context for {fpath}: {len(fcontent)} chars", icon="📦")
 
                                                 # Show relevant output
                                                 if 'stdout' in result_data and result_data['stdout']:
