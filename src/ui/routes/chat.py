@@ -83,6 +83,9 @@ from src.sentry_config import capture_exception
 from src.session.manager import SessionManager
 from src.session.title_generator import SessionTitleGenerator
 from src.mcp import MCPClient
+from src.file_completer import extract_at_context
+from src.utils.file_action_handler import build_system_messages, detect_file_actions
+from src.utils.code_handlers import handle_file_modifications
 
 chat_bp = Blueprint('chat', __name__)
 
@@ -298,6 +301,20 @@ def get_ollama_client():
     return OllamaClient(host=host, model=model, timeout=timeout), config
 
 
+def get_mcp_client():
+    """Get or create an MCP client instance for UI file operations."""
+    current_file = Path(__file__)
+    project_root = current_file.parent.parent.parent.parent
+    system_mcps_dir = project_root / 'system_mcps'
+    postgres_url = os.getenv('POSTGRES_API_URL', 'http://localhost:15000')
+
+    return MCPClient(
+        system_mcps_dir=system_mcps_dir,
+        postgres_url=postgres_url,
+        verbose=False
+    )
+
+
 @chat_bp.route('/send', methods=['GET', 'POST'])
 def send_message():
     """
@@ -306,6 +323,7 @@ def send_message():
     Request body:
         message: The user message
         model: Optional model name (defaults to config model)
+        file_contents: Optional dict of file contents (for UI file uploads)
     """
     # Handle GET requests with a clear error message
     if request.method == 'GET':
@@ -346,18 +364,69 @@ def send_message():
         if not model:
             model = config.get_ollama_model()
         
-        # Build the message with file contents included
-        full_message = message
+        # Extract @ prefixed file/directory paths for file action detection
+        at_context = extract_at_context(message, working_dir)
+
+        # Build injected context parts from file_contents (UI uploads)
+        injected_context_parts = []
         if file_contents:
-            file_context = "\n\n--- Attached Files ---\n"
             for filename, content in file_contents.items():
-                file_context += f"\n### File: {filename}\n```\n{content}\n```\n"
-            full_message = file_context + "\n--- User Message ---\n" + message
+                injected_context_parts.append(f"File: {filename}\n```\n{content}\n```")
+
+        # Load contents of @ referenced files (matching CLI behavior)
+        # This ensures the LLM has full context when editing files
+        for file_path in at_context['files']:
+            try:
+                # Load file content by reading from filesystem
+                full_path = os.path.join(working_dir, file_path) if not os.path.isabs(file_path) else file_path
+                if os.path.exists(full_path):
+                    with open(full_path, 'r', encoding='utf-8') as f:
+                        file_content = f.read()
+                        injected_context_parts.append(f"File: {file_path}\n```\n{file_content}\n```")
+            except Exception as e:
+                # Log but don't fail - continue with other files
+                capture_exception(e)
+
+        # Also load contents of @ referenced directories (matching CLI behavior)
+        for dir_path in at_context.get('directories', []):
+            try:
+                # Resolve full directory path
+                full_dir_path = os.path.join(working_dir, dir_path) if not os.path.isabs(dir_path) else dir_path
+                if os.path.exists(full_dir_path) and os.path.isdir(full_dir_path):
+                    for root, _, files in os.walk(full_dir_path):
+                        for fname in files:
+                            file_path = os.path.join(root, fname)
+                            # Compute relative path for display
+                            rel_path = os.path.relpath(file_path, working_dir)
+                            try:
+                                with open(file_path, 'r', encoding='utf-8') as f:
+                                    file_content = f.read()
+                                    injected_context_parts.append(f"File: {rel_path}\n```\n{file_content}\n```")
+                            except Exception as e:
+                                capture_exception(e)
+            except Exception as e:
+                capture_exception(e)
+
+        # Build system messages using shared file action handler
+        system_messages = build_system_messages(
+            at_context=at_context,
+            user_input=message,
+            config=config,
+            injected_context_parts=injected_context_parts,
+            target_file=None,  # UI doesn't use target_file feature
+            session_context=None,  # Could add session context here if needed
+            guidance=None  # Could add RAG guidance here if needed
+        )
         
-        # Prepare messages for the API
-        messages = [
-            {"role": "user", "content": full_message}
-        ]
+        # Build the message with system messages
+        messages = []
+        
+        # Add system messages first
+        if system_messages:
+            messages.extend(system_messages)
+        
+        # Add user message
+        messages.append({"role": "user", "content": message})
         
         # Call Ollama API - use the underlying client directly for non-streaming
         try:
@@ -387,6 +456,41 @@ def send_message():
             
             # Always save to UI in-memory store for display
             _save_current_session_to_ui_store()
+            
+            # Check for file modification actions and process them
+            action_result = detect_file_actions(message, at_context, config)
+
+            if action_result['has_action'] and (action_result['files_to_modify'] or action_result['files_to_create']):
+                # Execute file modifications using MCP
+                try:
+                    # Execute file modifications asynchronously
+                    mod_result = run_async(_handle_file_modifications_async(
+                        response_text=content,
+                        files_to_modify=action_result['files_to_modify'],
+                        files_to_create=action_result['files_to_create'],
+                        working_dir=working_dir
+                    ))
+
+                    modification_info = {
+                        'detected': True,
+                        'files_to_modify': action_result['files_to_modify'],
+                        'files_to_create': action_result['files_to_create'],
+                        'modified': mod_result.get('modified', []),
+                        'created': mod_result.get('created', []),
+                        'errors': mod_result.get('errors', [])
+                    }
+
+                    return jsonify({
+                        'status': 'success',
+                        'response': content,
+                        'model': model,
+                        'session_active': session_manager.is_active(),
+                        'session_id': session_manager.get_session_id(),
+                        'file_modifications': modification_info
+                    })
+                except Exception as mod_error:
+                    capture_exception(mod_error)
+                    # Continue without file modifications if there's an error
             
             return jsonify({
                 'status': 'success',
@@ -1481,6 +1585,9 @@ async def _execute_all_steps_async(steps, at_references, working_dir, session_id
         # Execute each step (matches CLI flow)
         execution_results = []
 
+        # Accumulate context from previous steps for code generation
+        accumulated_file_contexts = {}  # {file_path: file_content}
+
         for i, step in enumerate(steps, 1):
             tool_name = 'unknown'
             try:
@@ -1608,13 +1715,14 @@ async def _execute_all_steps_async(steps, at_references, working_dir, session_id
                         # Generate code with LLM (always use coder model for code generation)
                         use_coder_model = True  # Always use coder model for code generation
                         code, llm_model_name = _generate_code_with_llm_sync(
-                            step, 
+                            step,
                             model_registry,
                             mcp_client,
                             original_file_content=original_file_content,
                             file_path=file_path,
                             use_coder_model=use_coder_model,
-                            tool_name=tool_name
+                            tool_name=tool_name,
+                            accumulated_contexts=accumulated_file_contexts  # Pass accumulated context
                         )
                         
                         if not code:
@@ -1679,6 +1787,25 @@ async def _execute_all_steps_async(steps, at_references, working_dir, session_id
                     if result_data.get('status') == 'error':
                         status = 'error'
 
+                # Store file context from add_file_context for use in later steps
+                if tool_name == 'add_file_context' and isinstance(result_data, dict):
+                    file_content = result_data.get('content', '')  # MCP returns 'content', not 'file_content'
+                    file_path_loaded = result_data.get('file_path', '')
+                    if file_content and file_path_loaded:
+                        accumulated_file_contexts[file_path_loaded] = file_content
+                        print(f"[_execute_all_steps_async] Stored context for {file_path_loaded}: {len(file_content)} chars")
+
+                # Store directory context from add_directory_context
+                if tool_name == 'add_directory_context' and isinstance(result_data, dict):
+                    files = result_data.get('files_content', [])  # MCP returns 'files_content'
+                    for file_info in files:
+                        if isinstance(file_info, dict):
+                            fpath = file_info.get('full_path', file_info.get('path', ''))  # Try full_path first, then path
+                            fcontent = file_info.get('content', '')
+                            if fpath and fcontent:
+                                accumulated_file_contexts[fpath] = fcontent
+                                print(f"[_execute_all_steps_async] Stored context for {fpath}: {len(fcontent)} chars")
+
                 # Include model name if it was used for code generation
                 result_entry = {
                     'step': i,
@@ -1719,12 +1846,12 @@ async def _execute_all_steps_async(steps, at_references, working_dir, session_id
 
 
 def _generate_code_with_llm_sync(step: str, model_registry, mcp_client,
-                                  original_file_content: str = None, 
+                                  original_file_content: str = None,
                                   file_path: str = None, use_coder_model: bool = False,
-                                  tool_name: str = None) -> tuple:
+                                  tool_name: str = None, accumulated_contexts: dict = None) -> tuple:
     """
     Generate code using LLM, matching CLI behavior.
-    
+
     Args:
         step: The step/prompt to generate code for
         model_registry: ModelRegistry instance
@@ -1733,7 +1860,8 @@ def _generate_code_with_llm_sync(step: str, model_registry, mcp_client,
         file_path: Target file path
         use_coder_model: Whether to use coder model (for edit operations)
         tool_name: Name of the tool being used
-    
+        accumulated_contexts: Dict of {file_path: file_content} from previous add_file_context steps
+
     Returns:
         Tuple of (code, model_name) where code is the generated code string or None,
         and model_name is the name of the model used
@@ -1763,47 +1891,52 @@ def _generate_code_with_llm_sync(step: str, model_registry, mcp_client,
             ollama_client, _ = get_ollama_client()
             model_name_used = ollama_client.model if hasattr(ollama_client, 'model') else 'unknown'
 
+        # Build accumulated context section from previous steps
+        context_section = ""
+        if accumulated_contexts:
+            context_section = "\n\n=== REFERENCE: FILES LOADED IN PREVIOUS STEPS (FOR YOUR REFERENCE ONLY - DO NOT COPY THIS TEXT) ===\n"
+            for ctx_path, ctx_content in accumulated_contexts.items():
+                # Limit context to first 2000 chars per file to avoid token limits
+                truncated_content = ctx_content[:2000] + "..." if len(ctx_content) > 2000 else ctx_content
+                context_section += f"\nReference File: {ctx_path}\n{truncated_content}\n"
+            context_section += "=== END REFERENCE FILES ===\n\n"
+
         # Build prompt for edit operations with original file context (like CLI)
         if original_file_content and file_path:
             line_count = len(original_file_content.splitlines())
             is_r_code = tool_name in ['edit_r_code', 'write_r_code'] if tool_name else False
             lang_name = "R" if is_r_code else "Python"
             code_block_marker = "r" if is_r_code else "python"
-            
-            llm_prompt = f"""You are a code editor. Edit the {lang_name} file below according to the requested changes.
 
-FILE TO EDIT: {file_path} ({line_count} lines)
+            llm_prompt = f"""Edit this {lang_name} file. ONLY make the requested changes. Do NOT modify anything else.
 
-=== ORIGINAL FILE START ===
+ORIGINAL FILE ({line_count} lines):
 {original_file_content}
-=== ORIGINAL FILE END ===
+{context_section}
+REQUESTED CHANGE: {step}
 
-REQUESTED CHANGES: {step}
+STRICT RULES - Read carefully:
+1. Copy the ENTIRE original file exactly as-is
+2. Make ONLY the specific change requested - nothing more
+3. Do NOT remove or change existing docstrings (keep triple-quote docstring blocks exactly as they are)
+4. Do NOT refactor code (keep list comprehensions, loops, etc. exactly as written)
+5. Do NOT add comments to explain your changes
+6. Output complete valid {lang_name} code, NOT a git diff
 
-CRITICAL RULES:
-1. Output the COMPLETE file with ALL {line_count} lines (or close to it)
-2. DO NOT remove, truncate, or summarize any existing functions, classes, or code
-3. DO NOT add comments like "# Rest of your methods..." or "# ... existing code ..."
-4. DO NOT change imports, class structure, or method signatures unless specifically requested
-5. Make ONLY the minimal changes needed to fulfill the request
-6. Preserve all docstrings, comments, and formatting
-7. DO NOT add ANY explanatory text, descriptions, or commentary
-8. DO NOT add titles, headers, or sections like "Updated Method" or "Explanation"
-9. ONLY output the code block - nothing before, nothing after
+IMPORTANT: The file has {line_count} lines. Your output must also have approximately {line_count} lines.
+Do NOT shorten functions at the end of the file. Keep everything identical except your specific change.
 
-OUTPUT FORMAT (EXACT):
+Output format:
 ```{code_block_marker}
-<the complete updated file content here>
-```
-
-Start your response with the ``` marker immediately. No text before the code block."""
+[paste complete file with only the requested change]
+```"""
         else:
             # For code generation without original file context, still provide code block instructions
             is_r_code = tool_name in ['edit_r_code', 'write_r_code', 'run_r_code'] if tool_name else False
             lang_name = "R" if is_r_code else "Python"
             code_block_marker = "r" if is_r_code else "python"
-            
-            llm_prompt = f"""You are a code generator. Generate {lang_name} code for the following request.
+
+            llm_prompt = f"""You are a code generator. Generate {lang_name} code for the following request.{context_section}
 
 REQUEST: {step}
 
@@ -1874,6 +2007,54 @@ Start your response with the ``` marker immediately. No text before the code blo
     except Exception as e:
         capture_exception(e)
         return (None, model_name_used)
+
+
+async def _handle_file_modifications_async(response_text: str, files_to_modify: list,
+                                            files_to_create: list, working_dir: str):
+    """
+    Handle file modifications asynchronously using MCP.
+
+    Args:
+        response_text: The LLM response text containing file modifications
+        files_to_modify: List of existing files to modify
+        files_to_create: List of new files to create
+        working_dir: The working directory
+
+    Returns:
+        Dict with results for each file (modified, created, errors)
+    """
+    # Create a fresh MCP client in this async context
+    current_file = Path(__file__)
+    project_root = current_file.parent.parent.parent.parent
+    system_mcps_dir = project_root / 'system_mcps'
+    postgres_url = os.getenv('POSTGRES_API_URL', 'http://localhost:15000')
+
+    mcp_client = MCPClient(
+        system_mcps_dir=system_mcps_dir,
+        postgres_url=postgres_url,
+        verbose=False
+    )
+
+    try:
+        # Pre-start the coder MCP server
+        await mcp_client.start_server('coder')
+
+        # Call the shared file modification handler
+        results = await handle_file_modifications(
+            mcp_client=mcp_client,
+            response_text=response_text,
+            files_to_modify=files_to_modify,
+            files_to_create=files_to_create,
+            get_working_dir_func=lambda: working_dir,
+            console=None,  # UI doesn't use rich console
+            debug_print_func=None  # UI doesn't need debug prints
+        )
+
+        return results
+
+    finally:
+        # Cleanup the MCP client
+        await mcp_client.cleanup()
 
 
 def _format_execution_response(execution_results: list) -> str:

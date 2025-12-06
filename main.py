@@ -84,6 +84,12 @@ from src.utils.banner import (
     print_banner,
 )
 
+# Import file action handler from separate module
+from src.utils.file_action_handler import (
+    build_system_messages,
+    detect_file_actions,
+)
+
 # Import CLI modules
 from src.cli.initialization import CLIInitializer
 from src.cli.dispatcher import CommandDispatcher
@@ -1084,6 +1090,9 @@ def main(verbose=False):
                         # Execute each step iteratively with tool matching
                         console.print("⚡ [cyan]Executing steps with tool matching...[/cyan]\n")
 
+                        # Accumulate context from previous steps for code generation
+                        accumulated_file_contexts = {}  # {file_path: file_content}
+
                         for i, step in enumerate(steps, 1):
                             console.print(f"[bold]Step {i}/{len(steps)}:[/bold] {step}")
                             console.print()
@@ -1182,7 +1191,17 @@ def main(verbose=False):
                                                     # Generate code with LLM (use coder model if available)
                                                     console.print(f"  🤖 [yellow]Generating code with LLM...[/yellow]")
 
-                                                    chat_manager.add_user_message(step)
+                                                    # Add context if available
+                                                    context_section = ""
+                                                    if accumulated_file_contexts:
+                                                        context_section = "\n\n=== REFERENCE: FILES LOADED IN PREVIOUS STEPS (FOR YOUR REFERENCE ONLY - DO NOT COPY THIS TEXT) ===\n"
+                                                        for ctx_path, ctx_content in accumulated_file_contexts.items():
+                                                            truncated_content = ctx_content[:2000] + "..." if len(ctx_content) > 2000 else ctx_content
+                                                            context_section += f"\nReference File: {ctx_path}\n{truncated_content}\n"
+                                                        context_section += "=== END REFERENCE FILES ===\n\n"
+
+                                                    prompt_with_context = f"{context_section}{step}" if context_section else step
+                                                    chat_manager.add_user_message(prompt_with_context)
                                                     messages = chat_manager.get_messages()
 
                                                     spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
@@ -1246,44 +1265,53 @@ def main(verbose=False):
                                                     lang_name = "R" if is_r_code else "Python"
                                                     code_block_marker = "r" if is_r_code else "python"
                                                     comment_prefix = "#" if is_r_code else "#"  # Both use # for comments
-                                                    
-                                                    edit_prompt = f"""You are a precise code editor. Make MINIMAL changes to the {lang_name} file below.
 
-FILE TO EDIT: {file_path} ({line_count} lines)
+                                                    # Build accumulated context section from previous steps
+                                                    context_section = ""
+                                                    if accumulated_file_contexts:
+                                                        context_section = "\n\n=== REFERENCE: FILES LOADED IN PREVIOUS STEPS (FOR YOUR REFERENCE ONLY - DO NOT COPY THIS TEXT) ===\n"
+                                                        for ctx_path, ctx_content in accumulated_file_contexts.items():
+                                                            # Limit context to first 2000 chars per file to avoid token limits
+                                                            truncated_content = ctx_content[:2000] + "..." if len(ctx_content) > 2000 else ctx_content
+                                                            context_section += f"\nReference File: {ctx_path}\n{truncated_content}\n"
+                                                        context_section += "=== END REFERENCE FILES ===\n\n"
 
-=== ORIGINAL FILE START ===
+                                                    edit_prompt = f"""Edit this {lang_name} file. ONLY make the requested changes. Do NOT modify anything else.
+
+ORIGINAL FILE ({line_count} lines):
 {original_file_content}
-=== ORIGINAL FILE END ===
+{context_section}
+REQUESTED CHANGE: {step}
 
-REQUESTED CHANGES: {step}
+STRICT RULES - Read carefully:
+1. Copy the ENTIRE original file exactly as-is
+2. Make ONLY the specific change requested - nothing more
+3. Do NOT remove or change existing docstrings (keep triple-quote docstring blocks exactly as they are)
+4. Do NOT refactor code (keep list comprehensions, loops, etc. exactly as written)
+5. Do NOT add comments to explain your changes
+6. Output complete valid {lang_name} code, NOT a git diff
 
-CRITICAL RULES FOR MINIMAL EDITS:
-1. Output ONLY the specific sections you need to modify
-2. For small changes (import statements, single function edits):
-   - Output ONLY the changed section (e.g., just the import line, or just the modified function)
-   - The system will automatically merge it with the original file
-3. For larger changes (multiple functions, entire classes):
-   - Output the complete file ONLY if you're modifying more than 50% of the content
-4. DO NOT include placeholder comments like "{comment_prefix} ... rest of code ..." or "{comment_prefix} existing methods ..."
-5. DO NOT add ANY explanatory text before or after the code
-6. Preserve exact formatting, indentation, and style
-7. Make ONLY the changes explicitly requested - nothing more
+IMPORTANT: The file has {line_count} lines. Your output must also have approximately {line_count} lines.
+Do NOT shorten functions at the end of the file. Keep everything identical except your specific change.
 
-EXAMPLES:
-- If asked to add an import: Output just the import section
-- If asked to modify one function: Output just that function with its exact indentation
-- If asked to add a method to a class: Output just the new method
-- If making extensive changes: Output the complete file
-
-OUTPUT FORMAT (EXACT):
+Output format:
 ```{code_block_marker}
-<minimal code changes here - just what needs to be modified>
-```
-
-Start your response with the ``` marker immediately. No text before the code block."""
+[paste complete file with only the requested change]
+```"""
                                                     chat_manager.add_user_message(edit_prompt)
                                                 else:
-                                                    chat_manager.add_user_message(step)
+                                                    # For non-edit code generation, still add context if available
+                                                    context_section = ""
+                                                    if accumulated_file_contexts:
+                                                        context_section = "\n\n=== REFERENCE: FILES LOADED IN PREVIOUS STEPS (FOR YOUR REFERENCE ONLY - DO NOT COPY THIS TEXT) ===\n"
+                                                        for ctx_path, ctx_content in accumulated_file_contexts.items():
+                                                            truncated_content = ctx_content[:2000] + "..." if len(ctx_content) > 2000 else ctx_content
+                                                            context_section += f"\nReference File: {ctx_path}\n{truncated_content}\n"
+                                                        context_section += "=== END REFERENCE FILES ===\n\n"
+
+                                                    # Add context before the step if available
+                                                    prompt_with_context = f"{context_section}{step}" if context_section else step
+                                                    chat_manager.add_user_message(prompt_with_context)
                                                 
                                                 messages = chat_manager.get_messages()
 
@@ -1373,6 +1401,25 @@ Start your response with the ``` marker immediately. No text before the code blo
 
                                             if result_data.get('status') == 'success':
                                                 console.print(f"  ✓ [green]Success[/green]")
+
+                                                # Store file context from add_file_context for use in later steps
+                                                if tool_name == 'add_file_context':
+                                                    file_content = result_data.get('content', '')  # MCP returns 'content', not 'file_content'
+                                                    file_path_loaded = result_data.get('file_path', '')
+                                                    if file_content and file_path_loaded:
+                                                        accumulated_file_contexts[file_path_loaded] = file_content
+                                                        debug_print(f"Stored context for {file_path_loaded}: {len(file_content)} chars", icon="📦")
+
+                                                # Store directory context from add_directory_context
+                                                if tool_name == 'add_directory_context':
+                                                    files = result_data.get('files_content', [])  # MCP returns 'files_content'
+                                                    for file_info in files:
+                                                        if isinstance(file_info, dict):
+                                                            fpath = file_info.get('full_path', file_info.get('path', ''))  # Try full_path first, then path
+                                                            fcontent = file_info.get('content', '')
+                                                            if fpath and fcontent:
+                                                                accumulated_file_contexts[fpath] = fcontent
+                                                                debug_print(f"Stored context for {fpath}: {len(fcontent)} chars", icon="📦")
 
                                                 # Show relevant output
                                                 if 'stdout' in result_data and result_data['stdout']:
@@ -1608,130 +1655,19 @@ Start your response with the ``` marker immediately. No text before the code blo
                 # Get messages and inject guidance if available
                 messages = chat_manager.get_messages()
 
-                # Collect all system messages to inject before the user's message
-                system_messages_to_inject = []
+                # Build all system messages using shared file action handler
+                system_messages_to_inject = build_system_messages(
+                    at_context=at_context,
+                    user_input=clean_user_input,
+                    config=config,
+                    injected_context_parts=injected_context_parts,
+                    target_file=target_file,
+                    session_context=session_context,
+                    guidance=guidance
+                )
 
-                # Inject file/directory context from @ prefix
-                if injected_context_parts:
-                    context_content = "\n\n".join(injected_context_parts)
-                    system_messages_to_inject.append({
-                        'role': 'system',
-                        'content': f"The user has provided the following files/directories as context:\n\n{context_content}"
-                    })
-
-                # Detect file modification actions (refactor, update, create, etc.)
-                action_keywords = config.get_file_action_keywords()
-                user_input_lower = clean_user_input.lower()
-                has_action = any(keyword in user_input_lower for keyword in action_keywords)
-
-                # If action keywords present with @ prefixed files, instruct to use MCP tools
-                if has_action and (at_context['files'] or at_context['non_existing']):
-                    tool_instructions = []
-
-                    # Collect all files that need to be modified or created
-                    all_files_to_modify = list(at_context['files'])
-                    all_files_to_create = list(at_context['non_existing'])
-
-                    # Look for additional files to create mentioned in the prompt (like "create base.py")
-                    create_pattern = r'create\s+((?:[\w/]+/)?[\w.]+\.(?:py|r|R))'
-                    create_matches = re.findall(create_pattern, user_input_lower)
-                    if create_matches:
-                        for matched_file in create_matches:
-                            # Add to create list if not already present
-                            if matched_file not in all_files_to_create and matched_file not in all_files_to_modify:
-                                all_files_to_create.append(matched_file)
-
-                    # Build comprehensive instruction with explicit format requirements
-                    instruction_parts = []
-
-                    if all_files_to_modify:
-                        instruction_parts.append(
-                            f"The user wants to MODIFY these existing files: {', '.join(all_files_to_modify)}"
-                        )
-
-                    if all_files_to_create:
-                        instruction_parts.append(
-                            f"The user wants to CREATE these new files: {', '.join(all_files_to_create)}"
-                        )
-
-                    if instruction_parts:
-                        # Add explicit format instructions
-                        format_instruction = """
-IMPORTANT: For EACH file you need to create or modify, you MUST use this EXACT format:
-
-file: <full_file_path>
-```python
-<complete file code here>
-```
-
-Example:
-file: testing/python_app/models/base.py
-```python
-class BaseModel:
-    pass
-```
-
-file: testing/python_app/models/user.py
-```python
-from .base import BaseModel
-
-class User(BaseModel):
-    pass
-```
-
-Do NOT just explain the changes - provide the COMPLETE, RUNNABLE code for each file in the format above.
-Each file should have its own "file: <path>" line followed by a code block.
-
-VERIFICATION: After modifications, one of the files will be executed to verify the changes work correctly.
-Ensure all imports are correct, syntax is valid, and the code runs without errors.
-"""
-                        full_instruction = "\n".join(instruction_parts) + format_instruction
-                        tool_instructions.append(full_instruction)
-
-                    if tool_instructions:
-                        system_messages_to_inject.append({
-                            'role': 'system',
-                            'content': "\n\n".join(tool_instructions)
-                        })
-
-                # If target file is specified, instruct LLM to generate code for that file
-                if target_file:
-                    file_ext = os.path.splitext(target_file)[1]
-                    lang = "Python" if file_ext == ".py" else "R" if file_ext in [".R", ".r"] else "appropriate"
-                    system_messages_to_inject.append({
-                        'role': 'system',
-                        'content': (
-                            f"The user wants to write code to the file: {target_file}. "
-                            f"Generate {lang} code in a code block that will be automatically written to this file. "
-                            "Provide complete, working code that can be directly written to the file."
-                        )
-                    })
-
-                # If user asks to run/execute code, instruct LLM not to predict output
-                run_keywords = ['run', 'execute', 'exec']
-                if any(keyword in clean_user_input.lower() for keyword in run_keywords):
-                    system_messages_to_inject.append({
-                        'role': 'system',
-                        'content': (
-                            "The user wants to execute code. Provide ONLY the code in a code block. "
-                            "Do NOT predict, guess, or show what the output will be. "
-                            "The code will be automatically executed and the real output will be displayed to the user."
-                        )
-                    })
-
-                # Inject session context if available
-                if session_context:
-                    system_messages_to_inject.append({
-                        'role': 'system',
-                        'content': session_context
-                    })
-
-                # Add guidance if available
+                # Display guidance if available (for debugging)
                 if guidance:
-                    system_messages_to_inject.append({
-                        'role': 'system',
-                        'content': guidance
-                    })
                     debug_print(guidance, icon="🧠", style="magenta")
 
                 # Inject all system messages before the last user message
@@ -1802,7 +1738,10 @@ Ensure all imports are correct, syntax is valid, and the code runs without error
 
                 # Check for code and offer to execute or write to file
                 try:
-                    if has_action and (at_context['files'] or at_context['non_existing']):
+                    # Re-detect file actions for post-response handling
+                    action_result = detect_file_actions(clean_user_input, at_context, config)
+                    
+                    if action_result['has_action'] and (at_context['files'] or at_context['non_existing']):
                         # Handle file modifications (refactor, update, create, etc.)
                         mod_result = run_async(handle_file_modifications(
                             mcp_client,
