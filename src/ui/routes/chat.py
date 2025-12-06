@@ -366,13 +366,29 @@ def send_message():
         
         # Extract @ prefixed file/directory paths for file action detection
         at_context = extract_at_context(message, working_dir)
-        
+
         # Build injected context parts from file_contents (UI uploads)
         injected_context_parts = []
         if file_contents:
             for filename, content in file_contents.items():
                 injected_context_parts.append(f"File: {filename}\n```\n{content}\n```")
-        
+
+        # Load contents of @ referenced files (matching CLI behavior)
+        # This ensures the LLM has full context when editing files
+        session_id = session_manager.get_session_id() if session_manager.is_active() else None
+
+        for file_path in at_context['files']:
+            try:
+                # Load file content by reading from filesystem
+                full_path = os.path.join(working_dir, file_path) if not os.path.isabs(file_path) else file_path
+                if os.path.exists(full_path):
+                    with open(full_path, 'r', encoding='utf-8') as f:
+                        file_content = f.read()
+                        injected_context_parts.append(f"File: {file_path}\n```\n{file_content}\n```")
+            except Exception as e:
+                # Log but don't fail - continue with other files
+                capture_exception(e)
+
         # Build system messages using shared file action handler
         system_messages = build_system_messages(
             at_context=at_context,
