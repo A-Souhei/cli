@@ -1,6 +1,5 @@
 """Tests for file action handler."""
 
-import pytest
 from src.utils.file_action_handler import (
     detect_file_actions,
     generate_file_modification_instructions,
@@ -84,6 +83,28 @@ class TestFileActionDetection:
 
         assert result['has_action'] is True
         assert 'base.py' in result['files_to_create']
+
+    def test_create_pattern_preserves_case(self):
+        """Test that file paths preserve original case."""
+        config = ConfigManager()
+        at_context = {'files': [], 'non_existing': [], 'directories': []}
+        user_input = "create MyFile.py file"
+
+        result = detect_file_actions(user_input, at_context, config)
+
+        assert result['has_action'] is True
+        assert 'MyFile.py' in result['files_to_create']
+
+    def test_create_pattern_uppercase_extension(self):
+        """Test that uppercase extensions are preserved."""
+        config = ConfigManager()
+        at_context = {'files': [], 'non_existing': [], 'directories': []}
+        user_input = "create test.R file"
+
+        result = detect_file_actions(user_input, at_context, config)
+
+        assert result['has_action'] is True
+        assert 'test.R' in result['files_to_create']
 
 
 class TestInstructionGeneration:

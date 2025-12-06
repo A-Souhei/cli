@@ -41,7 +41,7 @@ def detect_file_actions(
     # Look for additional files mentioned in create patterns
     if 'create' in user_input_lower:
         create_pattern = r'create\s+((?:[\w/]+/)?[\w.]+\.(?:py|r|R))'
-        create_matches = re.findall(create_pattern, user_input_lower)
+        create_matches = re.findall(create_pattern, user_input, re.IGNORECASE)
         for matched_file in create_matches:
             if matched_file not in all_files_to_create and matched_file not in all_files_to_modify:
                 all_files_to_create.append(matched_file)

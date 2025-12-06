@@ -375,8 +375,6 @@ def send_message():
 
         # Load contents of @ referenced files (matching CLI behavior)
         # This ensures the LLM has full context when editing files
-        session_id = session_manager.get_session_id() if session_manager.is_active() else None
-
         for file_path in at_context['files']:
             try:
                 # Load file content by reading from filesystem
@@ -387,6 +385,26 @@ def send_message():
                         injected_context_parts.append(f"File: {file_path}\n```\n{file_content}\n```")
             except Exception as e:
                 # Log but don't fail - continue with other files
+                capture_exception(e)
+
+        # Also load contents of @ referenced directories (matching CLI behavior)
+        for dir_path in at_context.get('directories', []):
+            try:
+                # Resolve full directory path
+                full_dir_path = os.path.join(working_dir, dir_path) if not os.path.isabs(dir_path) else dir_path
+                if os.path.exists(full_dir_path) and os.path.isdir(full_dir_path):
+                    for root, _, files in os.walk(full_dir_path):
+                        for fname in files:
+                            file_path = os.path.join(root, fname)
+                            # Compute relative path for display
+                            rel_path = os.path.relpath(file_path, working_dir)
+                            try:
+                                with open(file_path, 'r', encoding='utf-8') as f:
+                                    file_content = f.read()
+                                    injected_context_parts.append(f"File: {rel_path}\n```\n{file_content}\n```")
+                            except Exception as e:
+                                capture_exception(e)
+            except Exception as e:
                 capture_exception(e)
 
         # Build system messages using shared file action handler
