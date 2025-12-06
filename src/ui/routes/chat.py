@@ -85,6 +85,7 @@ from src.session.title_generator import SessionTitleGenerator
 from src.mcp import MCPClient
 from src.file_completer import extract_at_context
 from src.utils.file_action_handler import build_system_messages, detect_file_actions
+from src.utils.code_handlers import handle_file_modifications
 
 chat_bp = Blueprint('chat', __name__)
 
@@ -300,6 +301,20 @@ def get_ollama_client():
     return OllamaClient(host=host, model=model, timeout=timeout), config
 
 
+def get_mcp_client():
+    """Get or create an MCP client instance for UI file operations."""
+    current_file = Path(__file__)
+    project_root = current_file.parent.parent.parent.parent
+    system_mcps_dir = project_root / 'system_mcps'
+    postgres_url = os.getenv('POSTGRES_API_URL', 'http://localhost:15000')
+
+    return MCPClient(
+        system_mcps_dir=system_mcps_dir,
+        postgres_url=postgres_url,
+        verbose=False
+    )
+
+
 @chat_bp.route('/send', methods=['GET', 'POST'])
 def send_message():
     """
@@ -410,19 +425,27 @@ def send_message():
             
             # Check for file modification actions and process them
             action_result = detect_file_actions(message, at_context, config)
-            
+
             if action_result['has_action'] and (action_result['files_to_modify'] or action_result['files_to_create']):
-                # TODO: Full MCP integration for file modifications in UI
-                # For now, we inform the user that file modifications were detected
-                # Future enhancement: Integrate async MCP handling similar to CLI
+                # Execute file modifications using MCP
                 try:
+                    # Execute file modifications asynchronously
+                    mod_result = run_async(_handle_file_modifications_async(
+                        response_text=content,
+                        files_to_modify=action_result['files_to_modify'],
+                        files_to_create=action_result['files_to_create'],
+                        working_dir=working_dir
+                    ))
+
                     modification_info = {
                         'detected': True,
                         'files_to_modify': action_result['files_to_modify'],
                         'files_to_create': action_result['files_to_create'],
-                        'message': 'File modification actions detected. Use CLI for full file modification support.'
+                        'modified': mod_result.get('modified', []),
+                        'created': mod_result.get('created', []),
+                        'errors': mod_result.get('errors', [])
                     }
-                    
+
                     return jsonify({
                         'status': 'success',
                         'response': content,
@@ -1921,6 +1944,54 @@ Start your response with the ``` marker immediately. No text before the code blo
     except Exception as e:
         capture_exception(e)
         return (None, model_name_used)
+
+
+async def _handle_file_modifications_async(response_text: str, files_to_modify: list,
+                                            files_to_create: list, working_dir: str):
+    """
+    Handle file modifications asynchronously using MCP.
+
+    Args:
+        response_text: The LLM response text containing file modifications
+        files_to_modify: List of existing files to modify
+        files_to_create: List of new files to create
+        working_dir: The working directory
+
+    Returns:
+        Dict with results for each file (modified, created, errors)
+    """
+    # Create a fresh MCP client in this async context
+    current_file = Path(__file__)
+    project_root = current_file.parent.parent.parent.parent
+    system_mcps_dir = project_root / 'system_mcps'
+    postgres_url = os.getenv('POSTGRES_API_URL', 'http://localhost:15000')
+
+    mcp_client = MCPClient(
+        system_mcps_dir=system_mcps_dir,
+        postgres_url=postgres_url,
+        verbose=False
+    )
+
+    try:
+        # Pre-start the coder MCP server
+        await mcp_client.start_server('coder')
+
+        # Call the shared file modification handler
+        results = await handle_file_modifications(
+            mcp_client=mcp_client,
+            response_text=response_text,
+            files_to_modify=files_to_modify,
+            files_to_create=files_to_create,
+            get_working_dir_func=lambda: working_dir,
+            console=None,  # UI doesn't use rich console
+            debug_print_func=None  # UI doesn't need debug prints
+        )
+
+        return results
+
+    finally:
+        # Cleanup the MCP client
+        await mcp_client.cleanup()
 
 
 def _format_execution_response(execution_results: list) -> str:
