@@ -809,18 +809,19 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="verify_file_modifications",
             description=(
-                "Verify file modifications by running one of the modified files. "
-                "This tool takes a list of files that were created or modified and runs one of them "
-                "to verify that the changes are syntactically correct and logically coherent. "
-                "It's useful after refactoring operations to ensure no import errors, syntax errors, "
-                "or runtime issues were introduced. Returns execution output (stdout/stderr/exit_code)."
+                "Verify file syntax without executing the code. "
+                "For Python files, uses 'python -m py_compile' to check for syntax errors. "
+                "For R files, uses 'parse()' to validate syntax. "
+                "This is useful after creating or modifying files to ensure they have valid syntax "
+                "without running potentially dangerous or time-consuming code. "
+                "Returns verification status (passed/failed) and any syntax error messages."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "file_path": {
                         "type": "string",
-                        "description": "Path to the file to run for verification (must be .py, .r, or .R)"
+                        "description": "Path to the file to verify (must be .py, .r, or .R)"
                     },
                     "working_dir": {
                         "type": "string",
@@ -1349,48 +1350,71 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
         except Exception as e:
             return [TextContent(type="text", text=f"Error reading file: {str(e)}")]
 
-        # Determine language and execute the file directly
+        # Determine language and verify the file
         try:
             if file_path.endswith('.py'):
-                # Run Python file directly
+                # Use py_compile to check Python syntax without executing
                 python_bin = find_cli_venv()
                 result = subprocess.run(
-                    [python_bin, full_path],
+                    [python_bin, "-m", "py_compile", full_path],
                     capture_output=True,
                     text=True,
                     cwd=working_dir,
                     timeout=30
                 )
 
-                return [TextContent(type="text", text=json.dumps({
-                    "status": "success",
-                    "file_path": file_path,
-                    "language": "python",
-                    "stdout": result.stdout,
-                    "stderr": result.stderr,
-                    "exit_code": result.returncode,
-                    "verification": "passed" if result.returncode == 0 else "failed"
-                }, indent=2))]
+                if result.returncode == 0:
+                    return [TextContent(type="text", text=json.dumps({
+                        "status": "success",
+                        "file_path": file_path,
+                        "language": "python",
+                        "stdout": "✓ Syntax OK",
+                        "stderr": "",
+                        "exit_code": 0,
+                        "verification": "passed"
+                    }, indent=2))]
+                else:
+                    return [TextContent(type="text", text=json.dumps({
+                        "status": "error",
+                        "file_path": file_path,
+                        "language": "python",
+                        "stdout": result.stdout,
+                        "stderr": result.stderr,
+                        "exit_code": result.returncode,
+                        "verification": "failed"
+                    }, indent=2))]
 
             elif file_path.endswith(('.r', '.R')):
-                # Run R file directly
+                # Use R's parse() to check syntax without executing
+                # parse(file) will fail if there are syntax errors
                 result = subprocess.run(
-                    ["Rscript", full_path],
+                    ["Rscript", "-e", f"parse('{full_path}'); cat('✓ Syntax OK\\n')"],
                     capture_output=True,
                     text=True,
                     cwd=working_dir,
                     timeout=30
                 )
 
-                return [TextContent(type="text", text=json.dumps({
-                    "status": "success",
-                    "file_path": file_path,
-                    "language": "r",
-                    "stdout": result.stdout,
-                    "stderr": result.stderr,
-                    "exit_code": result.returncode,
-                    "verification": "passed" if result.returncode == 0 else "failed"
-                }, indent=2))]
+                if result.returncode == 0:
+                    return [TextContent(type="text", text=json.dumps({
+                        "status": "success",
+                        "file_path": file_path,
+                        "language": "r",
+                        "stdout": "✓ Syntax OK",
+                        "stderr": "",
+                        "exit_code": 0,
+                        "verification": "passed"
+                    }, indent=2))]
+                else:
+                    return [TextContent(type="text", text=json.dumps({
+                        "status": "error",
+                        "file_path": file_path,
+                        "language": "r",
+                        "stdout": result.stdout,
+                        "stderr": result.stderr,
+                        "exit_code": result.returncode,
+                        "verification": "failed"
+                    }, indent=2))]
         except subprocess.TimeoutExpired:
             return [TextContent(type="text", text=json.dumps({
                 "status": "error",
