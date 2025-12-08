@@ -14,7 +14,7 @@ def handle_mcp_tools(console, user_input_normalized, run_async, get_mcp_tools):
         console.print("❌ [red]Usage: /mcp-tools <mcp_name>[/red]\n")
     else:
         try:
-            run_async(get_mcp_tools(mcp_name))
+            run_async(get_mcp_tools(mcp_name, console=console))
         except Exception as e:
             console.print(f"❌ [red]Error: {e}[/red]\n")
     return True  # Continue the loop
