@@ -93,6 +93,7 @@ from src.utils.file_action_handler import (
 # Import CLI modules
 from src.cli.initialization import CLIInitializer
 from src.cli.dispatcher import CommandDispatcher
+from src.cli.commands.make import parse_makemap_file, find_all_matching_commands, handle_make_execute
 
 # Apply nest_asyncio once globally to allow nested event loops
 import nest_asyncio
@@ -307,6 +308,29 @@ def main(verbose=False):
                         combined_completer = updated_completer
                     continue
                 # elif dispatch_result is False: command not recognized, continue to handle below
+
+                # Auto-detect make commands from normal prompts if .makemap is loaded
+                # Skip if input looks like a command (starts with common command prefixes)
+                if not user_input.startswith('/') and not user_input.startswith(':'):
+                    makemap_file_path = os.path.join(get_user_working_dir(), '.makemap')
+                    if os.path.exists(makemap_file_path):
+                        # Parse makemap and try to match the prompt
+                        makemap_commands = parse_makemap_file(makemap_file_path)
+                        if makemap_commands:
+                            matches = find_all_matching_commands(user_input, makemap_commands, min_score=8)
+                            if matches:
+                                debug_print(f"Auto-detected make command match: {matches[0]['command']} (score: {matches[0]['score']})", icon="🔧", style="cyan")
+                                # Treat as a /make command
+                                make_input = f"make {user_input}"
+                                result = handle_make_execute(
+                                    console, make_input, llm_checker,
+                                    get_user_working_dir, session_manager, config,
+                                    ollama_client, mcp_client, model_registry,
+                                    stream, temperature, run_async, debug_print,
+                                    verbose, CustomMarkdown
+                                )
+                                if result:
+                                    continue
 
                 # Handle /repomap create command
                 if user_input_normalized.lower() == 'repomap create':

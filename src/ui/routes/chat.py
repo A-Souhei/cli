@@ -357,6 +357,19 @@ def send_message():
         if not session_manager.is_active():
             session_manager.start_session(working_dir=working_dir)
         
+        # Auto-detect make commands from normal prompts if .makemap exists
+        # Skip if input looks like a command (starts with common command prefixes)
+        if not message.startswith('/') and not message.startswith(':'):
+            makemap_file_path = os.path.join(working_dir, '.makemap')
+            if os.path.exists(makemap_file_path):
+                from src.cli.commands.make import parse_makemap_file, find_all_matching_commands
+                makemap_commands = parse_makemap_file(makemap_file_path)
+                if makemap_commands:
+                    matches = find_all_matching_commands(message, makemap_commands, min_score=8)
+                    if matches:
+                        # Treat as a /make command - redirect to handle_make_command
+                        return handle_make_command(message)
+        
         # Get client and config
         client, config = get_ollama_client()
         
