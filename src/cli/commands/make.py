@@ -735,11 +735,37 @@ def handle_make_execute(console, user_input_normalized, llm_checker, get_user_wo
     console.print(f"[green]✓ Matched:[/green] [bold]{command}[/bold]")
     console.print(f"[dim]  Description: {description}[/dim]\n")
 
+    # Check if this is a streaming command (logs, tail, watch, etc.)
+    is_streaming = is_streaming_command(command)
+
     # Execute the command
-    console.print(f"[cyan]🔧 Executing: {command}[/cyan]\n")
+    console.print(f"[cyan]🔧 Executing: {command}[/cyan]")
+    if is_streaming:
+        console.print(f"[dim](streaming command - press Ctrl+C to stop)[/dim]")
+    console.print()
 
     try:
-        # Run the make command
+        if is_streaming:
+            # For streaming commands, run without capture - stream directly to terminal
+            # User can press Ctrl+C to stop
+            try:
+                result = subprocess.run(
+                    command,
+                    shell=True,
+                    cwd=get_user_working_dir(),
+                    # Don't capture output - let it stream to terminal
+                    capture_output=False,
+                    text=True
+                    # No timeout - runs until user cancels
+                )
+                exit_code = result.returncode
+                console.print(f"\n[dim]─── Stream ended (exit: {exit_code}) ───[/dim]")
+                return True
+            except KeyboardInterrupt:
+                console.print(f"\n[yellow]⚠️  Streaming stopped by user[/yellow]")
+                return True
+        
+        # Normal command - capture output
         result = subprocess.run(
             command,
             shell=True,
