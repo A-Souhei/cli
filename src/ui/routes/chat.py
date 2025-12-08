@@ -1411,10 +1411,15 @@ def handle_makemap_update():
 
 
 def handle_make_command(prompt: str):
-    """Handle /make <prompt> command - execute make commands using natural language."""
+    """Handle /make <prompt> command - execute make commands using natural language.
+    
+    Uses .makemap for command matching similar to CLI implementation.
+    """
     from src.utils.makemap import find_makefile, parse_makefile, get_target_names, generate_makemap_prompt, load_makemap_to_context
-    from src.utils.tree import generate_tree
+    from src.cli.commands.make import parse_makemap_file, find_matching_command, find_all_matching_commands
     import json as json_module
+    import subprocess
+    import re
 
     try:
         working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
@@ -1438,123 +1443,143 @@ def handle_make_command(prompt: str):
                 'message': f"❌ No Makefile found in: `{working_dir}`\n\nThis command requires a Makefile to exist in the working directory."
             }), 400
 
-        # Get session manager and MCP client
-        session_manager = get_session_manager()
-        mcp_client = get_mcp_client()
-
-        # Auto-start session if not active
-        if not session_manager.is_active():
-            session_manager.start_session(working_dir=working_dir)
-
-        session_id = session_manager.get_session_id()
-
-        # Auto-generate .makemap if it doesn't exist
+        # Check for .makemap file
         makemap_file_path = os.path.join(working_dir, '.makemap')
-
+        
         if not os.path.exists(makemap_file_path):
-            try:
-                parsed = parse_makefile(str(makefile_path))
-                if 'error' not in parsed:
-                    tree_output = generate_tree(working_dir, max_depth=3)
-                    makemap_prompt = generate_makemap_prompt(parsed, tree_output=tree_output)
-
-                    full_response = _call_llm_for_map(
-                        prompt=makemap_prompt,
-                        system_msg='You are a build system expert. Create comprehensive documentation for Makefiles.'
+            return jsonify({
+                'status': 'error',
+                'message': f"❌ No `.makemap` file found.\n\nUse `/make map generate` to create a make map first."
+            }), 400
+        
+        # Parse .makemap to get commands
+        commands = parse_makemap_file(makemap_file_path)
+        
+        if not commands:
+            return jsonify({
+                'status': 'error',
+                'message': "❌ No commands found in `.makemap`. Try regenerating with `/make map generate`."
+            }), 400
+        
+        # Find all matching commands with min_score=8
+        all_matches = find_all_matching_commands(prompt, commands, min_score=8)
+        
+        if not all_matches:
+            # Fallback: try lower threshold
+            all_matches = find_all_matching_commands(prompt, commands, min_score=3)
+            
+        if not all_matches:
+            # Show available commands
+            available = '\n'.join([f"• `{cmd['command']}` - {cmd['description']}" for cmd in commands[:10]])
+            return jsonify({
+                'status': 'error',
+                'message': f"❌ No matching command found for: **{prompt}**\n\n**Available commands:**\n{available}"
+            }), 400
+        
+        # Determine if single match or tourniquet (multiple matches)
+        results = []
+        
+        if len(all_matches) > 1 and all_matches[0]['score'] - all_matches[1]['score'] < 5:
+            # Multiple close matches - run all of them (tourniquet)
+            matches_text = '\n'.join([f"• `{m['command']}` (score: {m['score']}) - {m['description']}" for m in all_matches[:5]])
+            response_parts = [f"🎰 **Tourniquet: Found {len(all_matches)} matching commands**\n\n{matches_text}\n"]
+            
+            for i, match in enumerate(all_matches[:5], 1):  # Limit to 5 commands
+                command = match['command']
+                description = match['description']
+                
+                response_parts.append(f"\n---\n### Step {i}: `{command}`\n*{description}*\n")
+                
+                try:
+                    result = subprocess.run(
+                        command,
+                        shell=True,
+                        cwd=working_dir,
+                        capture_output=True,
+                        text=True,
+                        timeout=60  # Shorter timeout for UI
                     )
-
-                    makemap_content = f"""# Make Map
-
-## Directory Tree
-
-```
-{tree_output}
-```
-
-{full_response}
-"""
-                    with open(makemap_file_path, 'w', encoding='utf-8') as f:
-                        f.write(makemap_content)
-            except Exception:
-                pass  # Continue without makemap
-
-        # Load .makemap into context if exists
-        makemap_loaded_key = f'makemap_loaded_{makemap_file_path}'
-        if os.path.exists(makemap_file_path) and not session_manager.session_metadata.get(makemap_loaded_key):
+                    
+                    stdout = result.stdout or ''
+                    stderr = result.stderr or ''
+                    exit_code = result.returncode
+                    
+                    # Strip ANSI codes
+                    ansi_pattern = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+                    stdout = ansi_pattern.sub('', stdout)
+                    stderr = ansi_pattern.sub('', stderr)
+                    
+                    if exit_code == 0:
+                        response_parts.append(f"✅ **Success** (exit: {exit_code})\n")
+                    else:
+                        response_parts.append(f"❌ **Failed** (exit: {exit_code})\n")
+                    
+                    if stdout:
+                        output_preview = stdout[:1000]
+                        if len(stdout) > 1000:
+                            output_preview += '\n... (truncated)'
+                        response_parts.append(f"```\n{output_preview}\n```\n")
+                    
+                    if stderr and exit_code != 0:
+                        error_preview = stderr[:500]
+                        response_parts.append(f"**Errors:**\n```\n{error_preview}\n```\n")
+                    
+                    results.append({'command': command, 'exit_code': exit_code})
+                    
+                except subprocess.TimeoutExpired:
+                    response_parts.append(f"⚠️ **Timed out** after 60s\n")
+                    results.append({'command': command, 'exit_code': -1})
+                except Exception as e:
+                    response_parts.append(f"❌ **Error:** {str(e)}\n")
+                    results.append({'command': command, 'exit_code': -1})
+            
+            # Summary
+            successful = sum(1 for r in results if r['exit_code'] == 0)
+            response_parts.append(f"\n---\n### Summary\n✅ Successful: {successful}/{len(results)}")
+            
+            return jsonify({
+                'status': 'success' if successful == len(results) else 'partial',
+                'response': ''.join(response_parts)
+            })
+        
+        else:
+            # Single match - execute directly
+            match = all_matches[0]
+            command = match['command']
+            description = match['description']
+            
             try:
-                run_async(load_makemap_to_context(
-                    mcp_client,
-                    '.makemap',
-                    working_dir,
-                    session_id
-                ))
-                session_manager.session_metadata[makemap_loaded_key] = True
-            except Exception:
-                pass
-
-        # Parse Makefile to get valid targets
-        parsed = parse_makefile(str(makefile_path))
-        valid_targets = get_target_names(parsed)
-
-        # Try to find matching target in the prompt
-        target = ''
-        prompt_lower = prompt.lower()
-        for t in valid_targets:
-            if t.lower() in prompt_lower:
-                target = t
-                break
-
-        # If no direct match, try common mappings
-        if not target:
-            common_mappings = {
-                'test': 'test',
-                'tests': 'test',
-                'build': 'build',
-                'clean': 'clean',
-                'run': 'run',
-                'install': 'install',
-                'setup': 'setup',
-                'help': 'help',
-                'start': 'run',
-                'deploy': 'deploy',
-            }
-            for word, mapped_target in common_mappings.items():
-                if word in prompt_lower and mapped_target in valid_targets:
-                    target = mapped_target
-                    break
-
-        # Execute make command via MCP
-        make_result = run_async(mcp_client.call_tool(
-            'coder',
-            'run_make',
-            {
-                'target': target,
-                'args': '',
-                'working_dir': working_dir
-            }
-        ))
-
-        if make_result:
-            try:
-                result_data = json_module.loads(make_result)
-                status = result_data.get('status', 'unknown')
-                stdout = result_data.get('stdout', '')
-                stderr = result_data.get('stderr', '')
-                exit_code = result_data.get('exit_code', -1)
-                command = result_data.get('command', f'make {target}')
-
-                # Build response
-                if status == 'success':
+                result = subprocess.run(
+                    command,
+                    shell=True,
+                    cwd=working_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=300  # 5 minute timeout
+                )
+                
+                stdout = result.stdout or ''
+                stderr = result.stderr or ''
+                exit_code = result.returncode
+                
+                # Strip ANSI codes
+                ansi_pattern = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+                stdout = ansi_pattern.sub('', stdout)
+                stderr = ansi_pattern.sub('', stderr)
+                
+                if exit_code == 0:
                     response = f'''✅ **Make command succeeded!**
 
-📌 Command: `{command}`
+📌 **Matched:** `{command}`
+📝 *{description}*
 📊 Exit code: **{exit_code}**'''
                 else:
                     response = f'''❌ **Make command failed!**
 
-📌 Command: `{command}`
+📌 **Matched:** `{command}`
+📝 *{description}*
 📊 Exit code: **{exit_code}**'''
-
+                
                 if stdout:
                     output_preview = stdout[:2000]
                     if len(stdout) > 2000:
@@ -1565,7 +1590,7 @@ def handle_make_command(prompt: str):
 ```
 {output_preview}
 ```'''
-
+                
                 if stderr:
                     error_preview = stderr[:1000]
                     if len(stderr) > 1000:
@@ -1576,22 +1601,17 @@ def handle_make_command(prompt: str):
 ```
 {error_preview}
 ```'''
-
+                
                 return jsonify({
-                    'status': 'success' if status == 'success' else 'error',
+                    'status': 'success' if exit_code == 0 else 'error',
                     'response': response
                 })
-
-            except json_module.JSONDecodeError:
+                
+            except subprocess.TimeoutExpired:
                 return jsonify({
-                    'status': 'success',
-                    'response': f'**Make output:**\n```\n{make_result[:2000]}\n```'
-                })
-        else:
-            return jsonify({
-                'status': 'error',
-                'message': '⚠️ No result from make command'
-            }), 400
+                    'status': 'error',
+                    'message': f'⚠️ Command `{command}` timed out after 5 minutes'
+                }), 504
 
     except Exception as e:
         capture_exception(e)

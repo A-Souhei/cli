@@ -105,6 +105,35 @@
                     <span>MCPs</span>
                 </button>
                 
+                <!-- Make Commands -->
+                <div class="relative flex-shrink-0" id="make-dropdown">
+                    <button id="make-btn" class="btn btn-secondary btn-sm gap-1 whitespace-nowrap">
+                        <svg class="w-3.5 h-3.5 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                        </svg>
+                        <span>Make</span>
+                        <svg class="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+                    <div id="make-menu" data-dropdown-menu class="hidden dropdown-menu z-50 py-1 min-w-[180px]">
+                        <button class="make-action dropdown-item w-full text-left flex items-center gap-2" data-action="generate">
+                            <span class="text-emerald-500">📦</span> Generate Map
+                        </button>
+                        <button class="make-action dropdown-item w-full text-left flex items-center gap-2" data-action="load">
+                            <span class="text-primary-400">📂</span> Load Map
+                        </button>
+                        <button class="make-action dropdown-item w-full text-left flex items-center gap-2" data-action="update">
+                            <span class="text-amber-500">🔄</span> Update Map
+                        </button>
+                        <hr class="my-1 border-surface-200 dark:border-surface-700">
+                        <button class="make-action dropdown-item w-full text-left flex items-center gap-2" data-action="prompt">
+                            <span class="text-rose-500">▶</span> Run Command...
+                        </button>
+                    </div>
+                </div>
+                
                 <!-- Attach File -->
                 <button id="attach-btn" class="btn btn-secondary btn-sm gap-1 flex-shrink-0 whitespace-nowrap" title="Attach file with @ prefix">
                     <svg class="w-3.5 h-3.5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -190,6 +219,31 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                     </svg>
                     Execute
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Make Command Modal -->
+    <div id="make-modal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+        <div class="card p-5 w-full max-w-xl mx-4">
+            <h3 class="text-base font-semibold dark:text-white text-surface-900 mb-1 flex items-center gap-2">
+                <svg class="w-4 h-4 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                </svg>
+                Make Command
+            </h3>
+            <p class="dark:text-surface-400 text-surface-500 text-xs mb-3">Describe what make command to run</p>
+            <textarea id="make-prompt-input" class="input w-full resize-none font-mono text-sm" rows="2" placeholder="Example: run the tests, show help, build the project"></textarea>
+            <div class="flex justify-end gap-2 mt-4">
+                <button id="make-cancel" class="btn btn-secondary btn-sm">Cancel</button>
+                <button id="make-execute" class="btn btn-primary btn-sm">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    Run
                 </button>
             </div>
         </div>
@@ -328,6 +382,10 @@
     const datamapBtn = document.getElementById('datamap-btn');
     const datamapMenu = document.getElementById('datamap-menu');
     
+    // Make elements
+    const makeBtn = document.getElementById('make-btn');
+    const makeMenu = document.getElementById('make-menu');
+    
     // Other buttons
     const codeBtn = document.getElementById('code-btn');
     const modelsBtn = document.getElementById('models-btn');
@@ -344,6 +402,10 @@
     const attachPath = document.getElementById('attach-path');
     const attachCancel = document.getElementById('attach-cancel');
     const attachInsert = document.getElementById('attach-insert');
+    const makeModal = document.getElementById('make-modal');
+    const makePromptInput = document.getElementById('make-prompt-input');
+    const makeCancel = document.getElementById('make-cancel');
+    const makeExecute = document.getElementById('make-execute');
     
     let isProcessing = false;
     let sessionActive = false;
@@ -409,6 +471,12 @@
         e.stopPropagation();
         e.preventDefault();
         toggleDropdown(datamapBtn, datamapMenu);
+    });
+
+    makeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        toggleDropdown(makeBtn, makeMenu);
     });
 
     document.addEventListener('click', hideAllDropdowns);
@@ -478,6 +546,31 @@
         });
     });
     
+    // ========== Make Actions ==========
+    document.querySelectorAll('.make-action').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const action = btn.dataset.action;
+            makeMenu.classList.add('hidden');
+            
+            switch(action) {
+                case 'generate':
+                    await executeCommand('/make map generate');
+                    break;
+                case 'load':
+                    await executeCommand('/make map load');
+                    break;
+                case 'update':
+                    await executeCommand('/make map update');
+                    break;
+                case 'prompt':
+                    // Show the make prompt modal
+                    makeModal.classList.remove('hidden');
+                    makePromptInput.focus();
+                    break;
+            }
+        });
+    });
+    
     // ========== Code Modal ==========
     codeBtn.addEventListener('click', () => {
         codeModal.classList.remove('hidden');
@@ -495,6 +588,34 @@
             codeModal.classList.add('hidden');
             await executeCommand('/code ' + prompt);
             codePrompt.value = '';
+        }
+    });
+    
+    // ========== Make Modal ==========
+    makeCancel.addEventListener('click', () => {
+        makeModal.classList.add('hidden');
+        makePromptInput.value = '';
+    });
+    
+    makeExecute.addEventListener('click', async () => {
+        const prompt = makePromptInput.value.trim();
+        if (prompt) {
+            makeModal.classList.add('hidden');
+            await executeCommand('/make ' + prompt);
+            makePromptInput.value = '';
+        }
+    });
+    
+    // Enter key to submit make prompt
+    makePromptInput.addEventListener('keydown', async (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            const prompt = makePromptInput.value.trim();
+            if (prompt) {
+                makeModal.classList.add('hidden');
+                await executeCommand('/make ' + prompt);
+                makePromptInput.value = '';
+            }
         }
     });
     
