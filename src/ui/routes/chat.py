@@ -1555,6 +1555,13 @@ def handle_make_command(prompt: str):
             command = match['command']
             description = match['description']
             
+            # Check if this is a streaming command (logs, tail, watch, etc.)
+            streaming_keywords = {'logs', 'tail', 'watch', 'follow'}
+            is_streaming = any(kw in command.lower() for kw in streaming_keywords)
+            
+            # Use shorter timeout for streaming commands in UI
+            timeout = 10 if is_streaming else 300
+            
             try:
                 result = subprocess.run(
                     command,
@@ -1562,7 +1569,7 @@ def handle_make_command(prompt: str):
                     cwd=working_dir,
                     capture_output=True,
                     text=True,
-                    timeout=300  # 5 minute timeout
+                    timeout=timeout
                 )
                 
                 stdout = result.stdout or ''
@@ -1614,11 +1621,49 @@ def handle_make_command(prompt: str):
                     'response': response
                 })
                 
-            except subprocess.TimeoutExpired:
-                return jsonify({
-                    'status': 'error',
-                    'message': f'⚠️ Command `{command}` timed out after 5 minutes'
-                }), 504
+            except subprocess.TimeoutExpired as e:
+                # For streaming commands, timeout is expected - show partial output
+                if is_streaming:
+                    stdout_partial = ''
+                    stderr_partial = ''
+                    if hasattr(e, 'stdout') and e.stdout:
+                        stdout_partial = e.stdout.decode('utf-8', errors='replace') if isinstance(e.stdout, bytes) else str(e.stdout)
+                    if hasattr(e, 'stderr') and e.stderr:
+                        stderr_partial = e.stderr.decode('utf-8', errors='replace') if isinstance(e.stderr, bytes) else str(e.stderr)
+                    
+                    # Strip ANSI codes
+                    ansi_pattern = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+                    stdout_partial = ansi_pattern.sub('', stdout_partial)
+                    stderr_partial = ansi_pattern.sub('', stderr_partial)
+                    
+                    response = f'''✅ **Streaming command captured** (first {timeout}s)
+
+📌 **Matched:** `{command}`
+📝 *{description}*
+⏱️ *Streaming command - showing first {timeout} seconds of output*'''
+                    
+                    if stdout_partial:
+                        output_preview = stdout_partial[:2000]
+                        if len(stdout_partial) > 2000:
+                            output_preview += '\n... (truncated)'
+                        response += f'''
+
+**Output:**
+```
+{output_preview}
+```'''
+                    else:
+                        response += '\n\n*(no output captured)*'
+                    
+                    return jsonify({
+                        'status': 'success',
+                        'response': response
+                    })
+                else:
+                    return jsonify({
+                        'status': 'error',
+                        'message': f'⚠️ Command `{command}` timed out after 5 minutes'
+                    }), 504
 
     except Exception as e:
         capture_exception(e)
