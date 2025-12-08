@@ -25,6 +25,7 @@ categories:
       - add_file_context
       - add_directory_context
       - verify_file_modifications
+      - run_make
 
   meta:
     description: "Meta tools that orchestrate other tools"
@@ -40,10 +41,16 @@ categories:
       - add_directory_context
 
   execution:
-    description: "Tools that execute code"
+    description: "Tools that execute code or commands"
     tools:
       - run_python_code
       - run_r_code
+      - run_make
+
+  make_execution:
+    description: "Tools for running make commands"
+    tools:
+      - run_make
 
   file_write:
     description: "Tools that write files"
@@ -116,3 +123,8 @@ tools:
   spin_the_roulette:
     requires_llm_generation: false
     is_meta: true
+
+  run_make:
+    requires_llm_generation: false
+    executes_command: true
+    no_confirmation: true

@@ -17,6 +17,10 @@ from src.cli.commands.model import (
     handle_models_alias, handle_models_list, handle_switch_model,
     handle_model_commands
 )
+from src.cli.commands.make import (
+    handle_make_map_generate, handle_make_map_load,
+    handle_make_map_update, handle_make_execute
+)
 
 
 class CommandDispatcher:
@@ -36,7 +40,7 @@ class CommandDispatcher:
                  get_user_working_dir, set_user_working_dir, run_async,
                  debug_print, InteractiveSelector, CombinedCompleter,
                  list_system_mcps, get_mcp_tools, WorkingDirectoryMismatchError,
-                 verbose=False):
+                 verbose=False, stream=False, temperature=0.7, CustomMarkdown=None):
         """Initialize the command dispatcher with necessary dependencies."""
         self.console = console
         self.config = config
@@ -57,6 +61,9 @@ class CommandDispatcher:
         self.get_mcp_tools = get_mcp_tools
         self.WorkingDirectoryMismatchError = WorkingDirectoryMismatchError
         self.verbose = verbose
+        self.stream = stream
+        self.temperature = temperature
+        self.CustomMarkdown = CustomMarkdown
         self.combined_completer = None
     
     def dispatch(self, user_input_normalized):
@@ -151,6 +158,39 @@ class CommandDispatcher:
             return handle_model_commands(self.console, user_input_normalized,
                                         self.model_registry, self.llm_checker,
                                         self.config, self.transformer_url)
+        
+        # Handle /make map generate command
+        if user_input_normalized.lower().startswith('make map generate'):
+            return handle_make_map_generate(
+                self.console, user_input_normalized, self.llm_checker,
+                self.get_user_working_dir, self.config, self.ollama_client,
+                self.stream, self.temperature, self.verbose, self.CustomMarkdown
+            )
+        
+        # Handle /make map load command
+        if user_input_normalized.lower() == 'make map load':
+            return handle_make_map_load(
+                self.console, self.get_user_working_dir, self.session_manager,
+                self.mcp_client, self.run_async, self.verbose
+            )
+        
+        # Handle /make map update command
+        if user_input_normalized.lower().startswith('make map update'):
+            return handle_make_map_update(
+                self.console, self.llm_checker, self.get_user_working_dir,
+                self.config, self.ollama_client, self.stream, self.temperature,
+                self.verbose, self.CustomMarkdown
+            )
+        
+        # Handle /make <prompt> command - execute make commands using natural language
+        if user_input_normalized.lower().startswith('make ') and not user_input_normalized.lower().startswith('make map'):
+            return handle_make_execute(
+                self.console, user_input_normalized, self.llm_checker,
+                self.get_user_working_dir, self.session_manager, self.config,
+                self.ollama_client, self.mcp_client, self.model_registry,
+                self.stream, self.temperature, self.run_async, self.debug_print,
+                self.verbose, self.CustomMarkdown
+            )
         
         # Not a recognized command - return False to indicate chat processing
         return False

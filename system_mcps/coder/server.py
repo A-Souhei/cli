@@ -11,6 +11,7 @@ import sys
 import subprocess
 import re
 import json
+import shlex
 import requests
 import yaml
 from pathlib import Path
@@ -166,6 +167,57 @@ def validate_working_dir(working_dir: str) -> tuple[bool, str]:
             continue
 
     return True, ""
+
+
+# Pattern for valid make target names (alphanumeric, dash, underscore, dot, slash)
+# This prevents shell metacharacter injection
+VALID_MAKE_TARGET_PATTERN = re.compile(r'^[a-zA-Z0-9_\-./]+$')
+
+
+def validate_make_argument(arg: str) -> tuple[bool, str]:
+    """
+    Validate a make command argument (target, flag, or variable assignment).
+    
+    Args:
+        arg: A single argument to validate
+        
+    Returns:
+        Tuple of (is_valid, error_message). If valid, error_message is empty.
+    """
+    if not arg or not isinstance(arg, str):
+        return False, "Empty or invalid argument"
+    
+    arg = arg.strip()
+    if not arg:
+        return False, "Empty argument after stripping"
+    
+    # Check for make flags (start with -)
+    if arg.startswith('-'):
+        # Validate flag format: -X, --flag, -jN, etc.
+        if re.match(r'^-{1,2}[a-zA-Z][a-zA-Z0-9\-=]*$', arg):
+            return True, ""
+        else:
+            return False, f"Invalid make flag: '{arg}'"
+    
+    # Check for variable assignments (VAR=value)
+    if '=' in arg:
+        var_match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*)=(.*)$', arg)
+        if var_match:
+            var_value = var_match.group(2)
+            # Variable values can contain most characters but not shell metacharacters
+            # that could break out of the assignment context
+            dangerous_chars = ['`', '$', '(', ')', ';', '|', '&', '>', '<', '\n', '\r']
+            if any(c in var_value for c in dangerous_chars):
+                return False, f"Variable value contains dangerous characters: '{arg}'"
+            return True, ""
+        else:
+            return False, f"Invalid variable assignment: '{arg}'"
+    
+    # Check for targets (alphanumeric, dash, underscore, dot, slash)
+    if VALID_MAKE_TARGET_PATTERN.match(arg):
+        return True, ""
+    
+    return False, f"Invalid make target or argument: '{arg}'"
 
 
 def detect_code_language(text: str) -> Optional[tuple[str, str]]:
@@ -809,18 +861,19 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="verify_file_modifications",
             description=(
-                "Verify file modifications by running one of the modified files. "
-                "This tool takes a list of files that were created or modified and runs one of them "
-                "to verify that the changes are syntactically correct and logically coherent. "
-                "It's useful after refactoring operations to ensure no import errors, syntax errors, "
-                "or runtime issues were introduced. Returns execution output (stdout/stderr/exit_code)."
+                "Verify file syntax without executing the code. "
+                "For Python files, uses 'python -m py_compile' to check for syntax errors. "
+                "For R files, uses 'parse()' to validate syntax. "
+                "This is useful after creating or modifying files to ensure they have valid syntax "
+                "without running potentially dangerous or time-consuming code. "
+                "Returns verification status (passed/failed) and any syntax error messages."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "file_path": {
                         "type": "string",
-                        "description": "Path to the file to run for verification (must be .py, .r, or .R)"
+                        "description": "Path to the file to verify (must be .py, .r, or .R)"
                     },
                     "working_dir": {
                         "type": "string",
@@ -942,6 +995,34 @@ async def list_tools() -> list[Tool]:
                     "list_categories": {
                         "type": "boolean",
                         "description": "If true, list all available categories"
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="run_make",
+            description=(
+                "Execute a make command in the working directory. This tool runs make targets "
+                "from the project's Makefile. It requires a Makefile to exist in the working "
+                "directory. Returns stdout, stderr, and exit code of the execution. "
+                "Use this for build automation, running tests, starting services, cleaning, etc. "
+                "Common targets include: build, test, clean, install, run, setup, deploy."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": "The make target to execute (e.g., 'build', 'test', 'clean'). If empty, runs the default target."
+                    },
+                    "args": {
+                        "type": "string",
+                        "description": "Optional additional arguments to pass to make (e.g., 'MODEL=llama2 VERBOSE=1')"
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Optional working directory. Defaults to current directory."
                     }
                 },
                 "required": []
@@ -1321,48 +1402,72 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
         except Exception as e:
             return [TextContent(type="text", text=f"Error reading file: {str(e)}")]
 
-        # Determine language and execute the file directly
+        # Determine language and verify the file
         try:
             if file_path.endswith('.py'):
-                # Run Python file directly
+                # Use py_compile to check Python syntax without executing
                 python_bin = find_cli_venv()
                 result = subprocess.run(
-                    [python_bin, full_path],
+                    [python_bin, "-m", "py_compile", full_path],
                     capture_output=True,
                     text=True,
                     cwd=working_dir,
                     timeout=30
                 )
 
-                return [TextContent(type="text", text=json.dumps({
-                    "status": "success",
-                    "file_path": file_path,
-                    "language": "python",
-                    "stdout": result.stdout,
-                    "stderr": result.stderr,
-                    "exit_code": result.returncode,
-                    "verification": "passed" if result.returncode == 0 else "failed"
-                }, indent=2))]
+                if result.returncode == 0:
+                    return [TextContent(type="text", text=json.dumps({
+                        "status": "success",
+                        "file_path": file_path,
+                        "language": "python",
+                        "stdout": "✓ Syntax OK",
+                        "stderr": "",
+                        "exit_code": 0,
+                        "verification": "passed"
+                    }, indent=2))]
+                else:
+                    return [TextContent(type="text", text=json.dumps({
+                        "status": "error",
+                        "file_path": file_path,
+                        "language": "python",
+                        "stdout": result.stdout,
+                        "stderr": result.stderr,
+                        "exit_code": result.returncode,
+                        "verification": "failed"
+                    }, indent=2))]
 
             elif file_path.endswith(('.r', '.R')):
-                # Run R file directly
+                # Use R's parse() to check syntax without executing
+                # parse(file) will fail if there are syntax errors
+                # Pass file path as argument to avoid command injection
                 result = subprocess.run(
-                    ["Rscript", full_path],
+                    ["Rscript", "-e", "parse(commandArgs(trailingOnly=TRUE)[1]); cat('✓ Syntax OK\\n')", full_path],
                     capture_output=True,
                     text=True,
                     cwd=working_dir,
                     timeout=30
                 )
 
-                return [TextContent(type="text", text=json.dumps({
-                    "status": "success",
-                    "file_path": file_path,
-                    "language": "r",
-                    "stdout": result.stdout,
-                    "stderr": result.stderr,
-                    "exit_code": result.returncode,
-                    "verification": "passed" if result.returncode == 0 else "failed"
-                }, indent=2))]
+                if result.returncode == 0:
+                    return [TextContent(type="text", text=json.dumps({
+                        "status": "success",
+                        "file_path": file_path,
+                        "language": "r",
+                        "stdout": "✓ Syntax OK",
+                        "stderr": "",
+                        "exit_code": 0,
+                        "verification": "passed"
+                    }, indent=2))]
+                else:
+                    return [TextContent(type="text", text=json.dumps({
+                        "status": "error",
+                        "file_path": file_path,
+                        "language": "r",
+                        "stdout": result.stdout,
+                        "stderr": result.stderr,
+                        "exit_code": result.returncode,
+                        "verification": "failed"
+                    }, indent=2))]
         except subprocess.TimeoutExpired:
             return [TextContent(type="text", text=json.dumps({
                 "status": "error",
@@ -1958,6 +2063,112 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             return [TextContent(type="text", text=json.dumps({
                 "status": "error",
                 "message": f"Error getting tool metadata: {str(e)}"
+            }, indent=2))]
+
+    elif name == "run_make":
+        target = arguments.get("target", "")
+        args = arguments.get("args", "")
+        working_dir = arguments.get("working_dir", os.getcwd())
+
+        # Validate working directory
+        is_valid, error_msg = validate_working_dir(working_dir)
+        if not is_valid:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": error_msg
+            }, indent=2))]
+
+        # Check if Makefile exists
+        makefile_path = Path(working_dir) / "Makefile"
+        if not makefile_path.exists():
+            # Also check for lowercase makefile
+            makefile_path = Path(working_dir) / "makefile"
+            if not makefile_path.exists():
+                # Also check for GNUmakefile
+                makefile_path = Path(working_dir) / "GNUmakefile"
+                if not makefile_path.exists():
+                    return [TextContent(type="text", text=json.dumps({
+                        "status": "error",
+                        "message": f"No Makefile found in {working_dir}"
+                    }, indent=2))]
+
+        try:
+            # Check if make is installed
+            make_check = subprocess.run(
+                ["which", "make"],
+                capture_output=True,
+                text=True
+            )
+
+            if make_check.returncode != 0:
+                return [TextContent(type="text", text=json.dumps({
+                    "status": "error",
+                    "message": "make is not installed on this system"
+                }, indent=2))]
+
+            # Build make command with validation
+            cmd = ["make"]
+            if target:
+                # Validate target name to prevent command injection
+                is_valid, error_msg = validate_make_argument(target)
+                if not is_valid:
+                    return [TextContent(type="text", text=json.dumps({
+                        "status": "error",
+                        "message": f"Invalid make target: {error_msg}"
+                    }, indent=2))]
+                cmd.append(target)
+            if args:
+                # Split args by whitespace but preserve quoted strings
+                try:
+                    parsed_args = shlex.split(args)
+                except ValueError as e:
+                    return [TextContent(type="text", text=json.dumps({
+                        "status": "error",
+                        "message": f"Failed to parse args: {str(e)}"
+                    }, indent=2))]
+                
+                # Validate each argument
+                for arg in parsed_args:
+                    is_valid, error_msg = validate_make_argument(arg)
+                    if not is_valid:
+                        return [TextContent(type="text", text=json.dumps({
+                            "status": "error",
+                            "message": f"Invalid make argument: {error_msg}"
+                        }, indent=2))]
+                cmd.extend(parsed_args)
+
+            debug_print(f"Executing make command: {' '.join(cmd)}", working_dir=working_dir)
+
+            # Execute make with a longer timeout (build tasks can take time)
+            result = subprocess.run(
+                cmd,
+                cwd=working_dir,
+                capture_output=True,
+                text=True,
+                timeout=300  # 5 minute timeout for make commands
+            )
+
+            output = {
+                "status": "success" if result.returncode == 0 else "error",
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "exit_code": result.returncode,
+                "command": " ".join(cmd),
+                "working_dir": working_dir
+            }
+
+            return [TextContent(type="text", text=json.dumps(output, indent=2))]
+
+        except subprocess.TimeoutExpired:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": "Make command timed out (5 minute limit)",
+                "command": " ".join(cmd)
+            }, indent=2))]
+        except Exception as e:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": f"Error executing make: {str(e)}"
             }, indent=2))]
 
     else:
