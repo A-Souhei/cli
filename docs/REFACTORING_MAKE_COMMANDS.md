@@ -6,7 +6,7 @@ This refactoring extracts the `/make` command handlers from `main.py` into a sep
 ## Changes Made
 
 ### 1. Created New Module: `src/cli/commands/make.py`
-- **Lines**: 574 lines
+- **Lines**: 890 lines
 - **Purpose**: Contains all `/make` command logic
 - **Handlers**:
   - `handle_make_map_generate()` - Generates .makemap from Makefile using LLM
@@ -93,7 +93,7 @@ def handle_make_map_generate(console, user_input_normalized, llm_checker,
 
 ## Files Modified
 
-1. `src/cli/commands/make.py` - NEW (574 lines)
+1. `src/cli/commands/make.py` - NEW (890 lines)
 2. `src/cli/dispatcher.py` - Modified (imports + routing + constructor)
 3. `main.py` - Modified (removed 537 lines, updated dispatcher init)
 

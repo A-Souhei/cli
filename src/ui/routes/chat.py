@@ -1436,10 +1436,9 @@ def handle_make_command(prompt: str):
     Uses .makemap for command matching similar to CLI implementation.
     """
     from src.utils.makemap import find_makefile, parse_makefile, get_target_names, generate_makemap_prompt, load_makemap_to_context
-    from src.cli.commands.make import parse_makemap_file, find_matching_command, find_all_matching_commands
+    from src.cli.commands.make import parse_makemap_file, find_all_matching_commands, strip_ansi_codes
     import json as json_module
     import subprocess
-    import re
 
     try:
         working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
@@ -1525,9 +1524,8 @@ def handle_make_command(prompt: str):
                     exit_code = result.returncode
                     
                     # Strip ANSI codes
-                    ansi_pattern = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-                    stdout = ansi_pattern.sub('', stdout)
-                    stderr = ansi_pattern.sub('', stderr)
+                    stdout = strip_ansi_codes(stdout)
+                    stderr = strip_ansi_codes(stderr)
                     
                     if exit_code == 0:
                         response_parts.append(f"✅ **Success** (exit: {exit_code})\n")
@@ -1590,9 +1588,8 @@ def handle_make_command(prompt: str):
                 exit_code = result.returncode
                 
                 # Strip ANSI codes
-                ansi_pattern = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-                stdout = ansi_pattern.sub('', stdout)
-                stderr = ansi_pattern.sub('', stderr)
+                stdout = strip_ansi_codes(stdout)
+                stderr = strip_ansi_codes(stderr)
                 
                 if exit_code == 0:
                     response = f'''✅ **Make command succeeded!**
@@ -1645,9 +1642,8 @@ def handle_make_command(prompt: str):
                         stderr_partial = e.stderr.decode('utf-8', errors='replace') if isinstance(e.stderr, bytes) else str(e.stderr)
                     
                     # Strip ANSI codes
-                    ansi_pattern = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-                    stdout_partial = ansi_pattern.sub('', stdout_partial)
-                    stderr_partial = ansi_pattern.sub('', stderr_partial)
+                    stdout_partial = strip_ansi_codes(stdout_partial)
+                    stderr_partial = strip_ansi_codes(stderr_partial)
                     
                     response = f'''✅ **Streaming command captured** (first {timeout}s)
 
@@ -1667,6 +1663,17 @@ def handle_make_command(prompt: str):
 ```'''
                     else:
                         response += '\n\n*(no output captured)*'
+                    
+                    if stderr_partial:
+                        error_preview = stderr_partial[:500]
+                        if len(stderr_partial) > 500:
+                            error_preview += '\n... (truncated)'
+                        response += f'''
+
+**Stderr:**
+```
+{error_preview}
+```'''
                     
                     return jsonify({
                         'status': 'success',

@@ -249,23 +249,27 @@ class TestGenerateMakemapPrompt:
 
         prompt = generate_makemap_prompt(parsed)
 
+        # Check that prompt contains the Makefile content with target names
         assert 'build' in prompt
         assert 'test' in prompt
-        assert 'PYTHON' in prompt
+        # Check that the prompt instructs to create makemap format
+        assert 'Make Commands' in prompt
+        assert 'markdown table' in prompt.lower() or 'Table Format' in prompt
 
     def test_generates_prompt_with_tree(self):
-        """Test that prompt includes tree output when provided."""
+        """Test that tree_output is accepted for API compatibility (but not used in new format)."""
         parsed = {
             'targets': [],
             'variables': {},
             'content': ''
         }
 
+        # tree_output is kept for API compatibility but no longer used in the prompt
         prompt = generate_makemap_prompt(parsed, tree_output=".\n├── src\n└── tests")
 
-        assert 'Directory Tree' in prompt
-        assert 'src' in prompt
-        assert 'tests' in prompt
+        # The new format doesn't include directory tree, but should still generate a valid prompt
+        assert 'Make Commands' in prompt
+        assert 'Instructions' in prompt
 
 
 @pytest.mark.unit

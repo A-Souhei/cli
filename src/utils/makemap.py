@@ -224,7 +224,7 @@ def generate_makemap_prompt(parsed_makefile: Dict[str, Any], tree_output: str = 
 
     Args:
         parsed_makefile: Dict from parse_makefile() with targets, variables, etc.
-        tree_output: Optional directory tree string (ignored in new format)
+        tree_output: Optional directory tree string (kept for API compatibility, not used in current format)
 
     Returns:
         Prompt string for the LLM

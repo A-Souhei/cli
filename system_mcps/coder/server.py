@@ -1387,8 +1387,9 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             elif file_path.endswith(('.r', '.R')):
                 # Use R's parse() to check syntax without executing
                 # parse(file) will fail if there are syntax errors
+                # Pass file path as argument to avoid command injection
                 result = subprocess.run(
-                    ["Rscript", "-e", f"parse('{full_path}'); cat('✓ Syntax OK\\n')"],
+                    ["Rscript", "-e", "parse(commandArgs(trailingOnly=TRUE)[1]); cat('✓ Syntax OK\\n')", full_path],
                     capture_output=True,
                     text=True,
                     cwd=working_dir,

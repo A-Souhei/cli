@@ -4,7 +4,7 @@ This module handles all /make commands including:
 - /make map generate - Generate .makemap from Makefile
 - /make map load - Load .makemap into context
 - /make map update - Update .makemap with new targets
-- /make <prompt> - Execute make commands using natural language (no LLM required)
+- /make <prompt> - Execute make commands using natural language (LLM-free matching, optional LLM interpretation)
 """
 
 import os
@@ -12,7 +12,6 @@ import re
 import subprocess
 from rich.spinner import Spinner
 from rich.live import Live
-from rich.markdown import Markdown
 from rich.text import Text
 
 from src.chat import ChatManager
@@ -22,7 +21,6 @@ from src.utils.makemap import (
     generate_makemap_prompt,
     generate_makemap_update_prompt,
     load_makemap_to_context,
-    get_target_names,
 )
 
 
@@ -60,7 +58,7 @@ def parse_makemap_file(makemap_path: str) -> list:
                 'description': desc.strip()
             })
     except Exception:
-        pass
+        pass  # Return empty list on any file read/parse error
     
     return commands
 
@@ -71,6 +69,9 @@ def find_matching_command(prompt: str, commands: list) -> dict:
     
     Uses simple text matching - checks if prompt words appear in description.
     Returns the best matching command dict or None.
+    
+    Note: This is a convenience wrapper around find_all_matching_commands for cases
+    where only the top match is needed. Kept as part of the public API for external use.
     """
     matches = find_all_matching_commands(prompt, commands)
     return matches[0] if matches else None
@@ -93,7 +94,6 @@ def find_all_matching_commands(prompt: str, commands: list, min_score: int = 1) 
     
     for cmd in commands:
         desc_lower = cmd['description'].lower()
-        cmd_lower = cmd['command'].lower()
         
         # Score based on word overlap
         desc_words = set(desc_lower.split())
@@ -549,8 +549,10 @@ def handle_make_map_update(console, llm_checker, get_user_working_dir, config,
 
         all_targets = parsed.get('targets', [])
 
-        # Find existing target names in the makemap (targets are marked with ### in markdown)
-        existing_target_names = set(re.findall(r'^### (\w+)', existing_makemap, re.MULTILINE))
+        # Find existing target names in the makemap (targets are in markdown table format: | `make <target>` |)
+        # Extract target names from commands like `make help`, `make test`, etc.
+        existing_commands = re.findall(r'\\|\\s*`make\\s+([^`]+)`\\s*\\|', existing_makemap)
+        existing_target_names = set(cmd.split()[0] for cmd in existing_commands)  # Get first word (target name)
 
         # Filter to new targets only
         new_targets = [t for t in all_targets if t['name'] not in existing_target_names]

@@ -1,6 +1,3 @@
-Here is the generated `.makemap` file:
-
-```markdown
 # Make Commands
 
 ## Setup & Run
@@ -42,6 +39,3 @@ Here is the generated `.makemap` file:
 | `make clean` | Remove virtual environment and Docker volumes |
 | `make logs` | Show Docker container logs |
 | `make status` | Show status of Docker containers |
-```
-
-This `.makemap` file includes all targets from the Makefile, organized into logical groups. Each group has a heading with a brief description, followed by a markdown table with columns for Command and Description. The command descriptions are concise and based on the `## ` comments in the Makefile.
