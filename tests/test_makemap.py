@@ -20,6 +20,8 @@ from src.utils.makemap import (
     validate_target,
 )
 
+from src.cli.commands.make import sanitize_make_command
+
 
 @pytest.mark.unit
 class TestFindMakefile:
@@ -394,3 +396,122 @@ class TestRealMakefile:
         target_names = [t['name'] for t in result['targets']]
         assert 'test' in target_names
         assert 'build' in target_names or 'setup' in target_names
+
+
+@pytest.mark.unit
+class TestSanitizeMakeCommand:
+    """Tests for sanitize_make_command function to prevent command injection."""
+
+    def test_valid_simple_command(self):
+        """Test that simple make commands are valid."""
+        is_valid, cmd_list, error = sanitize_make_command("make test")
+        assert is_valid
+        assert cmd_list == ["make", "test"]
+        assert error == ""
+
+    def test_valid_command_with_multiple_targets(self):
+        """Test make command with multiple targets."""
+        is_valid, cmd_list, error = sanitize_make_command("make clean build")
+        assert is_valid
+        assert cmd_list == ["make", "clean", "build"]
+        assert error == ""
+
+    def test_valid_command_with_flags(self):
+        """Test make command with flags."""
+        is_valid, cmd_list, error = sanitize_make_command("make -j4 test")
+        assert is_valid
+        assert cmd_list == ["make", "-j4", "test"]
+        assert error == ""
+
+        is_valid, cmd_list, error = sanitize_make_command("make --dry-run test")
+        assert is_valid
+        assert cmd_list == ["make", "--dry-run", "test"]
+        assert error == ""
+
+    def test_valid_command_with_variable_assignment(self):
+        """Test make command with variable assignments."""
+        is_valid, cmd_list, error = sanitize_make_command("make VAR=value test")
+        assert is_valid
+        assert cmd_list == ["make", "VAR=value", "test"]
+        assert error == ""
+
+    def test_valid_command_with_path_target(self):
+        """Test make command with path-like target."""
+        is_valid, cmd_list, error = sanitize_make_command("make src/utils/build")
+        assert is_valid
+        assert cmd_list == ["make", "src/utils/build"]
+        assert error == ""
+
+    def test_invalid_empty_command(self):
+        """Test that empty commands are rejected."""
+        is_valid, cmd_list, error = sanitize_make_command("")
+        assert not is_valid
+        assert cmd_list == []
+        assert "Empty" in error
+
+    def test_invalid_non_make_command(self):
+        """Test that non-make commands are rejected."""
+        is_valid, cmd_list, error = sanitize_make_command("rm -rf /")
+        assert not is_valid
+        assert cmd_list == []
+        assert "make" in error.lower()
+
+    def test_invalid_command_injection_semicolon(self):
+        """Test that semicolon command injection is rejected."""
+        is_valid, cmd_list, error = sanitize_make_command("make test; rm -rf /")
+        assert not is_valid
+        assert cmd_list == []
+
+    def test_invalid_command_injection_pipe(self):
+        """Test that pipe command injection is rejected."""
+        is_valid, cmd_list, error = sanitize_make_command("make test | cat /etc/passwd")
+        assert not is_valid
+        assert cmd_list == []
+
+    def test_invalid_command_injection_ampersand(self):
+        """Test that ampersand command injection is rejected."""
+        is_valid, cmd_list, error = sanitize_make_command("make test && rm -rf /")
+        assert not is_valid
+        assert cmd_list == []
+
+    def test_invalid_command_injection_backtick(self):
+        """Test that backtick command injection is rejected."""
+        is_valid, cmd_list, error = sanitize_make_command("make VAR=`whoami` test")
+        assert not is_valid
+        assert "dangerous" in error.lower()
+
+    def test_invalid_command_injection_dollar(self):
+        """Test that dollar sign command injection is rejected."""
+        is_valid, cmd_list, error = sanitize_make_command("make VAR=$(whoami) test")
+        assert not is_valid
+        assert "dangerous" in error.lower()
+
+    def test_invalid_command_injection_redirect(self):
+        """Test that redirect injection is rejected."""
+        is_valid, cmd_list, error = sanitize_make_command("make VAR=>malicious test")
+        assert not is_valid
+
+    def test_valid_make_only(self):
+        """Test that bare 'make' command is valid."""
+        is_valid, cmd_list, error = sanitize_make_command("make")
+        assert is_valid
+        assert cmd_list == ["make"]
+        assert error == ""
+
+    def test_valid_target_with_dots(self):
+        """Test target with dots is valid."""
+        is_valid, cmd_list, error = sanitize_make_command("make file.o")
+        assert is_valid
+        assert cmd_list == ["make", "file.o"]
+
+    def test_valid_target_with_dashes(self):
+        """Test target with dashes is valid."""
+        is_valid, cmd_list, error = sanitize_make_command("make run-tests")
+        assert is_valid
+        assert cmd_list == ["make", "run-tests"]
+
+    def test_valid_target_with_underscores(self):
+        """Test target with underscores is valid."""
+        is_valid, cmd_list, error = sanitize_make_command("make run_tests")
+        assert is_valid
+        assert cmd_list == ["make", "run_tests"]

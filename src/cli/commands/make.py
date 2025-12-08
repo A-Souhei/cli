@@ -9,6 +9,7 @@ This module handles all /make commands including:
 
 import os
 import re
+import shlex
 import subprocess
 from rich.spinner import Spinner
 from rich.live import Live
@@ -31,6 +32,83 @@ ANSI_ESCAPE_PATTERN = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 def strip_ansi_codes(text: str) -> str:
     """Remove ANSI escape codes from text."""
     return ANSI_ESCAPE_PATTERN.sub('', text)
+
+
+# Pattern for valid make target names (alphanumeric, dash, underscore, dot, slash)
+# This prevents shell metacharacter injection
+VALID_MAKE_TARGET_PATTERN = re.compile(r'^[a-zA-Z0-9_\-./]+$')
+
+
+def sanitize_make_command(command: str) -> tuple:
+    """
+    Sanitize a make command string and convert it to a safe list format.
+    
+    This function validates that the command is a valid 'make' command and
+    ensures all arguments are safe (no shell metacharacters that could lead
+    to command injection).
+    
+    Args:
+        command: A make command string like "make test" or "make build ARG=value"
+        
+    Returns:
+        A tuple of (is_valid: bool, cmd_list: list, error_msg: str)
+        - is_valid: True if the command is safe to execute
+        - cmd_list: The command as a list suitable for subprocess (empty if invalid)
+        - error_msg: Error description if invalid, empty string if valid
+    """
+    if not command or not isinstance(command, str):
+        return (False, [], "Empty or invalid command")
+    
+    command = command.strip()
+    
+    # Parse the command using shlex to handle quoted strings properly
+    try:
+        parts = shlex.split(command)
+    except ValueError as e:
+        return (False, [], f"Failed to parse command: {e}")
+    
+    if not parts:
+        return (False, [], "Empty command after parsing")
+    
+    # Verify it starts with 'make'
+    if parts[0] != 'make':
+        return (False, [], f"Command must start with 'make', got '{parts[0]}'")
+    
+    # Validate each argument
+    # Allow: targets (alphanumeric, dash, underscore, dot, slash)
+    #        variable assignments (VAR=value)
+    #        make flags (-n, -j4, --dry-run, etc.)
+    sanitized_parts = ['make']
+    
+    for i, part in enumerate(parts[1:], start=1):
+        # Check for make flags (start with -)
+        if part.startswith('-'):
+            # Validate flag format: -X, --flag, -jN, etc.
+            if re.match(r'^-{1,2}[a-zA-Z][a-zA-Z0-9\-=]*$', part):
+                sanitized_parts.append(part)
+            else:
+                return (False, [], f"Invalid make flag: '{part}'")
+        # Check for variable assignments (VAR=value)
+        elif '=' in part:
+            var_match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*)=(.*)$', part)
+            if var_match:
+                var_name = var_match.group(1)
+                var_value = var_match.group(2)
+                # Variable values can contain most characters but not shell metacharacters
+                # that could break out of the assignment context
+                dangerous_chars = ['`', '$', '(', ')', ';', '|', '&', '>', '<', '\n', '\r']
+                if any(c in var_value for c in dangerous_chars):
+                    return (False, [], f"Variable value contains dangerous characters: '{part}'")
+                sanitized_parts.append(part)
+            else:
+                return (False, [], f"Invalid variable assignment: '{part}'")
+        # Check for targets
+        elif VALID_MAKE_TARGET_PATTERN.match(part):
+            sanitized_parts.append(part)
+        else:
+            return (False, [], f"Invalid make target or argument: '{part}'")
+    
+    return (True, sanitized_parts, "")
 
 
 def parse_makemap_file(makemap_path: str) -> list:
@@ -188,10 +266,22 @@ def tourniquet(prompt: str, commands: list, console, get_user_working_dir,
         console.print()
         
         try:
-            # Run the make command
+            # Sanitize and validate the make command before execution
+            is_valid, cmd_list, error_msg = sanitize_make_command(command)
+            if not is_valid:
+                console.print(f"[red]✗ Step {i} failed: {error_msg}[/red]")
+                results.append({
+                    'command': command,
+                    'description': description,
+                    'exit_code': -1,
+                    'stdout': '',
+                    'stderr': f'Command validation failed: {error_msg}'
+                })
+                continue
+            
+            # Run the make command with shell=False for security
             result = subprocess.run(
-                command,
-                shell=True,
+                cmd_list,
                 cwd=get_user_working_dir(),
                 capture_output=True,
                 text=True,
@@ -746,14 +836,19 @@ def handle_make_execute(console, user_input_normalized, llm_checker, get_user_wo
         console.print(f"[dim](streaming command - press Ctrl+C to stop)[/dim]")
     console.print()
 
+    # Sanitize and validate the make command before execution
+    is_valid, cmd_list, error_msg = sanitize_make_command(command)
+    if not is_valid:
+        console.print(f"[red]✗ Command validation failed: {error_msg}[/red]")
+        return False
+
     try:
         if is_streaming:
             # For streaming commands, run without capture - stream directly to terminal
             # User can press Ctrl+C to stop
             try:
                 result = subprocess.run(
-                    command,
-                    shell=True,
+                    cmd_list,
                     cwd=get_user_working_dir(),
                     # Don't capture output - let it stream to terminal
                     capture_output=False,
@@ -769,8 +864,7 @@ def handle_make_execute(console, user_input_normalized, llm_checker, get_user_wo
         
         # Normal command - capture output
         result = subprocess.run(
-            command,
-            shell=True,
+            cmd_list,
             cwd=get_user_working_dir(),
             capture_output=True,
             text=True,

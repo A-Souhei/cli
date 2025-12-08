@@ -11,6 +11,7 @@ import sys
 import subprocess
 import re
 import json
+import shlex
 import requests
 import yaml
 from pathlib import Path
@@ -166,6 +167,57 @@ def validate_working_dir(working_dir: str) -> tuple[bool, str]:
             continue
 
     return True, ""
+
+
+# Pattern for valid make target names (alphanumeric, dash, underscore, dot, slash)
+# This prevents shell metacharacter injection
+VALID_MAKE_TARGET_PATTERN = re.compile(r'^[a-zA-Z0-9_\-./]+$')
+
+
+def validate_make_argument(arg: str) -> tuple[bool, str]:
+    """
+    Validate a make command argument (target, flag, or variable assignment).
+    
+    Args:
+        arg: A single argument to validate
+        
+    Returns:
+        Tuple of (is_valid, error_message). If valid, error_message is empty.
+    """
+    if not arg or not isinstance(arg, str):
+        return False, "Empty or invalid argument"
+    
+    arg = arg.strip()
+    if not arg:
+        return False, "Empty argument after stripping"
+    
+    # Check for make flags (start with -)
+    if arg.startswith('-'):
+        # Validate flag format: -X, --flag, -jN, etc.
+        if re.match(r'^-{1,2}[a-zA-Z][a-zA-Z0-9\-=]*$', arg):
+            return True, ""
+        else:
+            return False, f"Invalid make flag: '{arg}'"
+    
+    # Check for variable assignments (VAR=value)
+    if '=' in arg:
+        var_match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*)=(.*)$', arg)
+        if var_match:
+            var_value = var_match.group(2)
+            # Variable values can contain most characters but not shell metacharacters
+            # that could break out of the assignment context
+            dangerous_chars = ['`', '$', '(', ')', ';', '|', '&', '>', '<', '\n', '\r']
+            if any(c in var_value for c in dangerous_chars):
+                return False, f"Variable value contains dangerous characters: '{arg}'"
+            return True, ""
+        else:
+            return False, f"Invalid variable assignment: '{arg}'"
+    
+    # Check for targets (alphanumeric, dash, underscore, dot, slash)
+    if VALID_MAKE_TARGET_PATTERN.match(arg):
+        return True, ""
+    
+    return False, f"Invalid make target or argument: '{arg}'"
 
 
 def detect_code_language(text: str) -> Optional[tuple[str, str]]:
@@ -2054,18 +2106,36 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     "message": "make is not installed on this system"
                 }, indent=2))]
 
-            # Build make command
+            # Build make command with validation
             cmd = ["make"]
             if target:
+                # Validate target name to prevent command injection
+                is_valid, error_msg = validate_make_argument(target)
+                if not is_valid:
+                    return [TextContent(type="text", text=json.dumps({
+                        "status": "error",
+                        "message": f"Invalid make target: {error_msg}"
+                    }, indent=2))]
                 cmd.append(target)
             if args:
                 # Split args by whitespace but preserve quoted strings
-                import shlex
                 try:
-                    cmd.extend(shlex.split(args))
-                except ValueError:
-                    # If shlex fails, fall back to simple split
-                    cmd.extend(args.split())
+                    parsed_args = shlex.split(args)
+                except ValueError as e:
+                    return [TextContent(type="text", text=json.dumps({
+                        "status": "error",
+                        "message": f"Failed to parse args: {str(e)}"
+                    }, indent=2))]
+                
+                # Validate each argument
+                for arg in parsed_args:
+                    is_valid, error_msg = validate_make_argument(arg)
+                    if not is_valid:
+                        return [TextContent(type="text", text=json.dumps({
+                            "status": "error",
+                            "message": f"Invalid make argument: {error_msg}"
+                        }, indent=2))]
+                cmd.extend(parsed_args)
 
             debug_print(f"Executing make command: {' '.join(cmd)}", working_dir=working_dir)
 
