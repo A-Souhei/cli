@@ -580,6 +580,15 @@ def execute_command():
         elif cmd == 'datamap update' or cmd.startswith('datamap update '):
             args_str = cmd[15:].strip() if len(cmd) > 15 else ''
             return handle_datamap_update(args_str)
+        elif cmd == 'make map generate':
+            return handle_makemap_generate()
+        elif cmd == 'make map load':
+            return handle_makemap_load()
+        elif cmd == 'make map update':
+            return handle_makemap_update()
+        elif cmd.startswith('make ') and not cmd.startswith('make map'):
+            make_prompt = command[5:].strip() if command.startswith('/') else command[4:].strip()
+            return handle_make_command(make_prompt)
         elif cmd == 'clear':
             return handle_clear()
         elif cmd == 'context show':
@@ -1171,6 +1180,424 @@ def handle_datamap_update(args_str: str = ''):
         return jsonify({
             'status': 'error',
             'message': f'Error updating data map: {str(e)}'
+        }), 500
+
+
+def handle_makemap_generate():
+    """Generate a makemap from the Makefile."""
+    from src.utils.makemap import find_makefile, parse_makefile, generate_makemap_prompt
+    from src.utils.tree import generate_tree
+
+    try:
+        working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
+
+        # Check if Makefile exists
+        makefile_path = find_makefile(working_dir)
+        if not makefile_path:
+            return jsonify({
+                'status': 'error',
+                'message': f"❌ No Makefile found in: `{working_dir}`\n\nThis command requires a Makefile to exist in the working directory."
+            }), 400
+
+        # Parse the Makefile
+        parsed = parse_makefile(str(makefile_path))
+
+        if 'error' in parsed:
+            return jsonify({
+                'status': 'error',
+                'message': f"❌ Error parsing Makefile: {parsed['error']}"
+            }), 400
+
+        targets = parsed.get('targets', [])
+        variables = parsed.get('variables', {})
+
+        # Generate directory tree
+        tree_output = generate_tree(working_dir, max_depth=3)
+
+        # Generate the LLM prompt
+        makemap_prompt = generate_makemap_prompt(parsed, tree_output=tree_output)
+
+        # Call LLM
+        try:
+            full_response = _call_llm_for_map(
+                prompt=makemap_prompt,
+                system_msg='You are a build system expert. Create comprehensive documentation for Makefiles.'
+            )
+        except Exception as llm_error:
+            capture_exception(llm_error)
+            return jsonify({
+                'status': 'error',
+                'message': f'❌ Error calling LLM: {str(llm_error)}'
+            }), 500
+
+        # Create makemap content with tree
+        makemap_content = f"""# Make Map
+
+## Directory Tree
+
+```
+{tree_output}
+```
+
+{full_response}
+"""
+
+        # Write the makemap to file
+        makemap_file_path = os.path.join(working_dir, '.makemap')
+        with open(makemap_file_path, 'w', encoding='utf-8') as f:
+            f.write(makemap_content)
+
+        return jsonify({
+            'status': 'success',
+            'response': f'''✅ **Make map created successfully!**
+
+📄 Saved to: `{makemap_file_path}`
+
+**Summary:**
+- Found **{len(targets)}** targets
+- Found **{len(variables)}** variables'''
+        })
+
+    except Exception as e:
+        capture_exception(e)
+        return jsonify({
+            'status': 'error',
+            'message': f'Error creating make map: {str(e)}'
+        }), 500
+
+
+def handle_makemap_load():
+    """Load an existing makemap into context."""
+    from src.utils.makemap import load_makemap_to_context
+
+    try:
+        working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
+        makemap_path = os.path.join(working_dir, '.makemap')
+
+        if not os.path.exists(makemap_path):
+            return jsonify({
+                'status': 'error',
+                'message': "❌ No `.makemap` file found.\n\nUse `/make map generate` to create a make map first."
+            }), 400
+
+        # Get session ID if active
+        session_manager = get_session_manager()
+        session_id = session_manager.get_session_id() if session_manager.is_active() else None
+
+        # Get MCP client
+        mcp_client = get_mcp_client()
+
+        # Load the makemap into context
+        result = run_async(load_makemap_to_context(
+            mcp_client,
+            '.makemap',
+            working_dir,
+            session_id
+        ))
+
+        if result.get('status') == 'success':
+            content_size = result.get('content_size', 0)
+            session_info = f"Session: `{session_id[:16]}...`" if session_id else "Session: temporary (start a session for persistence)"
+            return jsonify({
+                'status': 'success',
+                'response': f'''✅ **Make map loaded into context!**
+
+📄 File: `{makemap_path}`
+📊 Size: **{content_size:,}** bytes
+{session_info}'''
+            })
+        else:
+            error_msg = result.get('message', 'Unknown error')
+            return jsonify({
+                'status': 'error',
+                'message': f'⚠️ Warning: {error_msg}'
+            }), 400
+
+    except Exception as e:
+        capture_exception(e)
+        return jsonify({
+            'status': 'error',
+            'message': f'Error loading make map: {str(e)}'
+        }), 500
+
+
+def handle_makemap_update():
+    """Update an existing makemap with new targets."""
+    from src.utils.makemap import find_makefile, parse_makefile, generate_makemap_update_prompt
+    import re as re_module
+
+    try:
+        working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
+        makemap_path = os.path.join(working_dir, '.makemap')
+
+        if not os.path.exists(makemap_path):
+            return jsonify({
+                'status': 'error',
+                'message': "❌ No `.makemap` file found.\n\nUse `/make map generate` to create a make map first."
+            }), 400
+
+        # Check if Makefile exists
+        makefile_path = find_makefile(working_dir)
+        if not makefile_path:
+            return jsonify({
+                'status': 'error',
+                'message': f"❌ No Makefile found in: `{working_dir}`"
+            }), 400
+
+        # Read existing makemap
+        with open(makemap_path, 'r', encoding='utf-8') as f:
+            existing_makemap = f.read()
+
+        # Parse the Makefile
+        parsed = parse_makefile(str(makefile_path))
+
+        if 'error' in parsed:
+            return jsonify({
+                'status': 'error',
+                'message': f"❌ Error parsing Makefile: {parsed['error']}"
+            }), 400
+
+        all_targets = parsed.get('targets', [])
+
+        # Find existing target names in the makemap
+        existing_target_names = set(re_module.findall(r'^### (\w+)', existing_makemap, re_module.MULTILINE))
+
+        # Filter to new targets only
+        new_targets = [t for t in all_targets if t['name'] not in existing_target_names]
+
+        if not new_targets:
+            return jsonify({
+                'status': 'success',
+                'response': '✅ Make map is already up to date. No new targets found.'
+            })
+
+        # Generate the update prompt
+        update_prompt = generate_makemap_update_prompt(new_targets, existing_makemap)
+
+        # Call LLM
+        try:
+            full_response = _call_llm_for_map(
+                prompt=update_prompt,
+                system_msg='You are a build system expert. Update the make map with new targets.'
+            )
+        except Exception as llm_error:
+            capture_exception(llm_error)
+            return jsonify({
+                'status': 'error',
+                'message': f'❌ Error calling LLM: {str(llm_error)}'
+            }), 500
+
+        # Write the updated makemap
+        with open(makemap_path, 'w', encoding='utf-8') as f:
+            f.write(full_response)
+
+        new_target_names = [t['name'] for t in new_targets]
+        return jsonify({
+            'status': 'success',
+            'response': f'''✅ **Make map updated successfully!**
+
+📄 Updated: `{makemap_path}`
+
+**New targets added ({len(new_targets)}):**
+{chr(10).join(f"• `{name}`" for name in new_target_names[:10])}'''
+        })
+
+    except Exception as e:
+        capture_exception(e)
+        return jsonify({
+            'status': 'error',
+            'message': f'Error updating make map: {str(e)}'
+        }), 500
+
+
+def handle_make_command(prompt: str):
+    """Handle /make <prompt> command - execute make commands using natural language."""
+    from src.utils.makemap import find_makefile, parse_makefile, get_target_names, generate_makemap_prompt, load_makemap_to_context
+    from src.utils.tree import generate_tree
+    import json as json_module
+
+    try:
+        working_dir = os.environ.get('AI_CLI_CWD', os.getcwd())
+
+        if not prompt:
+            return jsonify({
+                'status': 'error',
+                'message': '''❌ **Usage:** `/make <prompt>`
+
+**Examples:**
+• `/make run the tests`
+• `/make build the project`
+• `/make clean up`'''
+            }), 400
+
+        # Check if Makefile exists
+        makefile_path = find_makefile(working_dir)
+        if not makefile_path:
+            return jsonify({
+                'status': 'error',
+                'message': f"❌ No Makefile found in: `{working_dir}`\n\nThis command requires a Makefile to exist in the working directory."
+            }), 400
+
+        # Get session manager and MCP client
+        session_manager = get_session_manager()
+        mcp_client = get_mcp_client()
+
+        # Auto-start session if not active
+        if not session_manager.is_active():
+            session_manager.start_session(working_dir=working_dir)
+
+        session_id = session_manager.get_session_id()
+
+        # Auto-generate .makemap if it doesn't exist
+        makemap_file_path = os.path.join(working_dir, '.makemap')
+
+        if not os.path.exists(makemap_file_path):
+            try:
+                parsed = parse_makefile(str(makefile_path))
+                if 'error' not in parsed:
+                    tree_output = generate_tree(working_dir, max_depth=3)
+                    makemap_prompt = generate_makemap_prompt(parsed, tree_output=tree_output)
+
+                    full_response = _call_llm_for_map(
+                        prompt=makemap_prompt,
+                        system_msg='You are a build system expert. Create comprehensive documentation for Makefiles.'
+                    )
+
+                    makemap_content = f"""# Make Map
+
+## Directory Tree
+
+```
+{tree_output}
+```
+
+{full_response}
+"""
+                    with open(makemap_file_path, 'w', encoding='utf-8') as f:
+                        f.write(makemap_content)
+            except Exception:
+                pass  # Continue without makemap
+
+        # Load .makemap into context if exists
+        makemap_loaded_key = f'makemap_loaded_{makemap_file_path}'
+        if os.path.exists(makemap_file_path) and not session_manager.session_metadata.get(makemap_loaded_key):
+            try:
+                run_async(load_makemap_to_context(
+                    mcp_client,
+                    '.makemap',
+                    working_dir,
+                    session_id
+                ))
+                session_manager.session_metadata[makemap_loaded_key] = True
+            except Exception:
+                pass
+
+        # Parse Makefile to get valid targets
+        parsed = parse_makefile(str(makefile_path))
+        valid_targets = get_target_names(parsed)
+
+        # Try to find matching target in the prompt
+        target = ''
+        prompt_lower = prompt.lower()
+        for t in valid_targets:
+            if t.lower() in prompt_lower:
+                target = t
+                break
+
+        # If no direct match, try common mappings
+        if not target:
+            common_mappings = {
+                'test': 'test',
+                'tests': 'test',
+                'build': 'build',
+                'clean': 'clean',
+                'run': 'run',
+                'install': 'install',
+                'setup': 'setup',
+                'help': 'help',
+                'start': 'run',
+                'deploy': 'deploy',
+            }
+            for word, mapped_target in common_mappings.items():
+                if word in prompt_lower and mapped_target in valid_targets:
+                    target = mapped_target
+                    break
+
+        # Execute make command via MCP
+        make_result = run_async(mcp_client.call_tool(
+            'coder',
+            'run_make',
+            {
+                'target': target,
+                'args': '',
+                'working_dir': working_dir
+            }
+        ))
+
+        if make_result:
+            try:
+                result_data = json_module.loads(make_result)
+                status = result_data.get('status', 'unknown')
+                stdout = result_data.get('stdout', '')
+                stderr = result_data.get('stderr', '')
+                exit_code = result_data.get('exit_code', -1)
+                command = result_data.get('command', f'make {target}')
+
+                # Build response
+                if status == 'success':
+                    response = f'''✅ **Make command succeeded!**
+
+📌 Command: `{command}`
+📊 Exit code: **{exit_code}**'''
+                else:
+                    response = f'''❌ **Make command failed!**
+
+📌 Command: `{command}`
+📊 Exit code: **{exit_code}**'''
+
+                if stdout:
+                    output_preview = stdout[:2000]
+                    if len(stdout) > 2000:
+                        output_preview += '\n... (truncated)'
+                    response += f'''
+
+**Output:**
+```
+{output_preview}
+```'''
+
+                if stderr:
+                    error_preview = stderr[:1000]
+                    if len(stderr) > 1000:
+                        error_preview += '\n... (truncated)'
+                    response += f'''
+
+**Errors:**
+```
+{error_preview}
+```'''
+
+                return jsonify({
+                    'status': 'success' if status == 'success' else 'error',
+                    'response': response
+                })
+
+            except json_module.JSONDecodeError:
+                return jsonify({
+                    'status': 'success',
+                    'response': f'**Make output:**\n```\n{make_result[:2000]}\n```'
+                })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': '⚠️ No result from make command'
+            }), 400
+
+    except Exception as e:
+        capture_exception(e)
+        return jsonify({
+            'status': 'error',
+            'message': f'Error executing make command: {str(e)}'
         }), 500
 
 

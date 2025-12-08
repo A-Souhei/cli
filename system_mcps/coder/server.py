@@ -946,6 +946,34 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": []
             }
+        ),
+        Tool(
+            name="run_make",
+            description=(
+                "Execute a make command in the working directory. This tool runs make targets "
+                "from the project's Makefile. It requires a Makefile to exist in the working "
+                "directory. Returns stdout, stderr, and exit code of the execution. "
+                "Use this for build automation, running tests, starting services, cleaning, etc. "
+                "Common targets include: build, test, clean, install, run, setup, deploy."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": "The make target to execute (e.g., 'build', 'test', 'clean'). If empty, runs the default target."
+                    },
+                    "args": {
+                        "type": "string",
+                        "description": "Optional additional arguments to pass to make (e.g., 'MODEL=llama2 VERBOSE=1')"
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Optional working directory. Defaults to current directory."
+                    }
+                },
+                "required": []
+            }
         )
     ]
 
@@ -1958,6 +1986,94 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             return [TextContent(type="text", text=json.dumps({
                 "status": "error",
                 "message": f"Error getting tool metadata: {str(e)}"
+            }, indent=2))]
+
+    elif name == "run_make":
+        target = arguments.get("target", "")
+        args = arguments.get("args", "")
+        working_dir = arguments.get("working_dir", os.getcwd())
+
+        # Validate working directory
+        is_valid, error_msg = validate_working_dir(working_dir)
+        if not is_valid:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": error_msg
+            }, indent=2))]
+
+        # Check if Makefile exists
+        makefile_path = Path(working_dir) / "Makefile"
+        if not makefile_path.exists():
+            # Also check for lowercase makefile
+            makefile_path = Path(working_dir) / "makefile"
+            if not makefile_path.exists():
+                # Also check for GNUmakefile
+                makefile_path = Path(working_dir) / "GNUmakefile"
+                if not makefile_path.exists():
+                    return [TextContent(type="text", text=json.dumps({
+                        "status": "error",
+                        "message": f"No Makefile found in {working_dir}"
+                    }, indent=2))]
+
+        try:
+            # Check if make is installed
+            make_check = subprocess.run(
+                ["which", "make"],
+                capture_output=True,
+                text=True
+            )
+
+            if make_check.returncode != 0:
+                return [TextContent(type="text", text=json.dumps({
+                    "status": "error",
+                    "message": "make is not installed on this system"
+                }, indent=2))]
+
+            # Build make command
+            cmd = ["make"]
+            if target:
+                cmd.append(target)
+            if args:
+                # Split args by whitespace but preserve quoted strings
+                import shlex
+                try:
+                    cmd.extend(shlex.split(args))
+                except ValueError:
+                    # If shlex fails, fall back to simple split
+                    cmd.extend(args.split())
+
+            debug_print(f"Executing make command: {' '.join(cmd)}", working_dir=working_dir)
+
+            # Execute make with a longer timeout (build tasks can take time)
+            result = subprocess.run(
+                cmd,
+                cwd=working_dir,
+                capture_output=True,
+                text=True,
+                timeout=300  # 5 minute timeout for make commands
+            )
+
+            output = {
+                "status": "success" if result.returncode == 0 else "error",
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "exit_code": result.returncode,
+                "command": " ".join(cmd),
+                "working_dir": working_dir
+            }
+
+            return [TextContent(type="text", text=json.dumps(output, indent=2))]
+
+        except subprocess.TimeoutExpired:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": "Make command timed out (5 minute limit)",
+                "command": " ".join(cmd)
+            }, indent=2))]
+        except Exception as e:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": f"Error executing make: {str(e)}"
             }, indent=2))]
 
     else:
