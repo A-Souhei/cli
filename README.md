@@ -1,5 +1,8 @@
 # AI CLI - Ollama-Powered Chat Interface
 
+[![Tests](https://github.com/A-Souhei/cli/actions/workflows/test.yml/badge.svg)](https://github.com/A-Souhei/cli/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A minimal, modular AI command-line interface that connects to Ollama services (local or remote) for interactive AI conversations.
 
 > **🤖 AI-Assisted Development**: This project leverages AI coding assistants (GitHub Copilot, Claude) to accelerate development iterations while maintaining human oversight for architecture decisions, code review, and quality control. AI assists with implementation details; humans drive the vision.
@@ -16,6 +19,9 @@ A minimal, modular AI command-line interface that connects to Ollama services (l
 - 📝 **MCP Tool System** - Modular Context Protocol for extensible operations
 - 📚 **Session Management** - Context-persistent conversations with history injection
 - ⚡ **Code Execution** - Run Python/R code with automatic output capture
+- 🎯 **Dynamic Model Management** - Add, remove, and switch models at runtime (no restart needed)
+- 🔌 **Embedding Service Abstraction** - External embedding services with automatic fallback
+- 🚀 **/code Command** - Unified interface for complex code task orchestration
 - ⚙️ Configurable via YAML file
 - 🔄 Streaming and non-streaming response modes
 
@@ -235,6 +241,17 @@ Once the CLI starts, you can:
 - **List models:** Type `models` to see available Ollama models
 - **Switch model:** Type `switch` to change the current model
 - **MCP tools:** Type `mcps` to list available tools, `mcp-tools <name>` for tool details
+- **Model management commands:**
+  - `/model status` - Show all configured models
+  - `/model list` - List all models
+  - `/model <type> list` - List models of specific type (general/coder/embedding)
+  - `/model <type> add <url> <model_name>` - Add a general or coder model
+  - `/model embedding add <url> [timeout]` - Add external embedding service
+  - `/model <type> use <model_id>` - Set active model
+  - `/model <type> remove <model_id>` - Remove model
+  - `/model check [model_id]` - Check model availability
+- **Code command:**
+  - `/code <prompt>` - Execute complex coding tasks with automatic tool orchestration
 - **Session commands:**
   - `/session start` - Start a context-persistent session
   - `/session end` - End the current session
@@ -319,6 +336,65 @@ Sessions are automatically saved to Redis and can be restored later:
 ```
 
 See [docs/SESSION_FEATURE.md](docs/SESSION_FEATURE.md) and [docs/SESSION_PERSISTENCE.md](docs/SESSION_PERSISTENCE.md) for detailed documentation.
+
+### Code Command (NEW)
+
+The `/code` command provides a unified interface for complex code task orchestration. It automatically:
+1. **Analyzes** your prompt and breaks it into steps
+2. **Matches** the best MCP tools for each step
+3. **Executes** the tools in sequence
+
+**Example:**
+```
+▶ /code create a python script that reads data from users.csv, filters active users, and generates a bar chart
+
+🔍 Analyzing task...
+📋 Task breakdown:
+  1. Read CSV file
+  2. Filter data for active users
+  3. Generate bar chart visualization
+
+🔧 Matching tools...
+✅ Matched 3 tools for execution
+
+⚡ Executing...
+  ✓ Step 1: read_csv_file
+  ✓ Step 2: filter_data
+  ✓ Step 3: create_visualization
+  
+✅ Task completed successfully!
+```
+
+**Auto-session**: If no session is active, `/code` will automatically start one for you.
+
+See [docs/CODE_COMMAND.md](docs/CODE_COMMAND.md) for detailed documentation and examples.
+
+### Dynamic Model Management (NEW)
+
+Manage AI models at runtime without restarting the application:
+
+```
+▶ /model status
+📊 Model Configuration:
+  General: llama3.1:8b (http://192.168.31.23:11434) ✓
+  Coder: qwen2.5-coder:7b (http://192.168.31.23:11434) ✓
+  Embedding: External Service (http://localhost:16050) ✓
+
+▶ /model general add http://localhost:11434 mistral
+✅ Added general model: mistral (ID: abc123)
+
+▶ /model general use abc123
+✅ Switched to model: mistral
+```
+
+**Features:**
+- Add/remove models dynamically
+- Switch between models instantly
+- Support for external embedding services
+- Automatic availability checking
+- Redis-backed persistence
+
+See [docs/DYNAMIC_MODEL_MANAGEMENT.md](docs/DYNAMIC_MODEL_MANAGEMENT.md) for detailed documentation.
 
 ### Example Session
 
@@ -532,4 +608,6 @@ pytest --cov=src tests/
 
 ## License
 
-See LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+Copyright (c) 2025 Toavina A.
