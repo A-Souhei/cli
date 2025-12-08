@@ -1,0 +1,47 @@
+Here is the generated `.makemap` file:
+
+```markdown
+# Make Commands
+
+## Setup & Run
+| Command | Description |
+|---------|-------------|
+| `make help` | Show help message |
+| `make setup` | Run complete setup (venv + dependencies + Docker) |
+| `make run` | Run the AI CLI |
+| `make run-verbose` | Run the AI CLI in verbose mode |
+| `make ui` | Start the AI CLI Web UI in background (detached, no logs) |
+| `make ui-logs` | Start the AI CLI Web UI in foreground with logs |
+| `make ui-stop` | Stop the AI CLI Web UI |
+
+## Docker
+| Command | Description |
+|---------|-------------|
+| `make up` | Start Docker containers (Ollama profile only) |
+| `make up-redis` | Start Redis services (Redis + Redis API + Transformer) |
+| `make up-all` | Start all Docker containers (Ollama + PostgreSQL + Redis + Transformer) |
+| `make down` | Stop and remove Docker containers |
+
+## Virtual Environment
+| Command | Description |
+|---------|-------------|
+| `make venv` | Create Python virtual environment |
+
+## Testing
+| Command | Description |
+|---------|-------------|
+| `make test` | Run all tests (pytest + unit tests) |
+| `make test-unit` | Run unit tests only (no container dependencies) |
+| `make test-integration` | Run integration tests (requires containers) |
+| `make test-spin` | Run spin_the_roulette tests (curl + fast pytest) |
+| `make test-all` | Run all tests including slow tests |
+
+## Miscellaneous
+| Command | Description |
+|---------|-------------|
+| `make clean` | Remove virtual environment and Docker volumes |
+| `make logs` | Show Docker container logs |
+| `make status` | Show status of Docker containers |
+```
+
+This `.makemap` file includes all targets from the Makefile, organized into logical groups. Each group has a heading with a brief description, followed by a markdown table with columns for Command and Description. The command descriptions are concise and based on the `## ` comments in the Makefile.

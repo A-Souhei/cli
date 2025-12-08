@@ -220,102 +220,81 @@ def collect_makefile_targets(working_dir: str) -> Dict[str, Any]:
 
 def generate_makemap_prompt(parsed_makefile: Dict[str, Any], tree_output: str = None) -> str:
     """
-    Generate an LLM prompt to create a comprehensive makemap.
+    Generate an LLM prompt to create a simple makemap with commands and descriptions.
 
     Args:
         parsed_makefile: Dict from parse_makefile() with targets, variables, etc.
-        tree_output: Optional directory tree string to include
+        tree_output: Optional directory tree string (ignored in new format)
 
     Returns:
         Prompt string for the LLM
     """
-    # Build targets section
-    targets_section = []
+    # Build targets list with descriptions
+    targets_info = []
     for target in parsed_makefile.get('targets', []):
-        target_info = f"### {target['name']}"
-        if target.get('dependencies'):
-            target_info += f"\n- Dependencies: {', '.join(target['dependencies'])}"
-        if target.get('description'):
-            target_info += f"\n- Description: {target['description']}"
-        if target.get('recipe'):
-            recipe_preview = target['recipe'][:200] + '...' if len(target['recipe']) > 200 else target['recipe']
-            target_info += f"\n- Recipe:\n```\n{recipe_preview}\n```"
-        targets_section.append(target_info)
-
-    # Build variables section
-    variables_section = []
-    for var_name, var_info in parsed_makefile.get('variables', {}).items():
-        var_entry = f"- **{var_name}**: `{var_info['value']}`"
-        if var_info.get('description'):
-            var_entry += f" - {var_info['description']}"
-        variables_section.append(var_entry)
-
-    # Build tree section if provided
-    tree_section = ""
-    if tree_output:
-        tree_section = f"""## Directory Tree
-
-```
-{tree_output}
-```
-
-"""
+        name = target['name']
+        desc = target.get('description', '')
+        deps = target.get('dependencies', [])
+        targets_info.append({
+            'name': name,
+            'description': desc,
+            'dependencies': deps
+        })
 
     # Full Makefile content for reference
     makefile_content = parsed_makefile.get('content', '')
-    if len(makefile_content) > 5000:
-        makefile_content = makefile_content[:5000] + '\n... (truncated)'
+    if len(makefile_content) > 8000:
+        makefile_content = makefile_content[:8000] + '\n... (truncated)'
 
-    prompt = f"""You are a build system expert analyzing a Makefile. Create a comprehensive makemap that documents all build targets, their purposes, and how to use them.
+    prompt = f"""You are analyzing a Makefile to create a simple .makemap file. The .makemap is a quick reference for LLMs to find and run the appropriate make command.
 
-{tree_section}## Makefile Content
+## Makefile Content
 
 ```makefile
 {makefile_content}
 ```
 
-## Parsed Targets
-
-{chr(10).join(targets_section) if targets_section else 'No targets found'}
-
-## Parsed Variables
-
-{chr(10).join(variables_section) if variables_section else 'No variables found'}
-
 ## Instructions
 
-Create a detailed makemap document with the following sections:
+Create a .makemap file with the following format:
 
-1. **Project Overview**:
-   - Brief description of what this project builds
-   - Primary build system (Make)
-   - Key entry points for developers
+1. **Title**: Start with `# Make Commands`
 
-2. **Quick Reference**:
-   - List the most commonly used targets
-   - One-liner descriptions for quick lookup
+2. **Grouped Tables**: Organize commands into logical groups (e.g., "Setup & Run", "Docker", "Testing", etc.)
+   - Each group has a heading like `## Group Name`
+   - Each group has a markdown table with columns: `| Command | Description |`
 
-3. **Targets** (for EACH target found):
-   - **Purpose**: What does this target do?
-   - **Dependencies**: What must run first?
-   - **Usage**: `make <target>` with any required variables
-   - **Notes**: Any important considerations
+3. **Table Format**:
+   - Command column: Use backticks, e.g., `` `make install` ``
+   - For commands with parameters, show the parameter syntax, e.g., `` `make pull-model MODEL=<name>` ``
+   - Description column: Brief, clear description of what the command does
 
-4. **Variables**:
-   - Document each variable
-   - Default values
-   - How to override (e.g., `make target VAR=value`)
+4. **Rules**:
+   - Include ALL targets from the Makefile
+   - Use the `## ` description comments from the Makefile when available
+   - Group related commands together logically
+   - Keep descriptions concise (one line)
+   - Do NOT include verbose explanations, workflows, or dependencies sections
+   - Do NOT include directory trees or file sizes
+   - The output should be a simple, scannable reference
 
-5. **Common Workflows**:
-   - Development workflow (setup, build, test, run)
-   - CI/CD workflow if applicable
-   - Cleanup and maintenance
+Example format:
+```
+# Make Commands
 
-6. **Dependencies**:
-   - External tools required (docker, python, etc.)
-   - How to check/install them
+## Setup & Run
+| Command | Description |
+|---------|-------------|
+| `make help` | Show help message |
+| `make install` | Install dependencies |
 
-Please provide the makemap in Markdown format. Be thorough but concise."""
+## Testing
+| Command | Description |
+|---------|-------------|
+| `make test` | Run all tests |
+```
+
+Generate the .makemap now."""
 
     return prompt
 
@@ -332,47 +311,41 @@ def generate_makemap_update_prompt(new_targets: List[Dict], existing_makemap: st
         Prompt string for the LLM
     """
     # Build new targets section
-    new_targets_section = []
+    new_targets_info = []
     for target in new_targets:
-        target_info = f"### {target['name']}"
-        if target.get('dependencies'):
-            target_info += f"\n- Dependencies: {', '.join(target['dependencies'])}"
-        if target.get('description'):
-            target_info += f"\n- Description: {target['description']}"
-        if target.get('recipe'):
-            recipe_preview = target['recipe'][:200] + '...' if len(target['recipe']) > 200 else target['recipe']
-            target_info += f"\n- Recipe:\n```\n{recipe_preview}\n```"
-        new_targets_section.append(target_info)
+        name = target['name']
+        desc = target.get('description', 'No description')
+        new_targets_info.append(f"- `make {name}` - {desc}")
 
-    prompt = f"""You are a build system expert updating an existing makemap. Your task is to integrate NEW targets into the existing documentation.
+    prompt = f"""You are updating an existing .makemap file with new make targets.
 
-## Existing Makemap
+## Existing .makemap
 
 {existing_makemap}
 
 ## NEW Targets to Add
 
-The following targets are NEW and need to be integrated:
+The following targets are NEW and need to be added:
 
-{chr(10).join(new_targets_section)}
+{chr(10).join(new_targets_info)}
 
 ## Instructions
 
-1. **DO NOT regenerate the entire makemap from scratch**
-2. **Preserve all existing content and structure**
-3. **ADD the new targets to the appropriate sections**
-4. Update these sections as needed:
-   - Add new targets to the Quick Reference section
-   - Add detailed documentation for each new target
-   - Update Common Workflows if the new targets affect them
-   - Update Variables if new targets use/define new variables
+1. **Preserve the existing format** - The .makemap uses grouped markdown tables
+2. **Add each new target** to the appropriate group based on its purpose
+3. **Create a new group** if the new targets don't fit existing groups
+4. **Keep the table format**:
+   - `| Command | Description |`
+   - Command in backticks: `` `make target` ``
+   - Include parameter syntax if applicable: `` `make target VAR=<value>` ``
 
-5. **Format requirements:**
-   - Keep the same markdown structure as the existing makemap
-   - Add new targets in a logical order (alphabetically or by category)
-   - Maintain consistency in description style
+5. **Rules**:
+   - Do NOT remove or modify existing entries
+   - Do NOT add verbose explanations or workflows
+   - Keep descriptions concise (one line)
+   - Maintain alphabetical or logical ordering within groups
 
-Please provide the UPDATED makemap in Markdown format."""
+Output the complete updated .makemap file."""
 
     return prompt
 

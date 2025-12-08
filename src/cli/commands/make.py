@@ -4,19 +4,18 @@ This module handles all /make commands including:
 - /make map generate - Generate .makemap from Makefile
 - /make map load - Load .makemap into context
 - /make map update - Update .makemap with new targets
-- /make <prompt> - Execute make commands using natural language
+- /make <prompt> - Execute make commands using natural language (no LLM required)
 """
 
 import os
 import re
-import json
-import requests
+import subprocess
 from rich.spinner import Spinner
 from rich.live import Live
 from rich.markdown import Markdown
+from rich.text import Text
 
 from src.chat import ChatManager
-from src.utils.tree import generate_tree
 from src.utils.makemap import (
     find_makefile,
     parse_makefile,
@@ -27,8 +26,93 @@ from src.utils.makemap import (
 )
 
 
-# API Configuration (should match main.py)
-POSTGRES_API_URL = "http://localhost:15000"
+# Regex pattern to strip ANSI escape codes
+ANSI_ESCAPE_PATTERN = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+
+
+def strip_ansi_codes(text: str) -> str:
+    """Remove ANSI escape codes from text."""
+    return ANSI_ESCAPE_PATTERN.sub('', text)
+
+
+def parse_makemap_file(makemap_path: str) -> list:
+    """
+    Parse a .makemap file to extract commands and descriptions.
+    
+    Returns a list of dicts with 'command' and 'description' keys.
+    """
+    if not os.path.exists(makemap_path):
+        return []
+    
+    commands = []
+    try:
+        with open(makemap_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Parse markdown table rows: | `make xxx` | description |
+        # Match pattern: | `make <target>` | <description> |
+        pattern = r'\|\s*`(make\s+[^`]+)`\s*\|\s*([^|]+)\|'
+        matches = re.findall(pattern, content)
+        
+        for cmd, desc in matches:
+            commands.append({
+                'command': cmd.strip(),
+                'description': desc.strip()
+            })
+    except Exception:
+        pass
+    
+    return commands
+
+
+def find_matching_command(prompt: str, commands: list) -> dict:
+    """
+    Find the best matching command for a given prompt.
+    
+    Uses simple text matching - checks if prompt words appear in description.
+    Returns the best matching command dict or None.
+    """
+    if not commands:
+        return None
+    
+    prompt_lower = prompt.lower()
+    prompt_words = set(prompt_lower.split())
+    
+    best_match = None
+    best_score = 0
+    
+    for cmd in commands:
+        desc_lower = cmd['description'].lower()
+        cmd_lower = cmd['command'].lower()
+        
+        # Score based on word overlap
+        desc_words = set(desc_lower.split())
+        common_words = prompt_words & desc_words
+        score = len(common_words)
+        
+        # Bonus for exact target name match
+        # Extract target from command (e.g., "make test" -> "test")
+        target_match = re.search(r'make\s+(\S+)', cmd['command'])
+        if target_match:
+            target = target_match.group(1).lower()
+            if target in prompt_lower:
+                score += 5  # Strong bonus for target name match
+        
+        # Bonus for key action words
+        action_words = ['run', 'build', 'test', 'start', 'stop', 'install', 'clean', 'help', 'show', 'list']
+        for word in action_words:
+            if word in prompt_lower and word in desc_lower:
+                score += 2
+        
+        if score > best_score:
+            best_score = score
+            best_match = cmd
+    
+    # Return match only if we have some confidence
+    if best_score > 0:
+        return best_match
+    
+    return None
 
 
 def handle_make_map_generate(console, user_input_normalized, llm_checker,
@@ -65,14 +149,9 @@ def handle_make_map_generate(console, user_input_normalized, llm_checker,
         variables = parsed.get('variables', {})
         console.print(f"[green]✓ Found {len(targets)} targets, {len(variables)} variables[/green]")
 
-        # Generate directory tree
-        console.print("\n[yellow]🌳 Generating directory tree...[/yellow]")
-        tree_output = generate_tree(get_user_working_dir(), max_depth=3)
-        console.print(f"[green]✓ Directory tree generated[/green]\n")
-
         # Generate the LLM prompt
-        console.print("[yellow]🤖 Generating make map with LLM...[/yellow]")
-        makemap_prompt = generate_makemap_prompt(parsed, tree_output=tree_output)
+        console.print("\n[yellow]🤖 Generating make map with LLM...[/yellow]")
+        makemap_prompt = generate_makemap_prompt(parsed)
 
         # Use a separate chat manager for makemap generation
         makemap_chat_manager = ChatManager(system_prompt=config.get_system_prompt())
@@ -98,17 +177,8 @@ def handle_make_map_generate(console, user_input_normalized, llm_checker,
                 )
                 full_response = response.get('message', {}).get('content', '')
 
-        # Create makemap content with tree
-        makemap_content = f"""# Make Map
-
-## Directory Tree
-
-```
-{tree_output}
-```
-
-{full_response}
-"""
+        # Create makemap content (commands only, no tree)
+        makemap_content = full_response
 
         # Write the makemap to file
         makemap_file_path = os.path.join(get_user_working_dir(), '.makemap')
@@ -288,21 +358,15 @@ def handle_make_map_update(console, llm_checker, get_user_working_dir, config,
 def handle_make_execute(console, user_input_normalized, llm_checker, get_user_working_dir,
                          session_manager, config, ollama_client, mcp_client, model_registry,
                          stream, temperature, run_async, debug_print, verbose, CustomMarkdown):
-    """Handle /make <prompt> command - execute make commands using natural language."""
-    # Check if make mode is disabled (e.g., when using tinyollama)
-    if llm_checker.is_feature_disabled('code_mode'):
-        console.print("\n⚠️  [yellow]/make command is disabled when using tinyollama fallback.[/yellow]")
-        console.print("[dim]This feature requires a larger model for reliable command matching.[/dim]")
-        console.print("[dim]Connect to the primary Ollama server to use this feature.[/dim]\n")
-        return True
-
-    # Check if coder model is available
-    if not llm_checker.has_coder_model():
-        console.print("\n⚠️  [yellow]No coder model configured.[/yellow]")
-        console.print("[dim]The /make command requires a coder model for optimal results.[/dim]")
-        console.print("[dim]Add a coder model with: /model coder add <url> <model_name>[/dim]\n")
-        return True
-
+    """Handle /make <prompt> command - execute make commands using natural language.
+    
+    This function:
+    1. Parses the .makemap file to get commands and descriptions
+    2. Matches the user prompt to the best command using text matching (no LLM)
+    3. Runs the command directly with subprocess
+    4. Shows the raw output
+    5. Uses LLM to interpret and summarize the results
+    """
     # Check if Makefile exists
     makefile_path = find_makefile(get_user_working_dir())
     if not makefile_path:
@@ -315,39 +379,157 @@ def handle_make_execute(console, user_input_normalized, llm_checker, get_user_wo
     if not prompt_text:
         console.print("\n❌ [red]Usage: /make <prompt>[/red]")
         console.print("[dim]Example: /make run the tests[/dim]")
-        console.print("[dim]Example: /make build the project[/dim]\n")
+        console.print("[dim]Example: /make show help[/dim]\n")
         return True
 
-    # Auto-start session if not active
-    if not session_manager.is_active():
-        console.print("\n[cyan]ℹ️  Starting a new session for /make command...[/cyan]")
-        session_manager.start_session(working_dir=get_user_working_dir())
-
-    session_id = session_manager.get_session_id()
-
-    # Auto-generate .makemap if it doesn't exist
+    # Check for .makemap file
     makemap_file_path = os.path.join(get_user_working_dir(), '.makemap')
-    makemap_loaded_key = f'makemap_loaded_{makemap_file_path}'
 
     if not os.path.exists(makemap_file_path):
-        console.print("[cyan]📝 Auto-generating .makemap (first time use)...[/cyan]")
-        try:
-            # Parse the Makefile
+        console.print("[cyan]📝 No .makemap found. Generating one first...[/cyan]")
+        console.print("[dim]Use '/make map generate' to create a make map.[/dim]\n")
+        
+        # Fall back to parsing Makefile directly
+        parsed = parse_makefile(str(makefile_path))
+        if 'error' in parsed:
+            console.print(f"[red]❌ Error parsing Makefile: {parsed['error']}[/red]\n")
+            return True
+        
+        # Build commands list from parsed Makefile
+        commands = []
+        for target in parsed.get('targets', []):
+            cmd = f"make {target['name']}"
+            desc = target.get('description', '') or f"Run {target['name']} target"
+            commands.append({'command': cmd, 'description': desc})
+    else:
+        # Parse the .makemap file
+        commands = parse_makemap_file(makemap_file_path)
+        
+        if not commands:
+            console.print("[yellow]⚠️  Could not parse .makemap file. Falling back to Makefile.[/yellow]")
             parsed = parse_makefile(str(makefile_path))
+            commands = []
+            for target in parsed.get('targets', []):
+                cmd = f"make {target['name']}"
+                desc = target.get('description', '') or f"Run {target['name']} target"
+                commands.append({'command': cmd, 'description': desc})
 
-            if 'error' not in parsed:
-                # Generate directory tree
-                tree_output = generate_tree(get_user_working_dir(), max_depth=3)
+    if not commands:
+        console.print("[red]❌ No make commands found.[/red]\n")
+        return True
 
-                # Generate the LLM prompt
-                makemap_prompt = generate_makemap_prompt(parsed, tree_output=tree_output)
+    console.print(f"\n🔧 [bold cyan]Finding matching make command...[/bold cyan]")
+    console.print(f"[dim]Prompt: {prompt_text}[/dim]\n")
 
-                # Use a separate chat manager for makemap generation
-                makemap_chat_manager = ChatManager(system_prompt=config.get_system_prompt())
-                makemap_chat_manager.add_user_message(makemap_prompt)
-                messages = makemap_chat_manager.get_messages()
+    # Find the best matching command
+    match = find_matching_command(prompt_text, commands)
 
-                spinner = Spinner("dots", text="[dim]Generating make map...[/dim]", style="cyan")
+    if not match:
+        console.print("[yellow]⚠️  No matching command found for your prompt.[/yellow]")
+        console.print("\n[dim]Available commands:[/dim]")
+        for cmd in commands[:10]:  # Show first 10
+            console.print(f"  [cyan]{cmd['command']}[/cyan] - {cmd['description']}")
+        if len(commands) > 10:
+            console.print(f"  [dim]... and {len(commands) - 10} more[/dim]")
+        console.print()
+        return True
+
+    command = match['command']
+    description = match['description']
+
+    console.print(f"[green]✓ Matched:[/green] [bold]{command}[/bold]")
+    console.print(f"[dim]  Description: {description}[/dim]\n")
+
+    # Execute the command
+    console.print(f"[cyan]🔧 Executing: {command}[/cyan]\n")
+
+    try:
+        # Run the make command
+        result = subprocess.run(
+            command,
+            shell=True,
+            cwd=get_user_working_dir(),
+            capture_output=True,
+            text=True,
+            timeout=300  # 5 minute timeout
+        )
+
+        # Capture output for LLM interpretation (strip ANSI for clean text)
+        stdout_output = result.stdout or ''
+        stderr_output = result.stderr or ''
+        exit_code = result.returncode
+        
+        # Clean versions for LLM (no ANSI codes)
+        clean_stdout = strip_ansi_codes(stdout_output)
+        clean_stderr = strip_ansi_codes(stderr_output)
+
+        # Show raw output first (Rich handles ANSI codes via Text.from_ansi)
+        if stdout_output:
+            console.print("\n[dim]─── Output ───[/dim]")
+            # Use Text.from_ansi to properly render ANSI color codes
+            stdout_lines = stdout_output.split('\n')
+            if len(stdout_lines) > 50:
+                display_text = '\n'.join(stdout_lines[:50])
+                console.print(Text.from_ansi(display_text))
+                console.print(f"[dim]... ({len(stdout_lines) - 50} more lines)[/dim]")
+            else:
+                console.print(Text.from_ansi(stdout_output))
+            console.print("[dim]──────────────[/dim]")
+
+        if stderr_output:
+            console.print("\n[dim]─── Stderr ───[/dim]")
+            stderr_lines = stderr_output.split('\n')
+            if len(stderr_lines) > 20:
+                display_text = '\n'.join(stderr_lines[:20])
+                console.print(Text.from_ansi(display_text), style="yellow")
+                console.print(f"[dim]... ({len(stderr_lines) - 20} more lines)[/dim]")
+            else:
+                console.print(Text.from_ansi(stderr_output), style="yellow")
+            console.print("[dim]──────────────[/dim]")
+
+        # Show exit status
+        if exit_code == 0:
+            console.print(f"\n[bold green]✓ Command completed successfully (exit code: {exit_code})[/bold green]")
+        else:
+            console.print(f"\n[bold red]✗ Command failed (exit code: {exit_code})[/bold red]")
+
+        # LLM interpretation of the output
+        if ollama_client and not llm_checker.is_feature_disabled('chat'):
+            console.print("\n[cyan]🤖 Analyzing output...[/cyan]")
+            
+            # Prepare the clean output for LLM (truncate if too long, no ANSI codes)
+            max_output_chars = 4000
+            truncated_stdout = clean_stdout[:max_output_chars] if len(clean_stdout) > max_output_chars else clean_stdout
+            truncated_stderr = clean_stderr[:1000] if len(clean_stderr) > 1000 else clean_stderr
+            
+            # Build the interpretation prompt
+            interpretation_prompt = f"""You just ran the command: `{command}`
+Exit code: {exit_code} ({'success' if exit_code == 0 else 'failed'})
+
+Standard output:
+```
+{truncated_stdout if truncated_stdout else '(no output)'}
+```
+
+{f'''Standard error:
+```
+{truncated_stderr}
+```''' if truncated_stderr else ''}
+
+Please provide a brief summary:
+1. What did the command do?
+2. Was it successful? What were the key results?
+3. If it failed, what went wrong and how might it be fixed?
+
+Keep your response concise (2-4 sentences)."""
+
+            try:
+                # Use a separate chat manager for interpretation
+                interpret_chat = ChatManager(system_prompt="You are a helpful assistant that interprets command output. Be concise and focus on actionable insights.")
+                interpret_chat.add_user_message(interpretation_prompt)
+                messages = interpret_chat.get_messages()
+
+                spinner = Spinner("dots", text="[dim]Interpreting results...[/dim]", style="cyan")
 
                 with Live(spinner, console=console, refresh_per_second=10):
                     if stream:
@@ -355,218 +537,31 @@ def handle_make_execute(console, user_input_normalized, llm_checker, get_user_wo
                         for chunk in ollama_client.chat(
                             messages=messages,
                             stream=True,
-                            temperature=temperature
+                            temperature=0.3  # Lower temperature for factual interpretation
                         ):
                             full_response += chunk
                     else:
                         response = ollama_client.chat(
                             messages=messages,
                             stream=False,
-                            temperature=temperature
+                            temperature=0.3
                         )
                         full_response = response.get('message', {}).get('content', '')
 
-                # Create makemap content
-                makemap_content = f"""# Make Map
-
-## Directory Tree
-
-```
-{tree_output}
-```
-
-{full_response}
-"""
-                with open(makemap_file_path, 'w', encoding='utf-8') as f:
-                    f.write(makemap_content)
-                console.print("[green]✓ Make map generated and saved[/green]")
-        except Exception as e:
-            console.print(f"[yellow]⚠️  Could not generate .makemap: {e}[/yellow]")
-
-    # Load .makemap file into context if not already loaded
-    if os.path.exists(makemap_file_path) and not session_manager.session_metadata.get(makemap_loaded_key):
-        console.print("[cyan]🔧 Loading make map into context...[/cyan]")
-        try:
-            makemap_result = run_async(load_makemap_to_context(
-                mcp_client,
-                '.makemap',
-                get_user_working_dir(),
-                session_id
-            ))
-            if makemap_result.get('status') == 'success':
-                console.print("[green]✓ Make map loaded[/green]")
-                session_manager.session_metadata[makemap_loaded_key] = True
-            else:
-                debug_print(f"Makemap load warning: {makemap_result.get('message')}", icon="⚠️")
-        except Exception as e:
-            debug_print(f"Failed to load makemap: {e}", icon="⚠️")
-
-    console.print(f"\n🔧 [bold cyan]Processing make command...[/bold cyan]")
-    console.print(f"[dim]Prompt: {prompt_text[:100]}{'...' if len(prompt_text) > 100 else ''}[/dim]\n")
-
-    # Get coder model for /make operations
-    coder_model = model_registry.get_active_model('coder')
-    coder_model_name = coder_model.model_name if coder_model else None
-    if coder_model_name:
-        debug_print(f"Using coder model for /make: {coder_model_name}", icon="🤖")
-
-    try:
-        # Call the code-command endpoint to get steps (spin_the_roulette)
-        console.print("📝 [cyan]Analyzing prompt and creating execution steps...[/cyan]")
-
-        # Build request payload
-        make_command_payload = {
-            "text": prompt_text,
-            "session_id": session_id
-        }
-        if coder_model_name:
-            make_command_payload["model"] = coder_model_name
-        if coder_model:
-            make_command_payload["ollama_url"] = coder_model.url
-
-        response = requests.post(
-            f"{POSTGRES_API_URL}/mcp-tools/code-command-simple",
-            json=make_command_payload,
-            headers={"Content-Type": "application/json"},
-            timeout=120
-        )
-
-        if response.status_code != 200:
-            console.print(f"[red]❌ Error from API: {response.text}[/red]\n")
-            return True
-
-        result = response.json()
-        steps = result.get('steps', [])
-
-        if not steps:
-            console.print("[yellow]⚠️  No actionable steps found. Processing as direct make command...[/yellow]")
-            # Fall back to direct make execution
-            steps = [f"Run make {prompt_text}"]
-
-        console.print(f"\n[green]✓ Found {len(steps)} step(s) to execute:[/green]")
-        for i, step in enumerate(steps, 1):
-            console.print(f"[dim]  {i}. {step}[/dim]")
+                if full_response:
+                    console.print("\n[bold cyan]📋 Summary:[/bold cyan]")
+                    console.print(CustomMarkdown(full_response, code_theme="monokai"))
+                    
+            except Exception as llm_error:
+                debug_print(f"LLM interpretation failed: {llm_error}", icon="⚠️")
+                # Silently continue - the raw output was already shown
+        
         console.print()
 
-        # Execute each step (roll_the_dice pattern)
-        for step_num, step in enumerate(steps, 1):
-            console.print(f"\n[bold cyan]Step {step_num}/{len(steps)}:[/bold cyan] {step[:80]}{'...' if len(step) > 80 else ''}")
-
-            # Match step with run_make tool via semantic search
-            match_response = requests.post(
-                f"{POSTGRES_API_URL}/mcp-tools/retrieve",
-                json={
-                    "prompts": [step],
-                    "threshold": 0.3
-                },
-                headers={"Content-Type": "application/json"},
-                timeout=30
-            )
-
-            if match_response.status_code != 200:
-                console.print(f"[yellow]⚠️  Could not match step to tool: {match_response.text}[/yellow]")
-                continue
-
-            match_result = match_response.json()
-            results = match_result.get('results', [])
-
-            if results and results[0].get('best_match'):
-                best_match = results[0]['best_match']
-                tool_name = best_match.get('tool_name', '')
-                similarity = best_match.get('similarity', 0)
-                extracted_params = best_match.get('extracted_params', {})
-
-                debug_print(f"Matched tool: {tool_name} (similarity: {similarity:.2f})", icon="🎯")
-
-                # For make commands, prefer run_make tool
-                if tool_name == 'run_make' or 'make' in step.lower():
-                    # Extract target from step
-                    target = extracted_params.get('target', '')
-                    args = extracted_params.get('args', '')
-
-                    # Try to extract target from the step text if not in params
-                    if not target:
-                        # Parse Makefile to get valid targets
-                        parsed = parse_makefile(str(makefile_path))
-                        valid_targets = get_target_names(parsed)
-
-                        # Look for target in step text
-                        step_lower = step.lower()
-                        for t in valid_targets:
-                            if t.lower() in step_lower:
-                                target = t
-                                break
-
-                    console.print(f"[cyan]🔧 Executing: make {target if target else '(default)'} {args}[/cyan]")
-
-                    # Execute make command via MCP
-                    make_result = run_async(mcp_client.call_tool(
-                        'coder',
-                        'run_make',
-                        {
-                            'target': target,
-                            'args': args,
-                            'working_dir': get_user_working_dir()
-                        }
-                    ))
-
-                    if make_result:
-                        try:
-                            result_data = json.loads(make_result)
-                            status = result_data.get('status', 'unknown')
-                            stdout = result_data.get('stdout', '')
-                            stderr = result_data.get('stderr', '')
-                            exit_code = result_data.get('exit_code', -1)
-
-                            if status == 'success':
-                                console.print(f"[green]✓ Make command succeeded (exit code: {exit_code})[/green]")
-                            else:
-                                console.print(f"[red]✗ Make command failed (exit code: {exit_code})[/red]")
-
-                            if stdout:
-                                console.print("\n[dim]Output:[/dim]")
-                                console.print(stdout[:2000])
-                                if len(stdout) > 2000:
-                                    console.print("[dim]... (truncated)[/dim]")
-
-                            if stderr:
-                                console.print("\n[dim]Errors:[/dim]")
-                                console.print(f"[red]{stderr[:1000]}[/red]")
-                                if len(stderr) > 1000:
-                                    console.print("[dim]... (truncated)[/dim]")
-
-                        except json.JSONDecodeError:
-                            console.print(f"[dim]{make_result}[/dim]")
-                    else:
-                        console.print("[yellow]⚠️  No result from make command[/yellow]")
-                else:
-                    # If matched a different tool, execute it
-                    console.print(f"[cyan]🔧 Executing tool: {tool_name}[/cyan]")
-                    tool_result = run_async(mcp_client.call_tool(
-                        'coder',
-                        tool_name,
-                        extracted_params
-                    ))
-                    if tool_result:
-                        try:
-                            result_data = json.loads(tool_result)
-                            console.print(f"[green]✓ {tool_name} completed[/green]")
-                            if verbose:
-                                console.print(f"[dim]{json.dumps(result_data, indent=2)[:500]}[/dim]")
-                        except json.JSONDecodeError:
-                            console.print(f"[dim]{tool_result[:500]}[/dim]")
-            else:
-                console.print("[yellow]⚠️  Could not match step to any tool[/yellow]")
-
-        console.print(f"\n[bold green]✓ Make command processing complete![/bold green]\n")
-
-    except requests.exceptions.Timeout:
-        console.print("[red]❌ Request timed out. The server may be busy.[/red]\n")
-    except requests.exceptions.ConnectionError:
-        console.print("[red]❌ Could not connect to PostgreSQL API. Is the server running?[/red]")
-        console.print("[dim]Start it with: make up-all[/dim]\n")
+    except subprocess.TimeoutExpired:
+        console.print("[red]❌ Command timed out after 5 minutes.[/red]\n")
     except Exception as e:
-        console.print(f"\n❌ [red]Error processing make command: {e}[/red]\n")
+        console.print(f"\n❌ [red]Error executing command: {e}[/red]\n")
         if verbose:
             import traceback
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
