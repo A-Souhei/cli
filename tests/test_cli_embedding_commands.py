@@ -213,8 +213,8 @@ class TestModelEmbeddingCommands:
         active = registry_memory.get_active_model('embedding')
         assert active.model_id == model1.model_id
 
-        # Switch to model2
-        registry_memory.set_active_model('embedding', model2.model_id)
+        # Switch to model2 (set_active_model only needs model_id, it determines type internally)
+        registry_memory.set_active_model(model2.model_id)
 
         # Verify model2 is now active
         active = registry_memory.get_active_model('embedding')

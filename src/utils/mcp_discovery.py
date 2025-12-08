@@ -3,6 +3,8 @@
 import asyncio
 import json
 import sys
+import textwrap
+import shutil
 from pathlib import Path
 
 
@@ -147,11 +149,20 @@ async def get_mcp_tools(mcp_name, console=None, base_path=None):
 
             # Display as simple list
             _print(f"\n🔧 [bold]Tools in '{mcp_name}' MCP:[/bold]")
+            
+            # Get terminal width for text wrapping
+            term_width = shutil.get_terminal_size().columns
+            # Account for indentation (4 spaces) and some padding
+            wrap_width = max(40, term_width - 6)
+            
             for tool in tools:
                 name = tool.get("name", "Unknown")
                 description = tool.get("description", "No description")
                 _print(f"  • [bold cyan]{name}[/bold cyan]")
-                _print(f"    [dim]{description}[/dim]")
+                # Wrap long descriptions to terminal width
+                wrapped_lines = textwrap.wrap(description, width=wrap_width)
+                for line in wrapped_lines:
+                    _print(f"    [dim]{line}[/dim]")
             _print("")
         else:
             _print(f"❌ [red]Failed to get tools from MCP '{mcp_name}'[/red]\n")
