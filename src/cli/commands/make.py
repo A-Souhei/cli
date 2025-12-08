@@ -72,14 +72,24 @@ def find_matching_command(prompt: str, commands: list) -> dict:
     Uses simple text matching - checks if prompt words appear in description.
     Returns the best matching command dict or None.
     """
+    matches = find_all_matching_commands(prompt, commands)
+    return matches[0] if matches else None
+
+
+def find_all_matching_commands(prompt: str, commands: list, min_score: int = 1) -> list:
+    """
+    Find all matching commands for a given prompt, sorted by score (highest first).
+    
+    Uses simple text matching - checks if prompt words appear in description.
+    Returns a list of dicts with 'command', 'description', and 'score' keys.
+    """
     if not commands:
-        return None
+        return []
     
     prompt_lower = prompt.lower()
     prompt_words = set(prompt_lower.split())
     
-    best_match = None
-    best_score = 0
+    scored_matches = []
     
     for cmd in commands:
         desc_lower = cmd['description'].lower()
@@ -104,15 +114,264 @@ def find_matching_command(prompt: str, commands: list) -> dict:
             if word in prompt_lower and word in desc_lower:
                 score += 2
         
-        if score > best_score:
-            best_score = score
-            best_match = cmd
+        if score >= min_score:
+            scored_matches.append({
+                'command': cmd['command'],
+                'description': cmd['description'],
+                'score': score
+            })
     
-    # Return match only if we have some confidence
-    if best_score > 0:
-        return best_match
+    # Sort by score descending
+    scored_matches.sort(key=lambda x: x['score'], reverse=True)
     
-    return None
+    return scored_matches
+
+
+# Commands that stream indefinitely and need shorter timeout + partial capture
+STREAMING_COMMANDS = {'logs', 'tail', 'watch', 'follow'}
+
+def is_streaming_command(command: str) -> bool:
+    """Check if a command is likely to stream indefinitely."""
+    cmd_lower = command.lower()
+    return any(stream_cmd in cmd_lower for stream_cmd in STREAMING_COMMANDS)
+
+
+def tourniquet(prompt: str, commands: list, console, get_user_working_dir, 
+               ollama_client, llm_checker, stream, debug_print, verbose, CustomMarkdown) -> list:
+    """
+    Tourniquet - Find and execute multiple matching make commands.
+    
+    Similar to spin_the_roulette but uses .makemap for command matching.
+    Returns a list of executed commands with their results.
+    
+    Args:
+        prompt: User's natural language prompt
+        commands: List of available commands from .makemap
+        console: Rich console for output
+        get_user_working_dir: Function to get working directory
+        ollama_client: Ollama client for LLM interpretation
+        llm_checker: LLM availability checker
+        stream: Whether to stream LLM output
+        debug_print: Debug print function
+        verbose: Verbose mode flag
+        CustomMarkdown: Markdown renderer
+        
+    Returns:
+        List of dicts with 'command', 'exit_code', 'stdout', 'stderr' keys
+    """
+    # Find all matching commands (min_score=8 for stricter matching)
+    matches = find_all_matching_commands(prompt, commands, min_score=8)
+    
+    if not matches:
+        return []
+    
+    results = []
+    
+    console.print(f"\n[bold cyan]🎰 Tourniquet: Found {len(matches)} matching command(s)[/bold cyan]")
+    for i, match in enumerate(matches, 1):
+        console.print(f"  [dim]{i}. {match['command']}[/dim] (score: {match['score']}) - {match['description']}")
+    console.print()
+    
+    # Execute each command in sequence
+    for i, match in enumerate(matches, 1):
+        command = match['command']
+        description = match['description']
+        
+        # Determine timeout - shorter for streaming commands
+        is_streaming = is_streaming_command(command)
+        timeout = 5 if is_streaming else 300  # 5 seconds for streaming, 5 minutes for normal
+        
+        console.print(f"\n[bold cyan]━━━ Step {i}/{len(matches)}: {command} ━━━[/bold cyan]")
+        console.print(f"[dim]{description}[/dim]")
+        if is_streaming:
+            console.print(f"[dim](streaming command - capturing first {timeout}s)[/dim]")
+        console.print()
+        
+        try:
+            # Run the make command
+            result = subprocess.run(
+                command,
+                shell=True,
+                cwd=get_user_working_dir(),
+                capture_output=True,
+                text=True,
+                timeout=timeout
+            )
+            
+            stdout_output = result.stdout or ''
+            stderr_output = result.stderr or ''
+            exit_code = result.returncode
+            
+            # Clean versions for storage
+            clean_stdout = strip_ansi_codes(stdout_output)
+            clean_stderr = strip_ansi_codes(stderr_output)
+            
+            # Show output (condensed for multi-step)
+            if stdout_output:
+                stdout_lines = stdout_output.split('\n')
+                if len(stdout_lines) > 10:
+                    console.print(Text.from_ansi('\n'.join(stdout_lines[:10])))
+                    console.print(f"[dim]... ({len(stdout_lines) - 10} more lines)[/dim]")
+                else:
+                    console.print(Text.from_ansi(stdout_output))
+            
+            if stderr_output and exit_code != 0:
+                stderr_lines = stderr_output.split('\n')[:5]
+                console.print(Text.from_ansi('\n'.join(stderr_lines)), style="yellow")
+            
+            # Show status
+            if exit_code == 0:
+                console.print(f"[green]✓ Step {i} completed (exit: {exit_code})[/green]")
+            else:
+                console.print(f"[red]✗ Step {i} failed (exit: {exit_code})[/red]")
+            
+            results.append({
+                'command': command,
+                'description': description,
+                'exit_code': exit_code,
+                'stdout': clean_stdout,
+                'stderr': clean_stderr
+            })
+            
+            # If a step fails, ask whether to continue (for now, continue anyway)
+            if exit_code != 0:
+                console.print("[yellow]⚠️  Continuing despite failure...[/yellow]")
+                
+        except subprocess.TimeoutExpired as e:
+            # For streaming commands, timeout is expected - capture partial output
+            # Note: e.stdout/e.stderr can be bytes or None
+            stdout_partial = ''
+            stderr_partial = ''
+            if hasattr(e, 'stdout') and e.stdout:
+                stdout_partial = e.stdout.decode('utf-8', errors='replace') if isinstance(e.stdout, bytes) else str(e.stdout)
+            if hasattr(e, 'stderr') and e.stderr:
+                stderr_partial = e.stderr.decode('utf-8', errors='replace') if isinstance(e.stderr, bytes) else str(e.stderr)
+            
+            if is_streaming:
+                console.print(f"[green]✓ Step {i} captured (streaming stopped after {timeout}s)[/green]")
+                if stdout_partial:
+                    stdout_lines = stdout_partial.split('\n')
+                    if len(stdout_lines) > 10:
+                        console.print(Text.from_ansi('\n'.join(stdout_lines[:10])))
+                        console.print(f"[dim]... ({len(stdout_lines) - 10} more lines captured)[/dim]")
+                    else:
+                        console.print(Text.from_ansi(stdout_partial))
+                else:
+                    console.print(f"[dim](no output captured)[/dim]")
+                results.append({
+                    'command': command,
+                    'description': description,
+                    'exit_code': 0,  # Treat as success for streaming
+                    'stdout': strip_ansi_codes(stdout_partial),
+                    'stderr': strip_ansi_codes(stderr_partial),
+                    'note': f'Streaming command - captured first {timeout} seconds'
+                })
+            else:
+                console.print(f"[red]✗ Step {i} timed out after {timeout}s[/red]")
+                results.append({
+                    'command': command,
+                    'description': description,
+                    'exit_code': -1,
+                    'stdout': strip_ansi_codes(stdout_partial),
+                    'stderr': f'Command timed out after {timeout} seconds'
+                })
+        except Exception as e:
+            console.print(f"[red]✗ Step {i} error: {e}[/red]")
+            results.append({
+                'command': command,
+                'description': description,
+                'exit_code': -1,
+                'stdout': '',
+                'stderr': str(e)
+            })
+    
+    # Summary
+    console.print(f"\n[bold cyan]━━━ Tourniquet Summary ━━━[/bold cyan]")
+    successful = sum(1 for r in results if r['exit_code'] == 0)
+    failed = len(results) - successful
+    console.print(f"  [green]✓ Successful:[/green] {successful}")
+    if failed > 0:
+        console.print(f"  [red]✗ Failed:[/red] {failed}")
+    
+    return results
+
+
+def _interpret_tourniquet_results(results: list, prompt: str, console, ollama_client,
+                                   stream, CustomMarkdown, debug_print):
+    """
+    Use LLM to interpret and summarize tourniquet execution results.
+    
+    Args:
+        results: List of execution results from tourniquet
+        prompt: Original user prompt
+        console: Rich console for output
+        ollama_client: Ollama client for LLM
+        stream: Whether to stream LLM output
+        CustomMarkdown: Markdown renderer
+        debug_print: Debug print function
+    """
+    console.print("\n[cyan]🤖 Analyzing tourniquet results...[/cyan]")
+    
+    # Build summary of results for LLM
+    results_summary = []
+    for r in results:
+        status = "✓ SUCCESS" if r['exit_code'] == 0 else f"✗ FAILED (exit: {r['exit_code']})"
+        # Truncate outputs
+        stdout_preview = r['stdout'][:500] if r['stdout'] else "(no output)"
+        stderr_preview = r['stderr'][:200] if r['stderr'] else ""
+        
+        results_summary.append(f"""
+Command: `{r['command']}`
+Description: {r['description']}
+Status: {status}
+Output preview: {stdout_preview}
+{f'Errors: {stderr_preview}' if stderr_preview else ''}
+""")
+    
+    interpretation_prompt = f"""The user asked to: "{prompt}"
+
+The following make commands were executed in sequence (tourniquet):
+
+{'---'.join(results_summary)}
+
+Please provide a brief summary:
+1. What was accomplished overall?
+2. Were all steps successful?
+3. If any failed, what went wrong?
+4. Any recommendations for next steps?
+
+Keep your response concise (3-5 sentences)."""
+
+    try:
+        interpret_chat = ChatManager(system_prompt="You are a helpful assistant that interprets build command results. Be concise and focus on actionable insights.")
+        interpret_chat.add_user_message(interpretation_prompt)
+        messages = interpret_chat.get_messages()
+
+        spinner = Spinner("dots", text="[dim]Interpreting results...[/dim]", style="cyan")
+
+        with Live(spinner, console=console, refresh_per_second=10):
+            if stream:
+                full_response = ""
+                for chunk in ollama_client.chat(
+                    messages=messages,
+                    stream=True,
+                    temperature=0.3
+                ):
+                    full_response += chunk
+            else:
+                response = ollama_client.chat(
+                    messages=messages,
+                    stream=False,
+                    temperature=0.3
+                )
+                full_response = response.get('message', {}).get('content', '')
+
+        if full_response:
+            console.print("\n[bold cyan]📋 Summary:[/bold cyan]")
+            console.print(CustomMarkdown(full_response, code_theme="monokai"))
+            
+    except Exception as llm_error:
+        debug_print(f"LLM interpretation failed: {llm_error}", icon="⚠️")
 
 
 def handle_make_map_generate(console, user_input_normalized, llm_checker,
@@ -362,9 +621,9 @@ def handle_make_execute(console, user_input_normalized, llm_checker, get_user_wo
     
     This function:
     1. Parses the .makemap file to get commands and descriptions
-    2. Matches the user prompt to the best command using text matching (no LLM)
-    3. Runs the command directly with subprocess
-    4. Shows the raw output
+    2. Matches the user prompt to commands using text matching (no LLM)
+    3. If single match: runs directly with subprocess
+    4. If multiple matches: uses tourniquet to execute all matching commands
     5. Uses LLM to interpret and summarize the results
     """
     # Check if Makefile exists
@@ -379,7 +638,7 @@ def handle_make_execute(console, user_input_normalized, llm_checker, get_user_wo
     if not prompt_text:
         console.print("\n❌ [red]Usage: /make <prompt>[/red]")
         console.print("[dim]Example: /make run the tests[/dim]")
-        console.print("[dim]Example: /make show help[/dim]\n")
+        console.print("[dim]Example: /make build and test[/dim]\n")
         return True
 
     # Check for .makemap file
@@ -418,13 +677,13 @@ def handle_make_execute(console, user_input_normalized, llm_checker, get_user_wo
         console.print("[red]❌ No make commands found.[/red]\n")
         return True
 
-    console.print(f"\n🔧 [bold cyan]Finding matching make command...[/bold cyan]")
+    console.print(f"\n🔧 [bold cyan]Finding matching make command(s)...[/bold cyan]")
     console.print(f"[dim]Prompt: {prompt_text}[/dim]\n")
 
-    # Find the best matching command
-    match = find_matching_command(prompt_text, commands)
+    # Find all matching commands
+    all_matches = find_all_matching_commands(prompt_text, commands, min_score=8)
 
-    if not match:
+    if not all_matches:
         console.print("[yellow]⚠️  No matching command found for your prompt.[/yellow]")
         console.print("\n[dim]Available commands:[/dim]")
         for cmd in commands[:10]:  # Show first 10
@@ -434,6 +693,42 @@ def handle_make_execute(console, user_input_normalized, llm_checker, get_user_wo
         console.print()
         return True
 
+    # Check if we need tourniquet (multiple matches with similar scores)
+    # Use tourniquet if: 2+ matches AND second best score is at least 50% of best score
+    use_tourniquet = False
+    if len(all_matches) >= 2:
+        best_score = all_matches[0]['score']
+        second_score = all_matches[1]['score']
+        # If second match has a reasonable score relative to best, use tourniquet
+        if second_score >= best_score * 0.5 and second_score >= 2:
+            use_tourniquet = True
+
+    if use_tourniquet:
+        # Filter to only include matches with reasonable scores
+        threshold = all_matches[0]['score'] * 0.5
+        relevant_matches = [m for m in all_matches if m['score'] >= threshold and m['score'] >= 2]
+        
+        if len(relevant_matches) >= 2:
+            # Use tourniquet for multiple commands
+            console.print(f"[cyan]🎰 Multiple matches detected - using tourniquet[/cyan]")
+            
+            tourniquet_results = tourniquet(
+                prompt_text, commands, console, get_user_working_dir,
+                ollama_client, llm_checker, stream, debug_print, verbose, CustomMarkdown
+            )
+            
+            # LLM interpretation of tourniquet results
+            if ollama_client and not llm_checker.is_feature_disabled('chat') and tourniquet_results:
+                _interpret_tourniquet_results(
+                    tourniquet_results, prompt_text, console, ollama_client,
+                    stream, CustomMarkdown, debug_print
+                )
+            
+            console.print()
+            return True
+
+    # Single match - execute directly
+    match = all_matches[0]
     command = match['command']
     description = match['description']
 
