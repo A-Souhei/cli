@@ -284,6 +284,13 @@ def main(verbose=False):
 
                 # Normalize command input - support both with and without / prefix
                 user_input_normalized = user_input.lstrip('/').strip()
+                
+                # Support : shortcut for /make command
+                # e.g., ": run tests" becomes "make run tests"
+                if user_input.startswith(':') and len(user_input) > 1:
+                    make_prompt = user_input[1:].strip()
+                    if make_prompt:
+                        user_input_normalized = f"make {make_prompt}"
 
                 # Try to dispatch the command to a handler
                 dispatch_result = dispatcher.dispatch(user_input_normalized)

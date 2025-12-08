@@ -538,6 +538,13 @@ def execute_command():
                 'message': 'Command is required'
             }), 400
         
+        # Support : shortcut for /make command
+        # e.g., ": run tests" becomes "/make run tests"
+        if command.startswith(':') and len(command) > 1:
+            make_prompt = command[1:].strip()
+            if make_prompt:
+                command = f'/make {make_prompt}'
+        
         # Normalize command (remove leading /)
         cmd = command.lower()
         if cmd.startswith('/'):
