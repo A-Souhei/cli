@@ -22,6 +22,7 @@ A minimal, modular AI command-line interface that connects to Ollama services (l
 - 🎯 **Dynamic Model Management** - Add, remove, and switch models at runtime (no restart needed)
 - 🔌 **Embedding Service Abstraction** - External embedding services with automatic fallback
 - 🚀 **/code Command** - Unified interface for complex code task orchestration
+- 🔧 **/make Command** - Execute Makefile targets using natural language (`:` shortcut)
 - ⚙️ Configurable via YAML file
 - 🔄 Streaming and non-streaming response modes
 
@@ -262,6 +263,12 @@ Once the CLI starts, you can:
 - **Repomap commands:**
   - `/repomap create` - Create a repository map from working directory
   - `/repomap load` - Load existing .repomap file into context
+- **Make commands:**
+  - `/make <prompt>` - Execute make commands using natural language
+  - `/make map generate` - Generate .makemap from Makefile
+  - `/make map update` - Update .makemap with new targets
+  - `/make map load` - Load .makemap into context
+  - `:` - Shortcut for `/make` (e.g., `:run tests`)
 - **Exit:** Type `exit` or `quit` to close the CLI
 
 ### Repomap Feature
@@ -302,6 +309,51 @@ The `.repomap` file contains:
 - Entry points and dependencies
 - Data flow and configuration details
 - Testing structure and getting started guide
+
+### Make Command (NEW)
+
+The `/make` command lets you execute Makefile targets using natural language. It automatically parses your Makefile, generates a `.makemap` file with target descriptions, and matches your intent to the right make commands.
+
+**Quick Shortcut:** Use `:` as a shortcut for `/make`:
+```
+▶ :run tests
+# Equivalent to: /make run tests
+```
+
+**Generating a Make Map:**
+```
+▶ /make map generate
+📦 Generating .makemap from Makefile...
+📂 Parsing Makefile...
+✓ Found 15 targets
+🤖 Generating descriptions with LLM...
+✓ .makemap created successfully!
+📄 Saved to: /path/to/.makemap
+```
+
+**Executing Make Commands with Natural Language:**
+```
+▶ /make run the integration tests
+🔍 Matching command...
+✅ Matched: make test-integration
+⚡ Executing...
+  Running integration tests (requires containers)...
+✓ Integration tests completed
+```
+
+**Auto-detection:** If a `.makemap` file exists, the CLI automatically detects make-related prompts:
+```
+▶ build the docker images
+🔧 Detected make command
+✅ Matched: make build-all-services
+⚡ Executing...
+```
+
+The `.makemap` file contains:
+- **Targets**: All available make targets with descriptions
+- **Dependencies**: Target dependencies
+- **Variables**: Makefile variables and their defaults
+- **Recipes**: Command summaries for each target
 
 ### Session Feature
 
@@ -436,6 +488,11 @@ make up-all                   # Start all services (Ollama + Redis + Transformer
 make up-redis                 # Start only Redis services
 make run                      # Run the CLI
 
+# Web UI
+make ui                       # Start the AI CLI Web UI in background
+make ui-logs                  # Start the AI CLI Web UI with logs (foreground)
+make ui-stop                  # Stop the AI CLI Web UI
+
 # Docker Management
 make down                     # Stop Docker containers
 make restart                  # Restart Docker containers
@@ -449,6 +506,7 @@ make redis-cli                # Execute Redis CLI
 make redis-clear              # Clear all Redis data (with confirmation)
 make redis-info               # Show Redis statistics
 make redis-api-health         # Check Redis API health
+make transformer-health       # Check Transformer service health
 
 # Database
 make migrate-session          # Apply session database migration
