@@ -16,6 +16,7 @@ class LLMConfig:
     timeout: int
     is_tinyollama: bool = False
     disabled_features: List[str] = field(default_factory=list)
+    provider: str = "ollama"  # 'ollama' or 'anthropic'
 
 
 class ModelAvailabilityChecker:
@@ -26,16 +27,18 @@ class ModelAvailabilityChecker:
     and falls back to tinyollama if needed.
     """
 
-    def __init__(self, config_manager, model_registry: ModelRegistry = None):
+    def __init__(self, config_manager, model_registry: ModelRegistry = None, secrets_manager=None):
         """
         Initialize the model availability checker.
 
         Args:
             config_manager: ConfigManager instance with loaded configuration
             model_registry: Optional ModelRegistry instance
+            secrets_manager: Optional SecretsManager for API keys (needed for Anthropic)
         """
         self.config = config_manager
         self.model_registry = model_registry or ModelRegistry()
+        self.secrets_manager = secrets_manager
         self._active_llm: Optional[LLMConfig] = None
 
     def check_ollama_available(self, url: str, timeout: int = 5) -> bool:
@@ -59,12 +62,14 @@ class ModelAvailabilityChecker:
             capture_exception(e)
             return False
 
-    def check_model_availability(self, model_id: str) -> bool:
+    def check_model_availability(self, model_id: str, secrets_manager=None) -> bool:
         """
         Check if a specific model is available and update its status.
 
         Args:
             model_id: ID of the model to check
+            secrets_manager: SecretsManager for API keys (needed for Anthropic).
+                           Falls back to self.secrets_manager if not provided.
 
         Returns:
             True if model is available, False otherwise
@@ -73,7 +78,16 @@ class ModelAvailabilityChecker:
         if not model:
             return False
 
-        is_available = self.check_ollama_available(model.url, timeout=5)
+        provider = getattr(model, 'provider', 'ollama')
+
+        if provider == 'anthropic':
+            # For Anthropic models, assume available and let actual API calls fail gracefully
+            # This avoids unnecessary API costs for availability checks
+            is_available = True
+        else:
+            # Default to Ollama
+            is_available = self.check_ollama_available(model.url, timeout=5)
+
         self.model_registry.update_availability(model_id, is_available)
         return is_available
 
@@ -132,12 +146,14 @@ class ModelAvailabilityChecker:
         # Try dynamic general model first
         general_model = self.get_available_model('general', force_recheck=force_recheck)
         if general_model:
+            provider = getattr(general_model, 'provider', 'ollama')
             self._active_llm = LLMConfig(
                 url=general_model.url,
                 model=general_model.model_name,
                 timeout=general_model.timeout,
                 is_tinyollama=False,
-                disabled_features=[]
+                disabled_features=[],
+                provider=provider
             )
             return self._active_llm
 

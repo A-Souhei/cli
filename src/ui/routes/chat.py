@@ -2387,28 +2387,39 @@ def _generate_code_with_llm_sync(step: str, model_registry, mcp_client,
     """
     model_name_used = None
     try:
+        from src.llm_client.factory import LLMClientFactory
+        from src.config.secrets import SecretsManager
         from src.ollama_client.client import OllamaClient
         
         # Get the appropriate model based on use_coder_model flag
         if use_coder_model:
             coder_model = model_registry.get_active_model('coder')
             if coder_model:
-                # Create client with coder model's URL and settings
-                ollama_client = OllamaClient(
-                    host=coder_model.url,
-                    model=coder_model.model_name,
-                    timeout=coder_model.timeout
-                )
+                # Check provider and create appropriate client using factory
+                provider = getattr(coder_model, 'provider', 'ollama')
                 model_name_used = coder_model.model_name
-                print(f"[_generate_code_with_llm_sync] Using coder model: {coder_model.model_name} at {coder_model.url}")
+                
+                if provider == 'anthropic':
+                    # Use LLMClientFactory for Anthropic models
+                    secrets_manager = SecretsManager()
+                    llm_client = LLMClientFactory.create_client(coder_model, secrets_manager)
+                    print(f"[_generate_code_with_llm_sync] Using Anthropic coder model: {coder_model.model_name}")
+                else:
+                    # Use OllamaClient for Ollama models
+                    llm_client = OllamaClient(
+                        host=coder_model.url,
+                        model=coder_model.model_name,
+                        timeout=coder_model.timeout
+                    )
+                    print(f"[_generate_code_with_llm_sync] Using Ollama coder model: {coder_model.model_name} at {coder_model.url}")
             else:
                 # Fallback to general model if no coder model available
-                ollama_client, _ = get_ollama_client()
-                model_name_used = ollama_client.model if hasattr(ollama_client, 'model') else 'unknown'
+                llm_client, _ = get_ollama_client()
+                model_name_used = llm_client.model if hasattr(llm_client, 'model') else 'unknown'
                 print(f"[_generate_code_with_llm_sync] No coder model available, using general model")
         else:
-            ollama_client, _ = get_ollama_client()
-            model_name_used = ollama_client.model if hasattr(ollama_client, 'model') else 'unknown'
+            llm_client, _ = get_ollama_client()
+            model_name_used = llm_client.model if hasattr(llm_client, 'model') else 'unknown'
 
         # Build accumulated context section from previous steps
         context_section = ""
@@ -2481,7 +2492,7 @@ Start your response with the ``` marker immediately. No text before the code blo
         print(f"[_generate_code_with_llm_sync] Prompt length: {len(llm_prompt)} chars, num_predict={num_predict}")
         
         try:
-            response = ollama_client.chat(
+            response = llm_client.chat(
                 messages=messages,
                 stream=False,
                 temperature=0.7,

@@ -92,6 +92,7 @@ services:
       - "${FLASK_HOST_PORT:-15000}:5000"
     volumes:
       - ./config.yaml:/app/config.yaml:ro
+      - ./secrets.yaml:/app/secrets.yaml:ro
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
@@ -100,6 +101,7 @@ services:
       - POSTGRES_PORT=5432
       - TRANSFORMER_API_URL=http://transformer:${TRANSFORMER_CONTAINER_PORT:-5050}
       - OLLAMA_API_URL=${OLLAMA_API_URL:-http://ollama:11434}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - SENTRY_DSN=${SENTRY_DSN:-}
       - ENVIRONMENT=${ENVIRONMENT:-DEV}
     depends_on:

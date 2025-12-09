@@ -5,10 +5,12 @@ from prompt_toolkit.history import FileHistory
 
 from src.config import ConfigManager
 from src.config.llm_availability import LLMAvailabilityChecker
+from src.config.secrets import SecretsManager
 from src.model_registry import ModelRegistry
 from src.model_registry.availability import ModelAvailabilityChecker
 from src.embedding_client import EmbeddingClient
 from src.ollama_client import OllamaClient
+from src.llm_client.factory import LLMClientFactory
 from src.chat import ChatManager
 from src.mcp import MCPClient
 from src.session import SessionManager, SessionTitleGenerator
@@ -47,7 +49,10 @@ class CLIInitializer:
         """
         # Load configuration
         config = ConfigManager()
-        
+
+        # Load secrets (API keys)
+        secrets_manager = SecretsManager()
+
         # Initialize ModelRegistry
         model_registry = ModelRegistry()
         
@@ -63,19 +68,39 @@ class CLIInitializer:
         
         # Run migration from config.yaml to Redis if needed
         run_migration_if_needed(config, model_registry, verbose=self.verbose)
-        
+
         # Check model availability using new ModelAvailabilityChecker
-        llm_checker = ModelAvailabilityChecker(config, model_registry)
+        # Pass secrets_manager so Anthropic availability checks work
+        llm_checker = ModelAvailabilityChecker(config, model_registry, secrets_manager=secrets_manager)
         llm_config = llm_checker.get_available_llm()
         
-        # Initialize Ollama client with the available LLM
+        # Initialize LLM client using factory pattern
         # Note: If no model is available, llm_config.url will be empty
         # but we still create the client (graceful degradation)
-        ollama_client = OllamaClient(
-            host=llm_config.url if llm_config.url else 'http://localhost:11434',
-            model=llm_config.model if llm_config.model else 'none',
-            timeout=llm_config.timeout
-        )
+        provider = getattr(llm_config, 'provider', 'ollama')
+        if provider == 'anthropic' and llm_config.model:
+            try:
+                ollama_client = LLMClientFactory.create_from_params(
+                    provider='anthropic',
+                    model_name=llm_config.model,
+                    timeout=llm_config.timeout,
+                    secrets_manager=secrets_manager
+                )
+            except ValueError:
+                # API key not available, fall back to empty Ollama client
+                if self.debug_print:
+                    self.debug_print("Anthropic API key not found, using placeholder client", icon="⚠️")
+                ollama_client = OllamaClient(
+                    host='http://localhost:11434',
+                    model='none',
+                    timeout=llm_config.timeout
+                )
+        else:
+            ollama_client = OllamaClient(
+                host=llm_config.url if llm_config.url else 'http://localhost:11434',
+                model=llm_config.model if llm_config.model else 'none',
+                timeout=llm_config.timeout
+            )
         
         # Initialize chat manager
         chat_manager = ChatManager(
@@ -134,6 +159,8 @@ class CLIInitializer:
                 self.console.print(f"  🔗 Server: [dim]{llm_config.url}[/dim]")
                 if llm_config.disabled_features:
                     self.console.print(f"  ⚠️  [dim]Disabled features: {', '.join(llm_config.disabled_features)}[/dim]")
+            elif provider == 'anthropic':
+                self.console.print(f"  📦 Model: [bold magenta]{llm_config.model}[/bold magenta] [dim](Anthropic)[/dim]")
             else:
                 self.console.print(f"  📦 Model: [bold]{llm_config.model}[/bold]")
                 self.console.print(f"  🔗 Server: [dim]{llm_config.url}[/dim]")
@@ -148,6 +175,7 @@ class CLIInitializer:
         # Return all initialized components
         return {
             'config': config,
+            'secrets_manager': secrets_manager,
             'model_registry': model_registry,
             'embedding_client': embedding_client,
             'transformer_url': transformer_url,

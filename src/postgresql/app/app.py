@@ -583,6 +583,92 @@ def call_ollama(prompt, model="tinyllama", temperature=0.3, max_tokens=1000, oll
         return None
 
 
+def call_anthropic(prompt, model="claude-3-5-sonnet-20241022", temperature=0.3, max_tokens=1000):
+    """
+    Call Anthropic API to generate text using existing abstractions.
+
+    Parameters:
+    -----------
+    prompt : str
+        The prompt to send to Anthropic
+    model : str
+        The model name to use (default: claude-3-5-sonnet-20241022)
+    temperature : float
+        Temperature for generation (default: 0.3)
+    max_tokens : int
+        Maximum tokens to generate (default: 1000)
+
+    Returns:
+    --------
+    str or None
+        Generated text if successful, None otherwise
+    """
+    try:
+        from src.config.secrets import SecretsManager
+        from src.anthropic_client.client import AnthropicClient
+    except ImportError as e:
+        print(f"[call_anthropic] ERROR: Import failed: {e}")
+        return None
+
+    try:
+        # Use SecretsManager to get API key
+        secrets_manager = SecretsManager()
+        api_key = secrets_manager.get_anthropic_api_key()
+        
+        if not api_key:
+            print("[call_anthropic] ERROR: No Anthropic API key found")
+            return None
+
+        print(f"[call_anthropic] Calling Anthropic API with model={model}, max_tokens={max_tokens}")
+        
+        # Use AnthropicClient for consistent API communication
+        client = AnthropicClient(model=model, api_key=api_key)
+        response = client.chat(
+            messages=[{"role": "user", "content": prompt}],
+            stream=False,
+            temperature=temperature,
+            num_predict=max_tokens
+        )
+        
+        content = response.get('message', {}).get('content', '')
+        print(f"[call_anthropic] Success: received {len(content)} chars")
+        return content.strip()
+        
+    except Exception as e:
+        print(f"[call_anthropic] ERROR: {e}")
+        return None
+
+
+def call_llm(prompt, model="tinyllama", temperature=0.3, max_tokens=1000, provider="ollama", ollama_url=None):
+    """
+    Call LLM API to generate text, supporting multiple providers.
+
+    Parameters:
+    -----------
+    prompt : str
+        The prompt to send to the LLM
+    model : str
+        The model name to use
+    temperature : float
+        Temperature for generation (default: 0.3)
+    max_tokens : int
+        Maximum tokens to generate (default: 1000)
+    provider : str
+        Provider to use: 'ollama' or 'anthropic' (default: 'ollama')
+    ollama_url : str, optional
+        Custom Ollama URL (only used for ollama provider)
+
+    Returns:
+    --------
+    str or None
+        Generated text if successful, None otherwise
+    """
+    if provider == 'anthropic':
+        return call_anthropic(prompt, model=model, temperature=temperature, max_tokens=max_tokens)
+    else:
+        return call_ollama(prompt, model=model, temperature=temperature, max_tokens=max_tokens, ollama_url=ollama_url)
+
+
 @app.route('/mcp-tools/store', methods=['POST'])
 def store_mcp_tool():
     """Store or update an MCP tool with its embedding."""
@@ -1196,6 +1282,7 @@ def code_command_simple():
         # Get optional parameters
         model = data.get('model', DEFAULT_OLLAMA_MODEL)
         ollama_url = data.get('ollama_url')  # Optional custom Ollama URL
+        provider = data.get('provider', 'ollama')  # 'ollama' or 'anthropic'
 
         # Step 1: Get all MCP tools from database
         tools = MCPTool.query.all()
@@ -1263,18 +1350,25 @@ Return ONLY a JSON array of step strings. No explanation, just the array:
         # Step 4: Call LLM
         print(f"[code-command-simple] Calling LLM to split prompt (length: {len(text)})")
         print(f"[code-command-simple] Model: {model}")
-        if ollama_url:
+        if provider == 'anthropic':
+            print(f"[code-command-simple] Using Anthropic provider")
+        elif ollama_url:
             print(f"[code-command-simple] Using custom Ollama URL: {ollama_url}")
         else:
             print(f"[code-command-simple] Using default Ollama URL: {OLLAMA_API_URL}")
 
-        llm_response = call_ollama(llm_prompt, model=model, temperature=0.3, max_tokens=2000, ollama_url=ollama_url)
+        llm_response = call_llm(llm_prompt, model=model, temperature=0.3, max_tokens=2000, provider=provider, ollama_url=ollama_url)
 
         if not llm_response:
             print(f"[code-command-simple] ERROR: LLM returned None")
+            error_msg = 'Failed to get response from LLM.'
+            if provider == 'anthropic':
+                error_msg += ' Check your Anthropic API key.'
+            else:
+                error_msg += ' Make sure Ollama is running.'
             return jsonify({
                 'status': 'error',
-                'message': 'Failed to get response from LLM. Make sure Ollama is running.'
+                'message': error_msg
             }), 503
 
         print(f"[code-command-simple] LLM response received ({len(llm_response)} chars)")

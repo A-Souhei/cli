@@ -40,7 +40,8 @@ class CommandDispatcher:
                  get_user_working_dir, set_user_working_dir, run_async,
                  debug_print, InteractiveSelector, CombinedCompleter,
                  list_system_mcps, get_mcp_tools, WorkingDirectoryMismatchError,
-                 verbose=False, stream=False, temperature=0.7, CustomMarkdown=None):
+                 verbose=False, stream=False, temperature=0.7, CustomMarkdown=None,
+                 secrets_manager=None):
         """Initialize the command dispatcher with necessary dependencies."""
         self.console = console
         self.config = config
@@ -64,6 +65,7 @@ class CommandDispatcher:
         self.stream = stream
         self.temperature = temperature
         self.CustomMarkdown = CustomMarkdown
+        self.secrets_manager = secrets_manager
         self.combined_completer = None
     
     def dispatch(self, user_input_normalized):
@@ -106,8 +108,19 @@ class CommandDispatcher:
             return handle_models_list(self.console, self.ollama_client)
         
         if user_input_normalized.lower() == 'switch':
-            return handle_switch_model(self.console, self.ollama_client,
-                                      self.InteractiveSelector)
+            result = handle_switch_model(
+                self.console, self.ollama_client,
+                self.InteractiveSelector,
+                model_registry=self.model_registry,
+                secrets_manager=self.secrets_manager,
+                llm_checker=self.llm_checker
+            )
+            # Check if a new client was returned (tuple with new_client)
+            if isinstance(result, tuple) and len(result) == 2:
+                _, new_client = result
+                self.ollama_client = new_client
+                return (True, new_client)  # Signal main.py to update its reference
+            return result
         
         # Handle MCP commands
         if user_input_normalized.lower() == 'mcps':
@@ -157,7 +170,8 @@ class CommandDispatcher:
         if user_input_normalized.lower().startswith('model '):
             return handle_model_commands(self.console, user_input_normalized,
                                         self.model_registry, self.llm_checker,
-                                        self.config, self.transformer_url)
+                                        self.config, self.transformer_url,
+                                        secrets_manager=self.secrets_manager)
         
         # Handle /make map generate command
         if user_input_normalized.lower().startswith('make map generate'):

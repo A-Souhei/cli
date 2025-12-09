@@ -15,14 +15,15 @@ class ModelConfig:
     """Configuration for a dynamically registered model."""
     model_id: str          # Unique identifier
     model_type: str        # 'general', 'coder', or 'embedding'
-    url: str               # Ollama service URL (or embedding service URL)
-    model_name: str        # Model name (e.g., 'llama3.1:8b'), empty string for embedding
+    url: str               # Ollama service URL (empty for Anthropic)
+    model_name: str        # Model name (e.g., 'llama3.1:8b' or 'claude-sonnet-4-20250514')
     timeout: int           # Request timeout
     is_active: bool        # Whether this is the active model for its type
     added_at: str          # When the model was registered (ISO format)
     last_checked: Optional[str] = None  # Last availability check (ISO format)
     is_available: Optional[bool] = None  # Current availability status
     embedding_dimensions: Optional[int] = None  # For embedding models only
+    provider: str = "ollama"  # Provider: 'ollama' or 'anthropic'
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for Redis storage."""
@@ -38,6 +39,7 @@ class ModelRegistry:
     """Manages dynamic model registration with Redis persistence."""
 
     VALID_MODEL_TYPES = ['general', 'coder', 'embedding']
+    VALID_PROVIDERS = ['ollama', 'anthropic']
 
     def __init__(self, redis_host: str = None, redis_port: int = None, use_memory: bool = False):
         """
@@ -125,37 +127,50 @@ class ModelRegistry:
             model_data['embedding_dimensions'] = None
         elif model_data.get('embedding_dimensions') is not None:
             model_data['embedding_dimensions'] = int(model_data['embedding_dimensions'])
-        
+
+        # Handle provider (default to 'ollama' for backward compatibility)
+        if not model_data.get('provider') or model_data.get('provider') == '':
+            model_data['provider'] = 'ollama'
+
         return model_data
+
+    def _validate_provider(self, provider: str) -> bool:
+        """Validate that provider is valid."""
+        return provider in self.VALID_PROVIDERS
 
     def add_model(
         self,
         model_type: str,
-        url: str,
+        url: str = "",
         model_name: str = "",
         timeout: int = 120,
         set_active: bool = True,
-        embedding_dimensions: Optional[int] = None
+        embedding_dimensions: Optional[int] = None,
+        provider: str = "ollama"
     ) -> ModelConfig:
         """
         Add a new model to the registry.
 
         Args:
             model_type: Type of model ('general', 'coder', or 'embedding')
-            url: Ollama service URL (or embedding service URL)
-            model_name: Name of the model (empty string for embedding type)
+            url: Ollama service URL (empty for Anthropic)
+            model_name: Name of the model (e.g., 'llama3.1:8b' or 'claude-sonnet-4-20250514')
             timeout: Request timeout in seconds
             set_active: Whether to set this as the active model for its type
             embedding_dimensions: For embedding models only (auto-detected if None)
+            provider: Model provider ('ollama' or 'anthropic')
 
         Returns:
             The created ModelConfig
 
         Raises:
-            ValueError: If model_type is invalid
+            ValueError: If model_type or provider is invalid
         """
         if not self._validate_model_type(model_type):
             raise ValueError(f"Invalid model_type: {model_type}. Must be one of {self.VALID_MODEL_TYPES}")
+
+        if not self._validate_provider(provider):
+            raise ValueError(f"Invalid provider: {provider}. Must be one of {self.VALID_PROVIDERS}")
 
         model_id = self._generate_model_id()
         now = datetime.now().isoformat()
@@ -170,7 +185,8 @@ class ModelRegistry:
             added_at=now,
             last_checked=None,
             is_available=None,
-            embedding_dimensions=embedding_dimensions
+            embedding_dimensions=embedding_dimensions,
+            provider=provider
         )
 
         try:
