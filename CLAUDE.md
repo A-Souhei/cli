@@ -357,6 +357,10 @@ The `.llmignore` file prevents sensitive files from being added to LLM context:
 - Hierarchical: `.llmignore` files in subdirectories apply to that directory
 - Security-focused: Blocks secrets, credentials, API keys from LLM exposure
 
+**Commands:**
+- `/ignore create` - Create `.llmignore` file in working directory with default patterns
+- `/ignore add @file1 @file2` - Add files to `.llmignore`
+
 **Pattern Syntax:**
 ```
 # Comments start with #
@@ -377,6 +381,13 @@ secrets/
 node_modules/
 venv/
 __pycache__/
+```
+
+**Usage Examples:**
+```bash
+/ignore create                    # Create .llmignore with defaults
+/ignore add @.env @secrets.yaml   # Add specific files
+/ignore add @credentials/         # Add directory
 ```
 
 **Where it applies:**

@@ -38,6 +38,8 @@ class SlashCommandCompleter(Completer):
         ('/datamap update --with-files', 'Update existing .datamap with new local files'),
         ('/datamap update --with-pg', 'Update existing .datamap with PostgreSQL database'),
         ('/datamap update --with-files --with-pg', 'Update existing .datamap from files and PostgreSQL'),
+        ('/ignore create', 'Create .llmignore file in working directory'),
+        ('/ignore add @file', 'Add file(s) to .llmignore'),
         ('/code <prompt>', 'Analyze and execute code tasks (requires session)'),
     ]
 
