@@ -318,6 +318,11 @@ def main(verbose=False):
                     completer=combined_completer
                 ).strip()
 
+                # Handle Ctrl+D to exit
+                if user_input == '__CTRL_D__':
+                    console.print("\n[dim]Exiting...[/dim]\n")
+                    return
+
                 # Add blank line for spacing after input
                 console.print()
 
@@ -1953,8 +1958,10 @@ Output format:
                         except ValueError:
                             console.print("❌ [red]Invalid input. Enter a number.[/red]")
                     # If empty input (Enter pressed), do nothing - silently skip
-                except EOFError:
-                    pass  # Handle piped input gracefully
+                except (EOFError, KeyboardInterrupt):
+                    # Handle piped input or Ctrl+C gracefully - skip rating
+                    console.print("[dim]Skipped[/dim]")
+                    pass
 
                 console.print()  # Extra line for readability
 

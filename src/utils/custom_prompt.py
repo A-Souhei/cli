@@ -76,6 +76,17 @@ def custom_prompt_with_lines(console, history=None, completer=None):
         # Accept the current input (triggers accept_handler)
         event.current_buffer.validate_and_handle()
 
+    @kb.add('c-c')
+    def _(event):
+        # Ctrl+C clears the input buffer instead of exiting
+        event.current_buffer.text = ''
+
+    @kb.add('c-d')
+    def _(event):
+        # Ctrl+D returns special marker for exit intent
+        result_text['value'] = '__CTRL_D__'
+        event.app.exit()
+
     # Create the application
     app = Application(
         layout=Layout(root_container),
