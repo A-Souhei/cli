@@ -90,6 +90,11 @@ from src.utils.file_action_handler import (
     detect_file_actions,
 )
 
+# Import llmignore functionality from separate module
+from src.utils.llmignore import (
+    filter_at_context,
+)
+
 # Import CLI modules
 from src.cli.initialization import CLIInitializer
 from src.cli.dispatcher import CommandDispatcher
@@ -1611,6 +1616,29 @@ Output format:
 
                 # Process @ prefixed file/directory paths
                 at_context = extract_at_context(user_input, get_user_working_dir())
+                
+                # Filter @ context based on .llmignore patterns
+                filtered_context, ignored_context = filter_at_context(at_context, get_user_working_dir())
+                
+                # Warn user about ignored files/directories
+                if ignored_context['files'] or ignored_context['directories']:
+                    console.print()
+                    if ignored_context['files']:
+                        console.print(f"[yellow]⚠️  Ignored {len(ignored_context['files'])} file(s) by .llmignore:[/yellow]")
+                        for ignored_file in ignored_context['files'][:5]:
+                            console.print(f"[dim]  • {ignored_file}[/dim]")
+                        if len(ignored_context['files']) > 5:
+                            console.print(f"[dim]  ... and {len(ignored_context['files']) - 5} more[/dim]")
+                    if ignored_context['directories']:
+                        console.print(f"[yellow]⚠️  Ignored {len(ignored_context['directories'])} directory(ies) by .llmignore:[/yellow]")
+                        for ignored_dir in ignored_context['directories'][:5]:
+                            console.print(f"[dim]  • {ignored_dir}[/dim]")
+                        if len(ignored_context['directories']) > 5:
+                            console.print(f"[dim]  ... and {len(ignored_context['directories']) - 5} more[/dim]")
+                    console.print()
+                
+                # Use filtered context instead of original at_context
+                at_context = filtered_context
                 context_added = False
 
                 # Collect file and directory contents to inject into conversation

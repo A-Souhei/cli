@@ -86,6 +86,7 @@ from src.mcp import MCPClient
 from src.file_completer import extract_at_context
 from src.utils.file_action_handler import build_system_messages, detect_file_actions
 from src.utils.code_handlers import handle_file_modifications
+from src.utils.llmignore import filter_at_context
 
 chat_bp = Blueprint('chat', __name__)
 
@@ -379,6 +380,12 @@ def send_message():
         
         # Extract @ prefixed file/directory paths for file action detection
         at_context = extract_at_context(message, working_dir)
+        
+        # Filter @ context based on .llmignore patterns - SECURITY: Never add ignored files
+        filtered_context, ignored_context = filter_at_context(at_context, working_dir)
+        
+        # Use filtered context instead of original
+        at_context = filtered_context
 
         # Build injected context parts from file_contents (UI uploads)
         injected_context_parts = []
