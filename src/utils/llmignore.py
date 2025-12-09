@@ -17,8 +17,7 @@ directory matching, use patterns like dir/* or dir/*.ext instead of dir/**/*.ext
 
 import os
 import fnmatch
-from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 from src.sentry_config import capture_exception
 
 
@@ -40,7 +39,7 @@ class LLMIgnorePattern:
         self.base_dir = base_dir
         
         # Determine if pattern is directory-specific (ends with /)
-        self.is_directory_only = pattern.endswith('/')
+        self.is_directory_only = self.pattern.endswith('/')
         if self.is_directory_only:
             self.pattern = self.pattern.rstrip('/')
         

@@ -86,7 +86,7 @@ from src.mcp import MCPClient
 from src.file_completer import extract_at_context
 from src.utils.file_action_handler import build_system_messages, detect_file_actions
 from src.utils.code_handlers import handle_file_modifications
-from src.utils.llmignore import filter_at_context
+from src.utils.llmignore import filter_at_context, LLMIgnore
 
 chat_bp = Blueprint('chat', __name__)
 
@@ -388,10 +388,22 @@ def send_message():
         at_context = filtered_context
 
         # Build injected context parts from file_contents (UI uploads)
+        # SECURITY: Filter uploads through .llmignore to prevent sensitive file exposure
         injected_context_parts = []
+        ignored_uploads = []
         if file_contents:
+            llm_ignore = LLMIgnore(working_dir)
             for filename, content in file_contents.items():
+                # Check if uploaded file should be ignored
+                if llm_ignore.is_ignored(filename):
+                    ignored_uploads.append(filename)
+                    continue
                 injected_context_parts.append(f"File: {filename}\n```\n{content}\n```")
+            
+            # Warn user if any uploads were blocked
+            if ignored_uploads:
+                warning_msg = f"⚠️  {len(ignored_uploads)} uploaded file(s) blocked by .llmignore: {', '.join(ignored_uploads)}"
+                print(warning_msg, file=sys.stderr)
 
         # Load contents of @ referenced files (matching CLI behavior)
         # This ensures the LLM has full context when editing files

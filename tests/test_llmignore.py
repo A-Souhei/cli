@@ -3,8 +3,6 @@
 import os
 import tempfile
 import shutil
-from pathlib import Path
-import pytest
 
 from src.utils.llmignore import (
     LLMIgnorePattern,

@@ -58,7 +58,6 @@ try:
     from src.utils.llmignore import LLMIgnore
 except ImportError as e:
     # Fallback if import fails - log error and use restrictive fallback
-    import sys
     print(f"WARNING: Failed to import LLMIgnore: {e}", file=sys.stderr)
     print("WARNING: .llmignore filtering will not be available. This may be a security risk!", file=sys.stderr)
     
@@ -66,7 +65,6 @@ except ImportError as e:
         """Fallback LLMIgnore class that logs warnings but doesn't filter."""
         def __init__(self, working_dir):
             self.working_dir = working_dir
-            import sys
             print(f"WARNING: LLMIgnore fallback active for {working_dir} - filtering disabled", file=sys.stderr)
         
         def is_ignored(self, file_path, is_dir=False):
