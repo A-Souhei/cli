@@ -198,12 +198,29 @@ console = Console(theme=custom_theme)
 
 
 class CustomMarkdown(Markdown):
-    """Custom Markdown renderer with styled code blocks."""
+    """Custom Markdown renderer with styled code blocks and improved text rendering."""
+
+    def __init__(self, *args, **kwargs):
+        """Initialize with justify="left" for proper text alignment."""
+        super().__init__(*args, **kwargs)
+        # Set default justify to left for all text
+        self.justify = "left"
 
     def __rich_console__(self, console, options):
-        """Render markdown with custom code block styling."""
+        """Render markdown with custom code block styling and text formatting."""
+        from rich.text import Text
+        from rich.padding import Padding
+        from rich.align import Align
+
+        # Create new options with no_wrap=False to enable proper word wrapping
+        # and overflow="fold" to wrap at word boundaries
+        new_options = options.update(
+            no_wrap=False,
+            overflow="fold"
+        )
+
         # Get the rendered markdown elements
-        for element in super().__rich_console__(console, options):
+        for element in super().__rich_console__(console, new_options):
             # Check if it's a code block
             if isinstance(element, Panel) and hasattr(element, 'renderable'):
                 # Wrap code blocks with blue border and black background
@@ -224,6 +241,18 @@ class CustomMarkdown(Markdown):
                     style=Style(bgcolor="#000000"),
                     padding=(0, 1)
                 )
+            elif isinstance(element, Align):
+                # Fix centered elements (like headings) to be left-aligned
+                if element.align == "center":
+                    yield Align(element.renderable, align="left")
+                else:
+                    yield element
+            elif isinstance(element, Text):
+                # Ensure text elements are left-justified and properly wrapped
+                element.justify = "left"
+                element.overflow = "fold"  # Wrap at word boundaries
+                element.no_wrap = False  # Enable wrapping
+                yield element
             else:
                 yield element
 
