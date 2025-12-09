@@ -66,12 +66,17 @@ def handle_model_commands(console, user_input_normalized, model_registry, llm_ch
         general = model_registry.get_active_model('general')
         if general:
             availability_icon = "✓" if llm_checker.check_model_availability(general.model_id) else "✗"
+            provider = getattr(general, 'provider', 'ollama')
             console.print(f"[bold cyan]General Model:[/bold cyan]")
-            console.print(f"  {availability_icon} [cyan]{general.model_name}[/cyan] @ {general.url}")
+            if provider == 'anthropic':
+                console.print(f"  {availability_icon} [magenta]{provider}[/magenta] [cyan]{general.model_name}[/cyan]")
+            else:
+                console.print(f"  {availability_icon} [cyan]{general.model_name}[/cyan] @ {general.url}")
             console.print(f"  ID: [dim]{general.model_id}[/dim]")
         else:
             console.print("[bold cyan]General Model:[/bold cyan] [yellow]Not configured[/yellow]")
             console.print("  Use: [dim]/model general add <url> <model_name>[/dim]")
+            console.print("       [dim]/model general add anthropic <model_name>[/dim]")
 
         console.print()
 
@@ -79,12 +84,17 @@ def handle_model_commands(console, user_input_normalized, model_registry, llm_ch
         coder = model_registry.get_active_model('coder')
         if coder:
             availability_icon = "✓" if llm_checker.check_model_availability(coder.model_id) else "✗"
+            provider = getattr(coder, 'provider', 'ollama')
             console.print(f"[bold cyan]Coder Model:[/bold cyan]")
-            console.print(f"  {availability_icon} [cyan]{coder.model_name}[/cyan] @ {coder.url}")
+            if provider == 'anthropic':
+                console.print(f"  {availability_icon} [magenta]{provider}[/magenta] [cyan]{coder.model_name}[/cyan]")
+            else:
+                console.print(f"  {availability_icon} [cyan]{coder.model_name}[/cyan] @ {coder.url}")
             console.print(f"  ID: [dim]{coder.model_id}[/dim]")
         else:
             console.print("[bold cyan]Coder Model:[/bold cyan] [yellow]Not configured[/yellow]")
             console.print("  Use: [dim]/model coder add <url> <model_name>[/dim]")
+            console.print("       [dim]/model coder add anthropic <model_name>[/dim]")
 
         console.print()
 
@@ -274,11 +284,13 @@ def handle_model_commands(console, user_input_normalized, model_registry, llm_ch
             console.print(f"\n❌ [red]Failed to add embedding model: {e}[/red]\n")
         return True
 
-    # /model <type> add <url> <model_name>
-    if len(parts) >= 4 and parts[1] == 'add':
+    # /model <type> add <url_or_provider> <model_name>
+    # Supports:
+    #   /model general add http://localhost:11434 llama3.1:8b  -> Ollama
+    #   /model general add anthropic claude-sonnet-4-20250514  -> Anthropic
+    if len(parts) >= 3 and parts[1] == 'add':
         model_type = parts[0]
-        url = parts[2]
-        model_name = parts[3]
+        first_arg = parts[2]
         timeout = 120
 
         if model_type not in ['general', 'coder']:
@@ -286,31 +298,88 @@ def handle_model_commands(console, user_input_normalized, model_registry, llm_ch
             console.print("[dim]Valid types: general, coder[/dim]\n")
             return True
 
-        console.print(f"\n🔍 [yellow]Checking availability of {model_name} @ {url}...[/yellow]")
-        if not llm_checker.check_ollama_available(url):
-            console.print(f"❌ [red]Cannot reach Ollama service at {url}[/red]\n")
+        # Auto-detect provider based on first argument
+        if first_arg.lower() == 'anthropic':
+            # Anthropic provider
+            if len(parts) < 4:
+                console.print(f"\n❌ [red]Model name required for Anthropic[/red]")
+                console.print("[dim]Usage: /model {model_type} add anthropic <model_name>[/dim]\n")
+                return True
+
+            model_name = parts[3]
+            provider = 'anthropic'
+            url = ''  # Anthropic doesn't need a URL
+
+            console.print(f"\n🔍 [yellow]Adding Anthropic model: {model_name}...[/yellow]")
+            console.print(f"[dim]Note: Availability check requires valid API key in secrets.yaml[/dim]")
+
+            try:
+                model = model_registry.add_model(
+                    model_type=model_type,
+                    url=url,
+                    model_name=model_name,
+                    timeout=timeout,
+                    set_active=True,
+                    provider=provider
+                )
+                console.print(f"\n✅ [green]Anthropic model registered successfully![/green]")
+                console.print(f"  ID: [cyan]{model.model_id}[/cyan]")
+                console.print(f"  Type: [cyan]{model.model_type}[/cyan]")
+                console.print(f"  Provider: [magenta]{provider}[/magenta]")
+                console.print(f"  Model: [cyan]{model.model_name}[/cyan]")
+                console.print(f"  Status: [green]Active[/green]\n")
+
+                # Refresh llm_checker cache
+                llm_checker.reset()
+            except Exception as e:
+                console.print(f"\n❌ [red]Failed to add model: {e}[/red]\n")
             return True
 
-        try:
-            model = model_registry.add_model(
-                model_type=model_type,
-                url=url,
-                model_name=model_name,
-                timeout=timeout,
-                set_active=True
-            )
-            console.print(f"\n✅ [green]Model registered successfully![/green]")
-            console.print(f"  ID: [cyan]{model.model_id}[/cyan]")
-            console.print(f"  Type: [cyan]{model.model_type}[/cyan]")
-            console.print(f"  Model: [cyan]{model.model_name}[/cyan]")
-            console.print(f"  URL: [cyan]{model.url}[/cyan]")
-            console.print(f"  Status: [green]Active[/green]\n")
+        elif first_arg.startswith('http://') or first_arg.startswith('https://'):
+            # Ollama provider (URL provided)
+            if len(parts) < 4:
+                console.print(f"\n❌ [red]Model name required[/red]")
+                console.print(f"[dim]Usage: /model {model_type} add <url> <model_name>[/dim]\n")
+                return True
 
-            # Refresh llm_checker cache
-            llm_checker.reset()
-        except Exception as e:
-            console.print(f"\n❌ [red]Failed to add model: {e}[/red]\n")
-        return True
+            url = first_arg
+            model_name = parts[3]
+            provider = 'ollama'
+
+            console.print(f"\n🔍 [yellow]Checking availability of {model_name} @ {url}...[/yellow]")
+            if not llm_checker.check_ollama_available(url):
+                console.print(f"❌ [red]Cannot reach Ollama service at {url}[/red]\n")
+                return True
+
+            try:
+                model = model_registry.add_model(
+                    model_type=model_type,
+                    url=url,
+                    model_name=model_name,
+                    timeout=timeout,
+                    set_active=True,
+                    provider=provider
+                )
+                console.print(f"\n✅ [green]Model registered successfully![/green]")
+                console.print(f"  ID: [cyan]{model.model_id}[/cyan]")
+                console.print(f"  Type: [cyan]{model.model_type}[/cyan]")
+                console.print(f"  Provider: [cyan]{provider}[/cyan]")
+                console.print(f"  Model: [cyan]{model.model_name}[/cyan]")
+                console.print(f"  URL: [cyan]{model.url}[/cyan]")
+                console.print(f"  Status: [green]Active[/green]\n")
+
+                # Refresh llm_checker cache
+                llm_checker.reset()
+            except Exception as e:
+                console.print(f"\n❌ [red]Failed to add model: {e}[/red]\n")
+            return True
+
+        else:
+            console.print(f"\n❌ [red]Invalid format[/red]")
+            console.print("[dim]Usage:[/dim]")
+            console.print(f"  [dim]/model {model_type} add <url> <model_name>         (Ollama)[/dim]")
+            console.print(f"  [dim]/model {model_type} add anthropic <model_name>    (Anthropic)[/dim]\n")
+            return True
 
     # /model <type> use <model_id>
     if len(parts) == 3 and parts[1] == 'use':
@@ -554,11 +623,13 @@ def handle_model_commands(console, user_input_normalized, model_registry, llm_ch
     console.print("  /model status")
     console.print("  /model list")
     console.print("  /model <type> list")
-    console.print("  /model <type> add <url> <model_name>")
-    console.print("  /model embedding add <url> [model_name] [timeout]  (model_name for Ollama)")
+    console.print("  /model <type> add <url> <model_name>          [dim](Ollama)[/dim]")
+    console.print("  /model <type> add anthropic <model_name>      [dim](Anthropic)[/dim]")
+    console.print("  /model embedding add <url> [model_name] [timeout]")
     console.print("  /model <type> use <model_id>")
     console.print("  /model <type> remove <model_id>")
     console.print("  /model check [model_id]")
     console.print("  /model ping")
-    console.print("\n[dim]Where <type> is: general, coder, or embedding[/dim]\n")
+    console.print("\n[dim]Where <type> is: general, coder, or embedding[/dim]")
+    console.print("[dim]Anthropic models: claude-sonnet-4-20250514, claude-3-5-sonnet-20241022, etc.[/dim]\n")
     return True
