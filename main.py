@@ -233,6 +233,7 @@ def main(verbose=False):
         
         # Extract components
         config = components['config']
+        secrets_manager = components['secrets_manager']
         model_registry = components['model_registry']
         embedding_client = components['embedding_client']
         transformer_url = components['transformer_url']
@@ -270,7 +271,8 @@ def main(verbose=False):
             verbose=verbose,
             stream=stream,
             temperature=temperature,
-            CustomMarkdown=CustomMarkdown
+            CustomMarkdown=CustomMarkdown,
+            secrets_manager=secrets_manager
         )
 
         # Main chat loop
@@ -300,6 +302,15 @@ def main(verbose=False):
                 if dispatch_result is None:
                     # Command requested exit
                     return
+                elif isinstance(dispatch_result, tuple) and len(dispatch_result) == 2:
+                    # Client was switched - update our reference
+                    _, new_client = dispatch_result
+                    ollama_client = new_client
+                    # Check if completer was updated
+                    updated_completer = dispatcher.get_updated_completer()
+                    if updated_completer:
+                        combined_completer = updated_completer
+                    continue
                 elif dispatch_result is True:
                     # Command was handled, continue to next iteration
                     # Check if completer was updated
@@ -1087,6 +1098,9 @@ def main(verbose=False):
                             code_command_payload["model"] = coder_model_name
                         if coder_model:
                             code_command_payload["ollama_url"] = coder_model.url
+                            # Add provider for Anthropic support
+                            provider = getattr(coder_model, 'provider', 'ollama')
+                            code_command_payload["provider"] = provider
                         
                         response = requests.post(
                             f"{POSTGRES_API_URL}/mcp-tools/code-command-simple",

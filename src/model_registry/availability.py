@@ -27,16 +27,18 @@ class ModelAvailabilityChecker:
     and falls back to tinyollama if needed.
     """
 
-    def __init__(self, config_manager, model_registry: ModelRegistry = None):
+    def __init__(self, config_manager, model_registry: ModelRegistry = None, secrets_manager=None):
         """
         Initialize the model availability checker.
 
         Args:
             config_manager: ConfigManager instance with loaded configuration
             model_registry: Optional ModelRegistry instance
+            secrets_manager: Optional SecretsManager for API keys (needed for Anthropic)
         """
         self.config = config_manager
         self.model_registry = model_registry or ModelRegistry()
+        self.secrets_manager = secrets_manager
         self._active_llm: Optional[LLMConfig] = None
 
     def check_ollama_available(self, url: str, timeout: int = 5) -> bool:
@@ -71,29 +73,38 @@ class ModelAvailabilityChecker:
         Returns:
             True if API is accessible, False otherwise
         """
+        # Import at top level of method to avoid scoping issues in exception handlers
         try:
-            from anthropic import Anthropic, AuthenticationError, APIConnectionError
+            from anthropic import Anthropic
+            from anthropic import AuthenticationError as AnthropicAuthError
+            from anthropic import APIConnectionError as AnthropicAPIError
+            from anthropic import BadRequestError as AnthropicBadRequestError
+        except ImportError:
+            # anthropic package not installed
+            return False
 
+        try:
             # Create client (uses ANTHROPIC_API_KEY env var if api_key is None)
             client = Anthropic(api_key=api_key, timeout=float(timeout))
 
             # Try a minimal API call to verify credentials
-            # Using count_tokens as it's lightweight
-            client.count_tokens(
+            # Using messages.create with max_tokens=1 to minimize cost
+            client.messages.create(
                 model="claude-3-haiku-20240307",
-                messages=[{"role": "user", "content": "test"}]
+                max_tokens=1,
+                messages=[{"role": "user", "content": "hi"}]
             )
             return True
 
-        except AuthenticationError:
+        except AnthropicAuthError:
             # Invalid API key
             return False
-        except APIConnectionError:
+        except AnthropicAPIError:
             # Network issues
             return False
-        except ImportError:
-            # anthropic package not installed
-            return False
+        except AnthropicBadRequestError:
+            # API key is valid but request had issues - still means API is accessible
+            return True
         except Exception as e:
             capture_exception(e)
             return False
@@ -104,7 +115,8 @@ class ModelAvailabilityChecker:
 
         Args:
             model_id: ID of the model to check
-            secrets_manager: SecretsManager for API keys (needed for Anthropic)
+            secrets_manager: SecretsManager for API keys (needed for Anthropic).
+                           Falls back to self.secrets_manager if not provided.
 
         Returns:
             True if model is available, False otherwise
@@ -116,10 +128,11 @@ class ModelAvailabilityChecker:
         provider = getattr(model, 'provider', 'ollama')
 
         if provider == 'anthropic':
-            # Get API key from secrets manager
+            # Get API key from secrets manager (use provided or fall back to instance)
+            sm = secrets_manager or self.secrets_manager
             api_key = None
-            if secrets_manager:
-                api_key = secrets_manager.get_anthropic_api_key()
+            if sm:
+                api_key = sm.get_anthropic_api_key()
             is_available = self.check_anthropic_available(api_key=api_key, timeout=5)
         else:
             # Default to Ollama

@@ -68,9 +68,10 @@ class CLIInitializer:
         
         # Run migration from config.yaml to Redis if needed
         run_migration_if_needed(config, model_registry, verbose=self.verbose)
-        
+
         # Check model availability using new ModelAvailabilityChecker
-        llm_checker = ModelAvailabilityChecker(config, model_registry)
+        # Pass secrets_manager so Anthropic availability checks work
+        llm_checker = ModelAvailabilityChecker(config, model_registry, secrets_manager=secrets_manager)
         llm_config = llm_checker.get_available_llm()
         
         # Initialize LLM client using factory pattern
