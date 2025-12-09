@@ -95,6 +95,11 @@ from src.utils.llmignore import (
     filter_at_context,
 )
 
+# Import custom prompt functionality from separate module
+from src.utils.custom_prompt import (
+    custom_prompt_with_lines,
+)
+
 # Import CLI modules
 from src.cli.initialization import CLIInitializer
 from src.cli.dispatcher import CommandDispatcher
@@ -306,12 +311,15 @@ def main(verbose=False):
         # Main chat loop
         while True:
             try:
-                # Get user input with history support and command/file completion
-                user_input = prompt(
-                    FormattedText([('ansigreen bold', '▶ ')]),
+                # Get user input with custom prompt showing horizontal lines during typing
+                user_input = custom_prompt_with_lines(
+                    console=console,
                     history=history,
                     completer=combined_completer
                 ).strip()
+
+                # Add blank line for spacing after input
+                console.print()
 
                 # Normalize command input - support both with and without / prefix
                 user_input_normalized = user_input.lstrip('/').strip()
