@@ -342,9 +342,50 @@ Tests auto-skip if required containers are unavailable (PostgreSQL, Redis, Trans
 
 - `.repomap` - Repository structure map (created via `/repomap create`, loaded via `/repomap load`)
 - `.datamap` - Data file map with PostgreSQL signatures (created via `/datamap create`)
+- `.llmignore` - File ignore patterns for LLM context (works like .gitignore)
 - `~/.ai_cli_history` - Command history for prompt_toolkit
 - `config.yaml` - Main configuration (NOT config.example.yaml)
 - `migrations/` - Database migration scripts
+
+### .llmignore - Security Feature
+
+The `.llmignore` file prevents sensitive files from being added to LLM context:
+
+**Key Features:**
+- Works like `.gitignore` - supports globs, negations, comments, directory patterns
+- Files matching patterns are NEVER added to context, even if explicitly requested with `@`
+- Hierarchical: `.llmignore` files in subdirectories apply to that directory
+- Security-focused: Blocks secrets, credentials, API keys from LLM exposure
+
+**Pattern Syntax:**
+```
+# Comments start with #
+*.env          # Ignore all .env files
+secrets/       # Ignore secrets directory
+!important.env # Negation: don't ignore this file
+/config.yaml   # Anchored: only root config.yaml
+```
+
+**Example .llmignore:**
+```
+# Secrets
+.env
+*.key
+secrets/
+
+# Dependencies
+node_modules/
+venv/
+__pycache__/
+```
+
+**Where it applies:**
+- CLI `@` prefix file/directory context
+- Web UI file uploads
+- Ollama++ API file operations
+- All modes: general, code, make
+
+See `.llmignore.example` for a comprehensive template.
 
 ## Web UI
 
