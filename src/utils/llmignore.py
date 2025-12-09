@@ -66,13 +66,8 @@ class LLMIgnorePattern:
         pattern = self.pattern.replace(os.sep, '/')
         
         # Handle ** glob pattern (matches any number of directories)
+        # For simplicity, we replace ** with * which works for most cases
         if '**' in pattern:
-            # Convert ** to a regex-like pattern for fnmatch
-            # ** matches zero or more directories
-            import re
-            regex_pattern = pattern.replace('**/', '(.*/)?').replace('**', '.*')
-            regex_pattern = fnmatch.translate(regex_pattern.replace('(.*/)?', '**/'))
-            # Use a simpler approach - just replace ** with *
             pattern = pattern.replace('**', '*')
         
         if self.is_anchored:

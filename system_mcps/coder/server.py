@@ -647,17 +647,21 @@ def read_directory_recursive(dir_path: str, working_dir: str) -> tuple[bool, str
                     # Track files that can't be read
                     skipped_files.append(str(file_path.relative_to(path)))
 
+        # Build status message
         message = f"Read {len(files_content)} files from {dir_path}"
+        status_parts = []
+        
         if ignored_files:
-            message += f" ({len(ignored_files)} files ignored by .llmignore"
-            if skipped_files:
-                message += f", {len(skipped_files)} files skipped"
-            message += ")"
-        elif skipped_files:
-            message += f" ({len(skipped_files)} files skipped: {', '.join(skipped_files[:5])}"
-            if len(skipped_files) > 5:
-                message += f" and {len(skipped_files) - 5} more"
-            message += ")"
+            status_parts.append(f"{len(ignored_files)} files ignored by .llmignore")
+        
+        if skipped_files:
+            if len(skipped_files) <= 5:
+                status_parts.append(f"{len(skipped_files)} files skipped: {', '.join(skipped_files)}")
+            else:
+                status_parts.append(f"{len(skipped_files)} files skipped: {', '.join(skipped_files[:5])} and {len(skipped_files) - 5} more")
+        
+        if status_parts:
+            message += f" ({', '.join(status_parts)})"
 
         return True, message, files_content
 

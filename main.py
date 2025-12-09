@@ -122,6 +122,29 @@ def get_user_working_dir():
     return _USER_WORKING_DIR
 
 
+def display_ignored_items(console, ignored_items: list, item_type: str, max_display: int = 5) -> None:
+    """
+    Display a list of ignored files or directories from .llmignore.
+    
+    Args:
+        console: Rich console for output
+        ignored_items: List of ignored file/directory paths
+        item_type: Type of items ('file' or 'directory')
+        max_display: Maximum number of items to display before truncating
+    """
+    if not ignored_items:
+        return
+    
+    item_label = f"{item_type}(s)" if item_type == 'file' else f"{item_type}(ies)"
+    console.print(f"[yellow]⚠️  Ignored {len(ignored_items)} {item_label} by .llmignore:[/yellow]")
+    
+    for item in ignored_items[:max_display]:
+        console.print(f"[dim]  • {item}[/dim]")
+    
+    if len(ignored_items) > max_display:
+        console.print(f"[dim]  ... and {len(ignored_items) - max_display} more[/dim]")
+
+
 def set_user_working_dir(new_path: str) -> bool:
     """
     Change the user's working directory.
@@ -1623,18 +1646,8 @@ Output format:
                 # Warn user about ignored files/directories
                 if ignored_context['files'] or ignored_context['directories']:
                     console.print()
-                    if ignored_context['files']:
-                        console.print(f"[yellow]⚠️  Ignored {len(ignored_context['files'])} file(s) by .llmignore:[/yellow]")
-                        for ignored_file in ignored_context['files'][:5]:
-                            console.print(f"[dim]  • {ignored_file}[/dim]")
-                        if len(ignored_context['files']) > 5:
-                            console.print(f"[dim]  ... and {len(ignored_context['files']) - 5} more[/dim]")
-                    if ignored_context['directories']:
-                        console.print(f"[yellow]⚠️  Ignored {len(ignored_context['directories'])} directory(ies) by .llmignore:[/yellow]")
-                        for ignored_dir in ignored_context['directories'][:5]:
-                            console.print(f"[dim]  • {ignored_dir}[/dim]")
-                        if len(ignored_context['directories']) > 5:
-                            console.print(f"[dim]  ... and {len(ignored_context['directories']) - 5} more[/dim]")
+                    display_ignored_items(console, ignored_context['files'], 'file')
+                    display_ignored_items(console, ignored_context['directories'], 'directory')
                     console.print()
                 
                 # Use filtered context instead of original at_context
