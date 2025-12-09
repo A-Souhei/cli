@@ -80,6 +80,8 @@ class CommandDispatcher:
             - False if input is not a command (should be processed as chat)
         """
         # Handle help command
+        # Note: user_input_normalized has already been stripped of the '/' prefix
+        # (normalization happens in main.py before dispatch), so we check for 'help' not '/help'
         if user_input_normalized.lower() == 'help':
             print_help(self.console)
             return True

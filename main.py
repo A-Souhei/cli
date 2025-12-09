@@ -209,7 +209,6 @@ class CustomMarkdown(Markdown):
     def __rich_console__(self, console, options):
         """Render markdown with custom code block styling and text formatting."""
         from rich.text import Text
-        from rich.padding import Padding
         from rich.align import Align
 
         # Create new options with no_wrap=False to enable proper word wrapping
@@ -249,10 +248,12 @@ class CustomMarkdown(Markdown):
                     yield element
             elif isinstance(element, Text):
                 # Ensure text elements are left-justified and properly wrapped
-                element.justify = "left"
-                element.overflow = "fold"  # Wrap at word boundaries
-                element.no_wrap = False  # Enable wrapping
-                yield element
+                # Create a new Text object to avoid mutating the original
+                new_text = Text(element.plain, style=element.style)
+                new_text.justify = "left"
+                new_text.overflow = "fold"  # Wrap at word boundaries
+                new_text.no_wrap = False  # Enable wrapping
+                yield new_text
             else:
                 yield element
 
@@ -1990,7 +1991,6 @@ Output format:
                 except (EOFError, KeyboardInterrupt):
                     # Handle piped input or Ctrl+C gracefully - skip rating
                     console.print("[dim]Skipped[/dim]")
-                    pass
 
                 console.print()  # Extra line for readability
 
