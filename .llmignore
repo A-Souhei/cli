@@ -1,0 +1,42 @@
+# .llmignore - Prevent sensitive files from being added to LLM context
+#
+# This file works like .gitignore - any files matching these patterns
+# will NEVER be added to the AI context, even if explicitly requested
+# with @ prefix (e.g., @.env will be blocked).
+#
+# Pattern syntax (same as .gitignore):
+# - Lines starting with # are comments
+# - Blank lines are ignored
+# - * matches any characters (except /)
+# - ? matches a single character
+# - / at the end indicates a directory
+# - / at the start anchors the pattern to the root
+# - ! negates the pattern (un-ignore)
+
+# Environment and secrets
+.env
+.env.*
+*.env
+
+# API keys and certificates
+*_key
+*_secret
+*.pem
+*.key
+
+# Configuration with secrets
+secrets.yaml
+credentials.json
+
+# Dependency directories (usually too large)
+node_modules/
+venv/
+.venv/
+__pycache__/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Add your custom patterns below:

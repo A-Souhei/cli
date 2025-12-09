@@ -53,6 +53,26 @@ except ImportError:
             'stats': {'files': 0, 'directories': 0, 'total_size': 0}
         }
 
+# Import llmignore utility
+try:
+    from src.utils.llmignore import LLMIgnore
+except ImportError as e:
+    # Fallback if import fails - log error and use restrictive fallback
+    print(f"WARNING: Failed to import LLMIgnore: {e}", file=sys.stderr)
+    print("WARNING: .llmignore filtering will not be available. This may be a security risk!", file=sys.stderr)
+    
+    class LLMIgnore:
+        """Fallback LLMIgnore class that logs warnings but doesn't filter."""
+        def __init__(self, working_dir):
+            self.working_dir = working_dir
+            print(f"WARNING: LLMIgnore fallback active for {working_dir} - filtering disabled", file=sys.stderr)
+        
+        def is_ignored(self, file_path, is_dir=False):
+            return False  # Don't filter, but user has been warned
+        
+        def filter_directory_contents(self, dir_path, files_content):
+            return files_content, []
+
 # Initialize the MCP server
 app = Server("coder")
 
@@ -395,6 +415,12 @@ def read_file_safe(file_path: str, working_dir: str) -> tuple[bool, str]:
         if not path.is_file():
             return False, f"Path is not a file: {file_path}"
 
+        # Check .llmignore - SECURITY: Never read ignored files
+        llmignore = LLMIgnore(working_dir)
+        relative_path = os.path.relpath(str(path), working_dir)
+        if llmignore.is_ignored(relative_path, is_dir=False):
+            return False, f"File is ignored by .llmignore: {file_path}"
+
         # Read file content
         with open(path, 'r', encoding='utf-8') as f:
             content = f.read()
@@ -594,12 +620,25 @@ def read_directory_recursive(dir_path: str, working_dir: str) -> tuple[bool, str
         if not path.is_dir():
             return False, f"Path is not a directory: {dir_path}", []
 
+        # Initialize .llmignore checker
+        llmignore = LLMIgnore(working_dir)
+
         # Recursively read all files
         files_content = []
         skipped_files = []
+        ignored_files = []
+        
         for file_path in path.rglob('*'):
             if file_path.is_file():
                 try:
+                    # Get relative path for .llmignore checking
+                    relative_to_working = file_path.relative_to(Path(working_dir).resolve())
+                    
+                    # SECURITY: Check .llmignore - skip ignored files
+                    if llmignore.is_ignored(str(relative_to_working), is_dir=False):
+                        ignored_files.append(str(file_path.relative_to(path)))
+                        continue
+                    
                     with open(file_path, 'r', encoding='utf-8') as f:
                         content = f.read()
                         relative_path = file_path.relative_to(path)
@@ -612,12 +651,21 @@ def read_directory_recursive(dir_path: str, working_dir: str) -> tuple[bool, str
                     # Track files that can't be read
                     skipped_files.append(str(file_path.relative_to(path)))
 
+        # Build status message
         message = f"Read {len(files_content)} files from {dir_path}"
+        status_parts = []
+        
+        if ignored_files:
+            status_parts.append(f"{len(ignored_files)} files ignored by .llmignore")
+        
         if skipped_files:
-            message += f" ({len(skipped_files)} files skipped: {', '.join(skipped_files[:5])}"
-            if len(skipped_files) > 5:
-                message += f" and {len(skipped_files) - 5} more"
-            message += ")"
+            if len(skipped_files) <= 5:
+                status_parts.append(f"{len(skipped_files)} files skipped: {', '.join(skipped_files)}")
+            else:
+                status_parts.append(f"{len(skipped_files)} files skipped: {', '.join(skipped_files[:5])} and {len(skipped_files) - 5} more")
+        
+        if status_parts:
+            message += f" ({', '.join(status_parts)})"
 
         return True, message, files_content
 

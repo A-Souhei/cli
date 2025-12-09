@@ -1,0 +1,89 @@
+# .llmignore - Prevent sensitive files from being added to LLM context
+#
+# This file works like .gitignore - any files matching these patterns
+# will NEVER be added to the AI context, even if explicitly requested
+# with @ prefix (e.g., @.env will be blocked).
+#
+# Pattern syntax (same as .gitignore):
+# - Lines starting with # are comments
+# - Blank lines are ignored
+# - * matches any characters (except /)
+# - ? matches a single character
+# - / at the end indicates a directory
+# - / at the start anchors the pattern to the root
+# - ! negates the pattern (un-ignore)
+
+# Environment and secrets
+.env
+.env.*
+*.env
+.secret
+secrets.yaml
+credentials.json
+
+# API keys and certificates
+*_key
+*_secret
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+
+# Password files
+passwords.txt
+.htpasswd
+.netrc
+
+# Database files (may contain sensitive data)
+*.db
+*.sqlite
+*.sqlite3
+
+# Configuration with secrets
+config.production.yaml
+config.prod.json
+.aws/
+.gcp/
+
+# SSH and crypto keys
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+*.ppk
+
+# Dependency directories (usually too large)
+node_modules/
+venv/
+.venv/
+env/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+target/
+out/
+
+# IDE files
+.vscode/settings.json
+.idea/workspace.xml
+
+# Large binary files
+*.bin
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Logs
+*.log
+logs/
+
+# Examples of negation (un-ignore specific files):
+# !important.env
+# !config.example.yaml

@@ -90,6 +90,11 @@ from src.utils.file_action_handler import (
     detect_file_actions,
 )
 
+# Import llmignore functionality from separate module
+from src.utils.llmignore import (
+    filter_at_context,
+)
+
 # Import CLI modules
 from src.cli.initialization import CLIInitializer
 from src.cli.dispatcher import CommandDispatcher
@@ -115,6 +120,29 @@ def get_user_working_dir():
     if _USER_WORKING_DIR is None:
         _USER_WORKING_DIR = os.environ.get('AI_CLI_CWD', os.getcwd())
     return _USER_WORKING_DIR
+
+
+def display_ignored_items(console, ignored_items: list, item_type: str, max_display: int = 5) -> None:
+    """
+    Display a list of ignored files or directories from .llmignore.
+    
+    Args:
+        console: Rich console for output
+        ignored_items: List of ignored file/directory paths
+        item_type: Type of items ('file' or 'directory')
+        max_display: Maximum number of items to display before truncating
+    """
+    if not ignored_items:
+        return
+    
+    item_label = f"{item_type}(s)" if item_type == 'file' else f"{item_type}(ies)"
+    console.print(f"[yellow]⚠️  Ignored {len(ignored_items)} {item_label} by .llmignore:[/yellow]")
+    
+    for item in ignored_items[:max_display]:
+        console.print(f"[dim]  • {item}[/dim]")
+    
+    if len(ignored_items) > max_display:
+        console.print(f"[dim]  ... and {len(ignored_items) - max_display} more[/dim]")
 
 
 def set_user_working_dir(new_path: str) -> bool:
@@ -1611,6 +1639,19 @@ Output format:
 
                 # Process @ prefixed file/directory paths
                 at_context = extract_at_context(user_input, get_user_working_dir())
+                
+                # Filter @ context based on .llmignore patterns
+                filtered_context, ignored_context = filter_at_context(at_context, get_user_working_dir())
+                
+                # Warn user about ignored files/directories
+                if ignored_context['files'] or ignored_context['directories']:
+                    console.print()
+                    display_ignored_items(console, ignored_context['files'], 'file')
+                    display_ignored_items(console, ignored_context['directories'], 'directory')
+                    console.print()
+                
+                # Use filtered context instead of original at_context
+                at_context = filtered_context
                 context_added = False
 
                 # Collect file and directory contents to inject into conversation

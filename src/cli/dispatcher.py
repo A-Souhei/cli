@@ -21,6 +21,7 @@ from src.cli.commands.make import (
     handle_make_map_generate, handle_make_map_load,
     handle_make_map_update, handle_make_execute
 )
+from src.cli.commands.ignore import handle_ignore_command
 
 
 class CommandDispatcher:
@@ -165,6 +166,11 @@ class CommandDispatcher:
         
         if user_input_normalized.lower() == 'context clear':
             return handle_context_clear(self.console, self.chat_manager, self.session_manager)
+        
+        # Handle ignore commands
+        if user_input_normalized.lower().startswith('ignore '):
+            return handle_ignore_command(self.console, self.get_user_working_dir(),
+                                        user_input_normalized)
         
         # Handle model commands
         if user_input_normalized.lower().startswith('model '):
