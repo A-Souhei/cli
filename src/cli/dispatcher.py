@@ -6,6 +6,7 @@ This module routes user commands to their appropriate handlers.
 # Import command handlers
 from src.cli.commands.basic import handle_exit, handle_clear
 from src.cli.commands.working_dir import handle_wd_show, handle_wd_change
+from src.utils.banner import print_help
 from src.cli.commands.session import (
     handle_session_start, handle_session_end, handle_session_info,
     handle_session_restore, handle_session_delete, handle_session_list,
@@ -78,12 +79,17 @@ class CommandDispatcher:
             - True if command was handled and loop should continue
             - False if input is not a command (should be processed as chat)
         """
+        # Handle help command
+        if user_input_normalized.lower() == 'help':
+            print_help(self.console)
+            return True
+
         # Handle exit/quit commands
         if user_input_normalized.lower() in ['exit', 'quit']:
             handle_exit(self.console, self.mcp_client, self.run_async,
                        self.debug_print, self.verbose)
             return None
-        
+
         # Handle clear command
         if user_input_normalized.lower() == 'clear':
             return handle_clear(self.console, self.chat_manager)
