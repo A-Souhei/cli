@@ -10,12 +10,15 @@ Key Features:
 - Hierarchical .llmignore files (directory-specific)
 - Security-focused: Files are NEVER added to context if matched
 - Works with @ prefix file/directory context
+
+Note: ** glob patterns are simplified to * for compatibility. For full recursive
+directory matching, use patterns like dir/* or dir/*.ext instead of dir/**/*.ext
 """
 
 import os
 import fnmatch
 from pathlib import Path
-from typing import List, Set, Tuple, Optional
+from typing import List, Tuple, Optional
 from src.sentry_config import capture_exception
 
 

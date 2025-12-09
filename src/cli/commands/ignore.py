@@ -104,8 +104,11 @@ def handle_ignore_add(console, working_dir, user_input):
         return True
     
     # Extract @ prefixed paths from user input
-    # Remove the /ignore add part
-    paths_part = user_input.replace('/ignore add', '').strip()
+    # Parse the command more robustly by splitting on whitespace
+    parts = user_input.split()
+    # Filter out the command parts ('/ignore' and 'add'), keep the rest
+    file_parts = [p for p in parts if p not in ['/ignore', 'ignore', 'add']]
+    paths_part = ' '.join(file_parts)
     
     if not paths_part:
         console.print("\n[yellow]⚠️  No files specified[/yellow]")
