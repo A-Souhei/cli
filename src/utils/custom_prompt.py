@@ -92,7 +92,7 @@ def custom_prompt_with_lines(console, history=None, completer=None):
         layout=Layout(root_container),
         key_bindings=kb,
         full_screen=False,
-        mouse_support=True
+        mouse_support=False  # Disabled to allow terminal text selection
     )
 
     # Run the application and return the captured input
