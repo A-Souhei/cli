@@ -95,6 +95,11 @@ from src.utils.llmignore import (
     filter_at_context,
 )
 
+# Import custom prompt functionality from separate module
+from src.utils.custom_prompt import (
+    custom_prompt_with_lines,
+)
+
 # Import CLI modules
 from src.cli.initialization import CLIInitializer
 from src.cli.dispatcher import CommandDispatcher
@@ -193,12 +198,28 @@ console = Console(theme=custom_theme)
 
 
 class CustomMarkdown(Markdown):
-    """Custom Markdown renderer with styled code blocks."""
+    """Custom Markdown renderer with styled code blocks and improved text rendering."""
+
+    def __init__(self, *args, **kwargs):
+        """Initialize with justify="left" for proper text alignment."""
+        super().__init__(*args, **kwargs)
+        # Set default justify to left for all text
+        self.justify = "left"
 
     def __rich_console__(self, console, options):
-        """Render markdown with custom code block styling."""
+        """Render markdown with custom code block styling and text formatting."""
+        from rich.text import Text
+        from rich.align import Align
+
+        # Create new options with no_wrap=False to enable proper word wrapping
+        # and overflow="fold" to wrap at word boundaries
+        new_options = options.update(
+            no_wrap=False,
+            overflow="fold"
+        )
+
         # Get the rendered markdown elements
-        for element in super().__rich_console__(console, options):
+        for element in super().__rich_console__(console, new_options):
             # Check if it's a code block
             if isinstance(element, Panel) and hasattr(element, 'renderable'):
                 # Wrap code blocks with blue border and black background
@@ -219,6 +240,20 @@ class CustomMarkdown(Markdown):
                     style=Style(bgcolor="#000000"),
                     padding=(0, 1)
                 )
+            elif isinstance(element, Align):
+                # Fix centered elements (like headings) to be left-aligned
+                if element.align == "center":
+                    yield Align(element.renderable, align="left")
+                else:
+                    yield element
+            elif isinstance(element, Text):
+                # Ensure text elements are left-justified and properly wrapped
+                # Create a new Text object to avoid mutating the original
+                new_text = Text(element.plain, style=element.style)
+                new_text.justify = "left"
+                new_text.overflow = "fold"  # Wrap at word boundaries
+                new_text.no_wrap = False  # Enable wrapping
+                yield new_text
             else:
                 yield element
 
@@ -306,12 +341,20 @@ def main(verbose=False):
         # Main chat loop
         while True:
             try:
-                # Get user input with history support and command/file completion
-                user_input = prompt(
-                    FormattedText([('ansigreen bold', '▶ ')]),
+                # Get user input with custom prompt showing horizontal lines during typing
+                user_input = custom_prompt_with_lines(
+                    console=console,
                     history=history,
                     completer=combined_completer
                 ).strip()
+
+                # Handle Ctrl+D to exit
+                if user_input == '__CTRL_D__':
+                    console.print("\n[dim]Exiting...[/dim]\n")
+                    return
+
+                # Add blank line for spacing after input
+                console.print()
 
                 # Normalize command input - support both with and without / prefix
                 user_input_normalized = user_input.lstrip('/').strip()
@@ -422,7 +465,7 @@ def main(verbose=False):
                         
                         spinner = Spinner("dots", text="[dim]Analyzing codebase...[/dim]", style="cyan")
                         
-                        with Live(spinner, console=console, refresh_per_second=10):
+                        with Live(spinner, console=console, refresh_per_second=10, transient=True):
                             if stream:
                                 full_response = ""
                                 for chunk in ollama_client.chat(
@@ -582,7 +625,7 @@ def main(verbose=False):
                         
                         spinner = Spinner("dots", text="[dim]Updating repository map...[/dim]", style="cyan")
                         
-                        with Live(spinner, console=console, refresh_per_second=10):
+                        with Live(spinner, console=console, refresh_per_second=10, transient=True):
                             if stream:
                                 full_response = ""
                                 for chunk in ollama_client.chat(
@@ -748,7 +791,7 @@ def main(verbose=False):
                         
                         spinner = Spinner("dots", text="[dim]Analyzing data sources...[/dim]", style="cyan")
                         
-                        with Live(spinner, console=console, refresh_per_second=10):
+                        with Live(spinner, console=console, refresh_per_second=10, transient=True):
                             if stream:
                                 full_response = ""
                                 for chunk in ollama_client.chat(
@@ -965,7 +1008,7 @@ def main(verbose=False):
                         
                         spinner = Spinner("dots", text="[dim]Updating data map...[/dim]", style="cyan")
                         
-                        with Live(spinner, console=console, refresh_per_second=10):
+                        with Live(spinner, console=console, refresh_per_second=10, transient=True):
                             if stream:
                                 full_response = ""
                                 for chunk in ollama_client.chat(
@@ -1306,7 +1349,7 @@ def main(verbose=False):
 
                                                     spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
 
-                                                    with Live(spinner, console=console, refresh_per_second=10):
+                                                    with Live(spinner, console=console, refresh_per_second=10, transient=True):
                                                         if stream:
                                                             full_response = ""
                                                             for chunk in coder_client.chat(
@@ -1424,7 +1467,7 @@ Output format:
                                                 # For edit operations with original file, allow more tokens
                                                 edit_num_predict = 8192 if original_file_content else None
 
-                                                with Live(spinner, console=console, refresh_per_second=10):
+                                                with Live(spinner, console=console, refresh_per_second=10, transient=True):
                                                     if stream:
                                                         full_response = ""
                                                         for chunk in coder_client.chat(
@@ -1574,7 +1617,7 @@ Output format:
 
                                         spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
 
-                                        with Live(spinner, console=console, refresh_per_second=10):
+                                        with Live(spinner, console=console, refresh_per_second=10, transient=True):
                                             if stream:
                                                 full_response = ""
                                                 for chunk in ollama_client.chat(
@@ -1591,7 +1634,7 @@ Output format:
                                                 )
                                                 full_response = response.get('message', {}).get('content', '')
 
-                                        console.print("[bold cyan]▶[/bold cyan]")
+                                        console.print("[bold cyan]▶[/bold cyan] ", end="")
                                         console.print(CustomMarkdown(full_response, code_theme="monokai"))
                                         console.print()
 
@@ -1807,7 +1850,7 @@ Output format:
                     full_response = ""
                     spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
 
-                    with Live(spinner, console=console, refresh_per_second=10):
+                    with Live(spinner, console=console, refresh_per_second=10, transient=True):
                         for chunk in ollama_client.chat(
                             messages=messages,
                             stream=True,
@@ -1816,13 +1859,13 @@ Output format:
                             full_response += chunk
 
                     # Render complete response as markdown with custom styling
-                    console.print("[bold cyan]▶[/bold cyan]")
+                    console.print("[bold cyan]▶[/bold cyan] ", end="")
                     console.print(CustomMarkdown(full_response, code_theme="monokai"))
                 else:
                     # Show spinner while waiting for response
                     spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
 
-                    with Live(spinner, console=console, refresh_per_second=10):
+                    with Live(spinner, console=console, refresh_per_second=10, transient=True):
                         response = ollama_client.chat(
                             messages=messages,
                             stream=False,
@@ -1831,7 +1874,7 @@ Output format:
                         full_response = response.get('message', {}).get('content', '')
 
                     # Render response as markdown with custom styling
-                    console.print("[bold cyan]▶[/bold cyan]")
+                    console.print("[bold cyan]▶[/bold cyan] ", end="")
                     console.print(CustomMarkdown(full_response, code_theme="monokai"))
 
                 # Add assistant response to context
@@ -1945,8 +1988,9 @@ Output format:
                         except ValueError:
                             console.print("❌ [red]Invalid input. Enter a number.[/red]")
                     # If empty input (Enter pressed), do nothing - silently skip
-                except EOFError:
-                    pass  # Handle piped input gracefully
+                except (EOFError, KeyboardInterrupt):
+                    # Handle piped input or Ctrl+C gracefully - skip rating
+                    console.print("[dim]Skipped[/dim]")
 
                 console.print()  # Extra line for readability
 
@@ -1979,7 +2023,7 @@ Output format:
 if __name__ == "__main__":
     # AI_CLI_ORIGINAL_DIR is already set at the top of this file before imports
 
-    parser = argparse.ArgumentParser(description="AI CLI - Powered by Ollama")
+    parser = argparse.ArgumentParser(description="AI CLI - Powered by Ollama | Claude")
     parser.add_argument(
         '-v', '--verbose',
         action='store_true',
