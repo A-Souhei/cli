@@ -1082,7 +1082,31 @@ def main(verbose=False):
                     # Get coder model for all /code operations
                     coder_model = model_registry.get_active_model('coder')
                     coder_model_name = coder_model.model_name if coder_model else None
-                    if coder_model_name:
+                    
+                    # Create appropriate client for coder model based on provider
+                    coder_client = ollama_client  # Default to general ollama client
+                    if coder_model:
+                        coder_provider = getattr(coder_model, 'provider', 'ollama')
+                        if coder_provider == 'anthropic':
+                            # Use Anthropic client for Anthropic coder models
+                            from src.llm_client.factory import LLMClientFactory
+                            try:
+                                coder_client = LLMClientFactory.create_client(coder_model, secrets_manager)
+                                debug_print(f"Using Anthropic coder model: {coder_model_name}", icon="🤖")
+                            except Exception as e:
+                                console.print(f"[red]Failed to create Anthropic client: {e}[/red]")
+                                console.print("[yellow]Falling back to general model[/yellow]")
+                                coder_client = ollama_client
+                        else:
+                            # Use Ollama client with coder model URL
+                            from src.ollama_client import OllamaClient
+                            coder_client = OllamaClient(
+                                host=coder_model.url,
+                                model=coder_model.model_name,
+                                timeout=coder_model.timeout
+                            )
+                            debug_print(f"Using Ollama coder model: {coder_model_name} at {coder_model.url}", icon="🤖")
+                    elif coder_model_name:
                         debug_print(f"Using coder model for /code: {coder_model_name}", icon="🤖")
 
                     try:
@@ -1257,21 +1281,25 @@ def main(verbose=False):
                                                     with Live(spinner, console=console, refresh_per_second=10):
                                                         if stream:
                                                             full_response = ""
-                                                            for chunk in ollama_client.chat(
+                                                            for chunk in coder_client.chat(
                                                                 messages=messages,
                                                                 stream=True,
                                                                 temperature=temperature,
-                                                                model=coder_model_name
+                                                                num_predict=None
                                                             ):
                                                                 full_response += chunk
                                                         else:
-                                                            response = ollama_client.chat(
+                                                            response = coder_client.chat(
                                                                 messages=messages,
                                                                 stream=False,
                                                                 temperature=temperature,
-                                                                model=coder_model_name
+                                                                num_predict=None
                                                             )
-                                                            full_response = response.get('message', {}).get('content', '')
+                                                            # Handle both Ollama and Anthropic response formats
+                                                            if isinstance(response, dict):
+                                                                full_response = response.get('message', {}).get('content', '')
+                                                            else:
+                                                                full_response = response.message.content if hasattr(response, 'message') else str(response)
 
                                                     chat_manager.add_assistant_message(full_response)
 
@@ -1367,29 +1395,29 @@ Output format:
 
                                                 # For edit operations with original file, allow more tokens
                                                 edit_num_predict = 8192 if original_file_content else None
-                                                # Use coder model (already retrieved at start of /code command)
-                                                edit_model = coder_model_name
 
                                                 with Live(spinner, console=console, refresh_per_second=10):
                                                     if stream:
                                                         full_response = ""
-                                                        for chunk in ollama_client.chat(
+                                                        for chunk in coder_client.chat(
                                                             messages=messages,
                                                             stream=True,
                                                             temperature=temperature,
-                                                            num_predict=edit_num_predict,
-                                                            model=edit_model
+                                                            num_predict=edit_num_predict
                                                         ):
                                                             full_response += chunk
                                                     else:
-                                                        response = ollama_client.chat(
+                                                        response = coder_client.chat(
                                                             messages=messages,
                                                             stream=False,
                                                             temperature=temperature,
-                                                            num_predict=edit_num_predict,
-                                                            model=edit_model
+                                                            num_predict=edit_num_predict
                                                         )
-                                                        full_response = response.get('message', {}).get('content', '')
+                                                        # Handle both Ollama and Anthropic response formats
+                                                        if isinstance(response, dict):
+                                                            full_response = response.get('message', {}).get('content', '')
+                                                        else:
+                                                            full_response = response.message.content if hasattr(response, 'message') else str(response)
 
                                                 chat_manager.add_assistant_message(full_response)
 
