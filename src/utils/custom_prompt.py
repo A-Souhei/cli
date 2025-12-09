@@ -2,8 +2,9 @@
 
 from prompt_toolkit import Application
 from prompt_toolkit.formatted_text import FormattedText
-from prompt_toolkit.layout import Layout, HSplit, Window
+from prompt_toolkit.layout import Layout, HSplit, Window, FloatContainer, Float
 from prompt_toolkit.layout.controls import FormattedTextControl, BufferControl
+from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.key_binding import KeyBindings
 
@@ -45,6 +46,16 @@ def custom_prompt_with_lines(console, history=None, completer=None):
     line = '─' * console.width
 
     # Create the layout with three windows stacked vertically
+    input_window = Window(
+        content=BufferControl(
+            buffer=buffer,
+            focusable=True,
+            focus_on_click=True
+        ),
+        get_line_prefix=lambda line_number, wrap_count: FormattedText([('ansigreen bold', '▶ ')]),
+        height=1
+    )
+
     root_container = HSplit([
         # Top horizontal line
         Window(
@@ -52,21 +63,25 @@ def custom_prompt_with_lines(console, history=None, completer=None):
             height=1
         ),
         # Input area with green arrow prompt
-        Window(
-            content=BufferControl(
-                buffer=buffer,
-                focusable=True,
-                focus_on_click=True
-            ),
-            get_line_prefix=lambda line_number, wrap_count: FormattedText([('ansigreen bold', '▶ ')]),
-            height=1
-        ),
+        input_window,
         # Bottom horizontal line
         Window(
             content=FormattedTextControl(text=line),
             height=1
         ),
     ])
+
+    # Wrap in FloatContainer to support completion menu
+    container = FloatContainer(
+        content=root_container,
+        floats=[
+            Float(
+                xcursor=True,
+                ycursor=True,
+                content=CompletionsMenu(max_height=10)
+            )
+        ]
+    )
 
     # Create key bindings
     kb = KeyBindings()
@@ -89,7 +104,7 @@ def custom_prompt_with_lines(console, history=None, completer=None):
 
     # Create the application
     app = Application(
-        layout=Layout(root_container),
+        layout=Layout(container),
         key_bindings=kb,
         full_screen=False,
         mouse_support=False  # Disabled to allow terminal text selection
