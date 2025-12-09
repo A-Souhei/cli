@@ -28,10 +28,10 @@ def load_banner(base_path=None):
            ╚╗╔╝║ ║╠═╣║ ║ ╠╦╝╠═╣  ║  ║  ║
             ╚╝ ╚═╝╩ ╩╩ ╩ ╩╚═╩ ╩  ╚═╝╩═╝╩
 
-           Powered by Ollama
+           Powered by Ollama | Claude • MCP Tools • AI Agents
 """
     except Exception:
-        return "VUHITRA CLI - Powered by Ollama"
+        return "VUHITRA CLI - Powered by Ollama | Claude"
 
 
 def print_help(console):

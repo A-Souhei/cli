@@ -2023,7 +2023,7 @@ Output format:
 if __name__ == "__main__":
     # AI_CLI_ORIGINAL_DIR is already set at the top of this file before imports
 
-    parser = argparse.ArgumentParser(description="AI CLI - Powered by Ollama")
+    parser = argparse.ArgumentParser(description="AI CLI - Powered by Ollama | Claude")
     parser.add_argument(
         '-v', '--verbose',
         action='store_true',

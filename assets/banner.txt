@@ -3,4 +3,4 @@
            ╚╗╔╝║ ║╠═╣║ ║ ╠╦╝╠═╣  ║  ║  ║
             ╚╝ ╚═╝╩ ╩╩ ╩ ╩╚═╩ ╩  ╚═╝╩═╝╩
 
-           Powered by Ollama • MCP Tools • AI Agents
+           Powered by Ollama | Claude • MCP Tools • AI Agents
