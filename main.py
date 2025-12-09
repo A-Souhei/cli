@@ -430,7 +430,7 @@ def main(verbose=False):
                         
                         spinner = Spinner("dots", text="[dim]Analyzing codebase...[/dim]", style="cyan")
                         
-                        with Live(spinner, console=console, refresh_per_second=10):
+                        with Live(spinner, console=console, refresh_per_second=10, transient=True):
                             if stream:
                                 full_response = ""
                                 for chunk in ollama_client.chat(
@@ -590,7 +590,7 @@ def main(verbose=False):
                         
                         spinner = Spinner("dots", text="[dim]Updating repository map...[/dim]", style="cyan")
                         
-                        with Live(spinner, console=console, refresh_per_second=10):
+                        with Live(spinner, console=console, refresh_per_second=10, transient=True):
                             if stream:
                                 full_response = ""
                                 for chunk in ollama_client.chat(
@@ -756,7 +756,7 @@ def main(verbose=False):
                         
                         spinner = Spinner("dots", text="[dim]Analyzing data sources...[/dim]", style="cyan")
                         
-                        with Live(spinner, console=console, refresh_per_second=10):
+                        with Live(spinner, console=console, refresh_per_second=10, transient=True):
                             if stream:
                                 full_response = ""
                                 for chunk in ollama_client.chat(
@@ -973,7 +973,7 @@ def main(verbose=False):
                         
                         spinner = Spinner("dots", text="[dim]Updating data map...[/dim]", style="cyan")
                         
-                        with Live(spinner, console=console, refresh_per_second=10):
+                        with Live(spinner, console=console, refresh_per_second=10, transient=True):
                             if stream:
                                 full_response = ""
                                 for chunk in ollama_client.chat(
@@ -1314,7 +1314,7 @@ def main(verbose=False):
 
                                                     spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
 
-                                                    with Live(spinner, console=console, refresh_per_second=10):
+                                                    with Live(spinner, console=console, refresh_per_second=10, transient=True):
                                                         if stream:
                                                             full_response = ""
                                                             for chunk in coder_client.chat(
@@ -1432,7 +1432,7 @@ Output format:
                                                 # For edit operations with original file, allow more tokens
                                                 edit_num_predict = 8192 if original_file_content else None
 
-                                                with Live(spinner, console=console, refresh_per_second=10):
+                                                with Live(spinner, console=console, refresh_per_second=10, transient=True):
                                                     if stream:
                                                         full_response = ""
                                                         for chunk in coder_client.chat(
@@ -1582,7 +1582,7 @@ Output format:
 
                                         spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
 
-                                        with Live(spinner, console=console, refresh_per_second=10):
+                                        with Live(spinner, console=console, refresh_per_second=10, transient=True):
                                             if stream:
                                                 full_response = ""
                                                 for chunk in ollama_client.chat(
@@ -1599,7 +1599,7 @@ Output format:
                                                 )
                                                 full_response = response.get('message', {}).get('content', '')
 
-                                        console.print("[bold cyan]▶[/bold cyan]")
+                                        console.print("[bold cyan]▶[/bold cyan] ", end="")
                                         console.print(CustomMarkdown(full_response, code_theme="monokai"))
                                         console.print()
 
@@ -1815,7 +1815,7 @@ Output format:
                     full_response = ""
                     spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
 
-                    with Live(spinner, console=console, refresh_per_second=10):
+                    with Live(spinner, console=console, refresh_per_second=10, transient=True):
                         for chunk in ollama_client.chat(
                             messages=messages,
                             stream=True,
@@ -1824,13 +1824,13 @@ Output format:
                             full_response += chunk
 
                     # Render complete response as markdown with custom styling
-                    console.print("[bold cyan]▶[/bold cyan]")
+                    console.print("[bold cyan]▶[/bold cyan] ", end="")
                     console.print(CustomMarkdown(full_response, code_theme="monokai"))
                 else:
                     # Show spinner while waiting for response
                     spinner = Spinner("dots", text="[dim]Thinking...[/dim]", style="cyan")
 
-                    with Live(spinner, console=console, refresh_per_second=10):
+                    with Live(spinner, console=console, refresh_per_second=10, transient=True):
                         response = ollama_client.chat(
                             messages=messages,
                             stream=False,
@@ -1839,7 +1839,7 @@ Output format:
                         full_response = response.get('message', {}).get('content', '')
 
                     # Render response as markdown with custom styling
-                    console.print("[bold cyan]▶[/bold cyan]")
+                    console.print("[bold cyan]▶[/bold cyan] ", end="")
                     console.print(CustomMarkdown(full_response, code_theme="monokai"))
 
                 # Add assistant response to context
