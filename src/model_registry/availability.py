@@ -62,53 +62,6 @@ class ModelAvailabilityChecker:
             capture_exception(e)
             return False
 
-    def check_anthropic_available(self, api_key: str = None, timeout: int = 5) -> bool:
-        """
-        Check if Anthropic API is accessible with valid credentials.
-
-        Args:
-            api_key: Anthropic API key (uses env var if not provided)
-            timeout: Connection timeout in seconds
-
-        Returns:
-            True if API is accessible, False otherwise
-        """
-        # Import at top level of method to avoid scoping issues in exception handlers
-        try:
-            from anthropic import Anthropic
-            from anthropic import AuthenticationError as AnthropicAuthError
-            from anthropic import APIConnectionError as AnthropicAPIError
-            from anthropic import BadRequestError as AnthropicBadRequestError
-        except ImportError:
-            # anthropic package not installed
-            return False
-
-        try:
-            # Create client (uses ANTHROPIC_API_KEY env var if api_key is None)
-            client = Anthropic(api_key=api_key, timeout=float(timeout))
-
-            # Try a minimal API call to verify credentials
-            # Using messages.create with max_tokens=1 to minimize cost
-            client.messages.create(
-                model="claude-3-haiku-20240307",
-                max_tokens=1,
-                messages=[{"role": "user", "content": "hi"}]
-            )
-            return True
-
-        except AnthropicAuthError:
-            # Invalid API key
-            return False
-        except AnthropicAPIError:
-            # Network issues
-            return False
-        except AnthropicBadRequestError:
-            # API key is valid but request had issues - still means API is accessible
-            return True
-        except Exception as e:
-            capture_exception(e)
-            return False
-
     def check_model_availability(self, model_id: str, secrets_manager=None) -> bool:
         """
         Check if a specific model is available and update its status.
@@ -128,12 +81,9 @@ class ModelAvailabilityChecker:
         provider = getattr(model, 'provider', 'ollama')
 
         if provider == 'anthropic':
-            # Get API key from secrets manager (use provided or fall back to instance)
-            sm = secrets_manager or self.secrets_manager
-            api_key = None
-            if sm:
-                api_key = sm.get_anthropic_api_key()
-            is_available = self.check_anthropic_available(api_key=api_key, timeout=5)
+            # For Anthropic models, assume available and let actual API calls fail gracefully
+            # This avoids unnecessary API costs for availability checks
+            is_available = True
         else:
             # Default to Ollama
             is_available = self.check_ollama_available(model.url, timeout=5)

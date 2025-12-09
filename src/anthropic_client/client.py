@@ -1,6 +1,6 @@
 """Anthropic client adapter matching OllamaClient interface."""
 
-from typing import List, Dict, Any, Generator, Optional
+from typing import List, Dict, Any, Generator, Union
 
 from src.sentry_config import capture_exception
 
@@ -135,7 +135,7 @@ class AnthropicClient:
         temperature: float = 0.7,
         num_predict: int = None,
         model: str = None
-    ) -> Generator[str, None, None] | Dict[str, Any]:
+    ) -> Union[Generator[str, None, None], Dict[str, Any]]:
         """
         Send a chat request to Anthropic.
 

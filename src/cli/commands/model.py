@@ -109,15 +109,14 @@ def handle_switch_model(console, ollama_client, InteractiveSelector, model_regis
                             if llm_checker:
                                 llm_checker.reset()
                             # Create new client based on provider
-                            provider = getattr(m, 'provider', 'ollama')
                             try:
                                 new_client = LLMClientFactory.create_client(
                                     m, secrets_manager=secrets_manager
                                 )
-                                console.print(f"\\n✓ [green]Switched to model:[/green] [bold]{selected}[/bold]\\n")
+                                console.print(f"\n✓ [green]Switched to model:[/green] [bold]{selected}[/bold]\n")
                                 return (True, new_client)
                             except ValueError as e:
-                                console.print(f"\\n❌ [red]Failed to switch: {e}[/red]\\n")
+                                console.print(f"\n❌ [red]Failed to switch: {e}[/red]\n")
                                 return True
 
             # Otherwise, update the ollama client directly (raw Ollama model)
@@ -125,13 +124,13 @@ def handle_switch_model(console, ollama_client, InteractiveSelector, model_regis
                 # Extract just the model name if it has provider suffix
                 raw_model = selected.split(' (')[0] if ' (' in selected else selected
                 ollama_client.model = raw_model
-                console.print(f"\\n✓ [green]Switched to model:[/green] [bold]{selected}[/bold]\\n")
+                console.print(f"\n✓ [green]Switched to model:[/green] [bold]{selected}[/bold]\n")
         elif selected:
-            console.print(f"\\n[dim]Already using {selected}[/dim]\\n")
+            console.print(f"\n[dim]Already using {selected}[/dim]\n")
         else:
-            console.print("\\n[dim]Cancelled[/dim]\\n")
+            console.print("\n[dim]Cancelled[/dim]\n")
     except Exception as e:
-        console.print(f"\\n❌ [red]Error switching model: {e}[/red]\\n")
+        console.print(f"\n❌ [red]Error switching model: {e}[/red]\n")
     return True  # Continue the loop
 
 

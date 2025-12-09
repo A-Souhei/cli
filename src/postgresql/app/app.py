@@ -585,7 +585,7 @@ def call_ollama(prompt, model="tinyllama", temperature=0.3, max_tokens=1000, oll
 
 def call_anthropic(prompt, model="claude-3-5-sonnet-20241022", temperature=0.3, max_tokens=1000):
     """
-    Call Anthropic API to generate text.
+    Call Anthropic API to generate text using existing abstractions.
 
     Parameters:
     -----------
@@ -603,68 +603,39 @@ def call_anthropic(prompt, model="claude-3-5-sonnet-20241022", temperature=0.3, 
     str or None
         Generated text if successful, None otherwise
     """
-    # Get API key from environment or secrets file
-    api_key = os.environ.get('ANTHROPIC_API_KEY')
-
-    # Try loading from secrets.yaml if not in environment
-    if not api_key:
-        secrets_paths = ['/app/secrets.yaml', 'secrets.yaml', os.path.expanduser('~/secrets.yaml')]
-        for secrets_path in secrets_paths:
-            if os.path.exists(secrets_path):
-                try:
-                    with open(secrets_path, 'r') as f:
-                        secrets = yaml.safe_load(f)
-                        if secrets and 'anthropic' in secrets:
-                            api_key = secrets['anthropic'].get('api_key')
-                            if api_key:
-                                break
-                except Exception as e:
-                    print(f"[call_anthropic] Warning: Could not load secrets from {secrets_path}: {e}")
-
-    if not api_key:
-        print("[call_anthropic] ERROR: No Anthropic API key found")
+    try:
+        from src.config.secrets import SecretsManager
+        from src.anthropic_client.client import AnthropicClient
+    except ImportError as e:
+        print(f"[call_anthropic] ERROR: Import failed: {e}")
         return None
-
-    print(f"[call_anthropic] Calling Anthropic API with model={model}, max_tokens={max_tokens}")
 
     try:
-        response = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json"
-            },
-            json={
-                "model": model,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "messages": [{"role": "user", "content": prompt}]
-            },
-            timeout=120
-        )
-
-        if response.status_code == 200:
-            data = response.json()
-            # Extract text from content blocks
-            content_text = ""
-            for block in data.get('content', []):
-                if block.get('type') == 'text':
-                    content_text += block.get('text', '')
-            print(f"[call_anthropic] Success: received {len(content_text)} chars")
-            return content_text.strip()
-        else:
-            print(f"[call_anthropic] ERROR: Status {response.status_code} - {response.text[:200]}")
+        # Use SecretsManager to get API key
+        secrets_manager = SecretsManager()
+        api_key = secrets_manager.get_anthropic_api_key()
+        
+        if not api_key:
+            print("[call_anthropic] ERROR: No Anthropic API key found")
             return None
 
-    except requests.exceptions.Timeout:
-        print("[call_anthropic] ERROR: Request timed out after 120s")
-        return None
-    except requests.exceptions.ConnectionError as e:
-        print(f"[call_anthropic] ERROR: Could not connect to Anthropic API: {e}")
-        return None
+        print(f"[call_anthropic] Calling Anthropic API with model={model}, max_tokens={max_tokens}")
+        
+        # Use AnthropicClient for consistent API communication
+        client = AnthropicClient(model=model, api_key=api_key)
+        response = client.chat(
+            messages=[{"role": "user", "content": prompt}],
+            stream=False,
+            temperature=temperature,
+            num_predict=max_tokens
+        )
+        
+        content = response.get('message', {}).get('content', '')
+        print(f"[call_anthropic] Success: received {len(content)} chars")
+        return content.strip()
+        
     except Exception as e:
-        print(f"[call_anthropic] ERROR: Unexpected error: {e}")
+        print(f"[call_anthropic] ERROR: {e}")
         return None
 
 
