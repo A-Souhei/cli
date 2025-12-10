@@ -335,12 +335,16 @@ class MCPClient:
 
                     self.debug_print(f"Tool executed successfully", "✓")
                     return result_text
+                else:
+                    self.debug_print(f"Warning: Empty content in response. Full response: {response_data}", "⚠️")
+                    return ""
 
             if "error" in response_data:
                 error_msg = response_data["error"].get("message", "Unknown error")
                 self.debug_print(f"Tool execution error: {error_msg}", "❌")
                 return f"Error: {error_msg}"
 
+            self.debug_print(f"Warning: Unexpected response format. Response: {response_data}", "⚠️")
             return None
 
         except asyncio.TimeoutError:

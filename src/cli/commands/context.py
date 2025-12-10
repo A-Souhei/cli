@@ -36,16 +36,34 @@ def handle_context_add(console, user_input_normalized, get_user_working_dir,
     Handle context add command.
 
     Add files or directories to context without triggering LLM.
-    Usage: /context add @file or /context add @subdirectory
+    Usage:
+        /context add @file - Add a specific file
+        /context add @subdirectory - Add a specific directory
+        /context add ALL - Add entire working directory
     """
-    # Extract @ prefixed paths from the command
-    at_context = extract_at_context(user_input_normalized, get_user_working_dir())
+    # Check if user wants to add ALL (entire working directory)
+    if 'ALL' in user_input_normalized.upper():
+        working_dir = get_user_working_dir()
+        console.print(f"\n📁 [cyan]Adding entire working directory to context:[/cyan] {working_dir}")
 
-    # Check if any paths were provided
-    if not at_context['files'] and not at_context['directories']:
-        console.print("\n⚠️  [yellow]No files or directories specified.[/yellow]")
-        console.print("[dim]Usage: /context add @file or /context add @subdirectory[/dim]\n")
-        return True
+        # Create a context with just the working directory
+        at_context = {
+            'files': [],
+            'directories': [working_dir],
+            'non_existing': []
+        }
+    else:
+        # Extract @ prefixed paths from the command
+        at_context = extract_at_context(user_input_normalized, get_user_working_dir())
+
+        # Check if any paths were provided
+        if not at_context['files'] and not at_context['directories']:
+            console.print("\n⚠️  [yellow]No files or directories specified.[/yellow]")
+            console.print("[dim]Usage:[/dim]")
+            console.print("[dim]  /context add @file - Add a specific file[/dim]")
+            console.print("[dim]  /context add @directory - Add a specific directory[/dim]")
+            console.print("[dim]  /context add ALL - Add entire working directory[/dim]\n")
+            return True
 
     # Filter @ context based on .llmignore patterns
     filtered_context, ignored_context = filter_at_context(at_context, get_user_working_dir())
@@ -105,19 +123,28 @@ def handle_context_add(console, user_input_normalized, get_user_working_dir,
                     debug_print(f"Empty result returned from add_file_context for {file_path}", icon="⚠️", style="yellow")
                 errors.append(f"{file_path}: Empty result")
             else:
-                try:
-                    result_data = json.loads(result)
-                    if result_data.get('status') == 'success':
-                        added_files.append(file_path)
-                        if verbose:
-                            debug_print(f"Added file context: {file_path}", icon="📄", style="cyan")
-                    else:
-                        error_msg = result_data.get('error', 'Unknown error')
-                        errors.append(f"{file_path}: {error_msg}")
-                except json.JSONDecodeError as e:
+                # Check if it's a plain text error message (from MCP server)
+                if result.strip().startswith("Error:"):
+                    error_msg = result.strip()
                     if verbose:
-                        debug_print(f"Failed to parse file context result for {file_path}: {e}", icon="⚠️", style="yellow")
-                    errors.append(f"{file_path}: Parse error")
+                        debug_print(f"MCP error: {error_msg}", icon="⚠️", style="yellow")
+                    errors.append(f"{file_path}: {error_msg}")
+                else:
+                    # Try to parse as JSON
+                    try:
+                        result_data = json.loads(result)
+                        if result_data.get('status') == 'success':
+                            added_files.append(file_path)
+                            if verbose:
+                                debug_print(f"Added file context: {file_path}", icon="📄", style="cyan")
+                        else:
+                            error_msg = result_data.get('error', 'Unknown error')
+                            errors.append(f"{file_path}: {error_msg}")
+                    except json.JSONDecodeError as e:
+                        if verbose:
+                            debug_print(f"Failed to parse file context result as JSON: {e}", icon="⚠️", style="yellow")
+                            debug_print(f"Result content: {result[:500]}", icon="📄", style="dim")
+                        errors.append(f"{file_path}: Parse error - {str(e)}")
         except Exception as e:
             if verbose:
                 debug_print(f"Failed to add file context for {file_path}: {e}", icon="⚠️", style="yellow")
@@ -136,21 +163,44 @@ def handle_context_add(console, user_input_normalized, get_user_working_dir,
 
             result = run_async(mcp_client.call_tool('coder', 'add_directory_context', args))
 
+            if verbose:
+                debug_print(f"MCP result length: {len(result) if result else 0}", icon="📤", style="dim")
+                if result:
+                    debug_print(f"MCP result preview: {result[:200]}...", icon="📄", style="dim")
+
             # Parse result
-            try:
-                result_data = json.loads(result)
-                if result_data.get('tree_added'):
-                    tree_stats = result_data.get('tree_stats', {})
-                    added_dirs.append((dir_path, tree_stats))
-                    if verbose:
-                        debug_print(f"Added directory context: {dir_path}", icon="📁", style="cyan")
-                else:
-                    error_msg = result_data.get('error', 'Unknown error')
-                    errors.append(f"{dir_path}: {error_msg}")
-            except Exception as parse_err:
+            if not result:
                 if verbose:
-                    debug_print(f"Failed to parse directory result: {parse_err}", icon="⚠️", style="yellow")
-                errors.append(f"{dir_path}: Parse error")
+                    debug_print(f"No result returned from add_directory_context for {dir_path}", icon="⚠️", style="yellow")
+                errors.append(f"{dir_path}: No result returned")
+            elif not result.strip():
+                if verbose:
+                    debug_print(f"Empty result returned from add_directory_context for {dir_path}", icon="⚠️", style="yellow")
+                errors.append(f"{dir_path}: Empty result")
+            else:
+                # Check if it's a plain text error message (from MCP server)
+                if result.strip().startswith("Error:"):
+                    error_msg = result.strip()
+                    if verbose:
+                        debug_print(f"MCP error: {error_msg}", icon="⚠️", style="yellow")
+                    errors.append(f"{dir_path}: {error_msg}")
+                else:
+                    # Try to parse as JSON
+                    try:
+                        result_data = json.loads(result)
+                        if result_data.get('tree_added'):
+                            tree_stats = result_data.get('tree_stats', {})
+                            added_dirs.append((dir_path, tree_stats))
+                            if verbose:
+                                debug_print(f"Added directory context: {dir_path}", icon="📁", style="cyan")
+                        else:
+                            error_msg = result_data.get('error', 'Unknown error')
+                            errors.append(f"{dir_path}: {error_msg}")
+                    except json.JSONDecodeError as parse_err:
+                        if verbose:
+                            debug_print(f"Failed to parse directory result as JSON: {parse_err}", icon="⚠️", style="yellow")
+                            debug_print(f"Result content: {result[:500]}", icon="📄", style="dim")
+                        errors.append(f"{dir_path}: Parse error - {str(parse_err)}")
         except Exception as e:
             if verbose:
                 debug_print(f"Failed to add directory context for {dir_path}: {e}", icon="⚠️", style="yellow")
@@ -290,13 +340,13 @@ def handle_context_show(console, chat_manager, session_manager):
 def handle_context_clear(console, chat_manager, session_manager):
     """
     Handle context clear command.
-    
+
     Clears everything: chat history, session history, session metadata, and file references.
     Session remains active but with cleared context.
     """
     # Clear chat history
     chat_manager.clear_history()
-    
+
     # Clear session context (but keep session active)
     if session_manager.is_active():
         session_manager.session_history.clear()
@@ -304,5 +354,227 @@ def handle_context_clear(console, chat_manager, session_manager):
         console.print("\n🗑️  [yellow]Context cleared[/yellow] (session still active)\n")
     else:
         console.print("\n🗑️  [yellow]Context cleared[/yellow]\n")
-    
+
+    return True
+
+
+def handle_context_metrics(console, chat_manager, session_manager):
+    """
+    Handle context metrics command.
+
+    Display metrics about the current context including size, counts, and memory usage.
+    """
+    console.print("\n📊 [bold]Context Metrics:[/bold]\n")
+
+    # Chat messages metrics
+    messages = chat_manager.get_messages()
+    non_system_messages = [m for m in messages if m.get('role') != 'system']
+    chat_size = sum(len(json.dumps(m)) for m in non_system_messages)
+
+    console.print("[cyan]Chat Context:[/cyan]")
+    console.print(f"  • Messages: [cyan]{len(non_system_messages)}[/cyan]")
+    console.print(f"  • Size: [cyan]{chat_size:,}[/cyan] bytes ([cyan]{chat_size / 1024:.2f}[/cyan] KB)")
+    console.print(f"  • Est. Tokens: [cyan]{chat_size // 4:,}[/cyan] (approximate)")
+
+    # Session metrics
+    console.print()
+    if session_manager.is_active():
+        info = session_manager.get_session_info()
+        session_size = len(json.dumps(session_manager.session_metadata))
+        history_size = sum(len(json.dumps(h)) for h in session_manager.session_history)
+
+        console.print("[cyan]Session Context:[/cyan]")
+        console.print(f"  • ID: [cyan]{info['session_id'][:16]}...[/cyan]")
+        console.print(f"  • Interactions: [cyan]{info['num_interactions']}[/cyan]")
+        console.print(f"  • Metadata Size: [cyan]{session_size:,}[/cyan] bytes")
+        console.print(f"  • History Size: [cyan]{history_size:,}[/cyan] bytes")
+
+        # Get loaded files/directories from Redis
+        try:
+            redis_api_url = os.getenv('REDIS_API_URL', 'http://localhost:17000')
+            session_id = session_manager.get_session_id()
+
+            with httpx.Client() as client:
+                response = client.get(
+                    f"{redis_api_url}/context/list",
+                    params={"session_id": session_id},
+                    timeout=5
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    contexts = data.get('contexts', [])
+
+                    if contexts:
+                        console.print()
+                        console.print("[cyan]Loaded Files/Directories:[/cyan]")
+
+                        total_content_size = 0
+                        file_count = 0
+                        dir_count = 0
+                        tree_count = 0
+                        tool_count = 0
+
+                        for ctx in contexts:
+                            context_type = ctx.get('context_type', 'unknown')
+
+                            # Try to get size from metadata first, fallback to content length
+                            metadata = ctx.get('metadata', {})
+                            size = metadata.get('size', 0)
+                            if size == 0:
+                                content = ctx.get('content', '')
+                                size = len(content)
+
+                            total_content_size += size
+
+                            if context_type == 'file':
+                                file_count += 1
+                            elif context_type == 'directory':
+                                dir_count += 1
+                            elif context_type == 'directory_tree':
+                                tree_count += 1
+                            elif context_type == 'tools':
+                                tool_count += 1
+
+                        console.print(f"  • Files: [cyan]{file_count}[/cyan]")
+                        console.print(f"  • Directories: [cyan]{dir_count}[/cyan]")
+                        console.print(f"  • Trees: [cyan]{tree_count}[/cyan]")
+                        if tool_count > 0:
+                            console.print(f"  • Tool Collections: [cyan]{tool_count}[/cyan]")
+                        console.print(f"  • Total Content Size: [cyan]{total_content_size:,}[/cyan] bytes ([cyan]{total_content_size / 1024:.2f}[/cyan] KB)")
+                        console.print(f"  • Est. Tokens: [cyan]{total_content_size // 4:,}[/cyan] (approximate)")
+        except Exception:
+            # Silently fail - metrics are optional
+            pass
+    else:
+        console.print("[cyan]Session:[/cyan] [dim]Not active[/dim]")
+
+    # Total metrics
+    console.print()
+    total_size = chat_size
+    if session_manager.is_active():
+        total_size += session_size + history_size
+        if 'total_content_size' in locals():
+            total_size += total_content_size
+
+    console.print("[cyan]Total Context:[/cyan]")
+    console.print(f"  • Size: [cyan]{total_size:,}[/cyan] bytes ([cyan]{total_size / 1024:.2f}[/cyan] KB, [cyan]{total_size / (1024 * 1024):.2f}[/cyan] MB)")
+    console.print(f"  • Est. Tokens: [cyan]{total_size // 4:,}[/cyan] (approximate)")
+
+    console.print()
+    return True
+
+
+def handle_context_add_all_tools(console, session_manager, mcp_client, run_async, debug_print, verbose=False):
+    """
+    Handle context add ALL_TOOLS command.
+
+    Add all MCP tools with their descriptions to context.
+    This creates a special context entry that can be referenced with the ALL_TOOLS keyword.
+    """
+    console.print("\n🔧 [cyan]Adding all MCP tools to context...[/cyan]")
+
+    # Get session ID if active
+    session_id = session_manager.get_session_id() if session_manager.is_active() else None
+
+    if not session_id:
+        console.print("\n⚠️  [yellow]No active session - tools will be added to temporary context[/yellow]")
+    elif verbose:
+        debug_print(f"Adding tools to session: {session_id[:16]}...", icon="🔍", style="cyan")
+
+    try:
+        # Get all tools from all MCP servers
+        if verbose:
+            debug_print("Retrieving tools from MCP servers...", icon="🔍", style="cyan")
+
+        all_tools = run_async(mcp_client.list_tools())
+
+        if not all_tools:
+            console.print("\n⚠️  [yellow]No MCP tools found[/yellow]\n")
+            return True
+
+        # Format tools into a structured document
+        tools_doc = "# MCP Tools Reference (ALL_TOOLS)\n\n"
+        tools_doc += f"Total tools available: {len(all_tools)}\n\n"
+
+        # Group tools by MCP server
+        tools_by_mcp = {}
+        for tool in all_tools:
+            mcp_name = tool.get('mcp_name', 'unknown')
+            if mcp_name not in tools_by_mcp:
+                tools_by_mcp[mcp_name] = []
+            tools_by_mcp[mcp_name].append(tool)
+
+        # Build documentation
+        for mcp_name, tools in tools_by_mcp.items():
+            tools_doc += f"## {mcp_name.upper()} MCP Server\n\n"
+            tools_doc += f"Tools: {len(tools)}\n\n"
+
+            for tool in tools:
+                tool_name = tool.get('name', 'unknown')
+                description = tool.get('description', 'No description')
+                input_schema = tool.get('inputSchema', {})
+
+                tools_doc += f"### {tool_name}\n\n"
+                tools_doc += f"**Description:** {description}\n\n"
+
+                # Add input schema details
+                if input_schema and 'properties' in input_schema:
+                    tools_doc += "**Parameters:**\n"
+                    properties = input_schema.get('properties', {})
+                    required = input_schema.get('required', [])
+
+                    for param_name, param_info in properties.items():
+                        param_type = param_info.get('type', 'unknown')
+                        param_desc = param_info.get('description', 'No description')
+                        is_required = param_name in required
+                        required_str = " (required)" if is_required else " (optional)"
+
+                        tools_doc += f"- `{param_name}` ({param_type}){required_str}: {param_desc}\n"
+
+                    tools_doc += "\n"
+
+                tools_doc += "---\n\n"
+
+        # Store in Redis with special marker
+        redis_api_url = os.getenv('REDIS_API_URL', 'http://localhost:17000')
+
+        payload = {
+            'context_type': 'tools',
+            'path': 'ALL_TOOLS',
+            'content': tools_doc,
+            'metadata': {
+                'size': len(tools_doc),
+                'tool_count': len(all_tools),
+                'mcp_servers': list(tools_by_mcp.keys())
+            }
+        }
+
+        if session_id:
+            payload['session_id'] = session_id
+
+        with httpx.Client() as client:
+            response = client.post(
+                f"{redis_api_url}/context/store",
+                json=payload,
+                timeout=30
+            )
+
+            if response.status_code in [200, 201]:
+                result = response.json()
+                if result.get('status') == 'success':
+                    console.print(f"\n✓ [green]Added {len(all_tools)} tools from {len(tools_by_mcp)} MCP server(s)[/green]")
+                    for mcp_name, tools in tools_by_mcp.items():
+                        console.print(f"  • [cyan]{mcp_name}[/cyan]: {len(tools)} tools")
+                    console.print(f"\n💡 [dim]You can now reference 'ALL_TOOLS' in your prompts to access this information[/dim]\n")
+                else:
+                    console.print(f"\n⚠️  [yellow]Failed to store tools: {result.get('message')}[/yellow]\n")
+            else:
+                console.print(f"\n⚠️  [yellow]Failed to store tools: HTTP {response.status_code}[/yellow]\n")
+
+    except Exception as e:
+        console.print(f"\n⚠️  [yellow]Error adding tools to context: {str(e)}[/yellow]\n")
+        if verbose:
+            debug_print(f"Exception details: {e}", icon="❌", style="red")
+
     return True

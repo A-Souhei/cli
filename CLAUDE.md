@@ -267,7 +267,10 @@ src/
 **Commands**:
 - `/context add @file` - Add file to context without LLM call
 - `/context add @directory` - Add directory to context without LLM call
+- `/context add ALL` - Add entire working directory to context
+- `/context add ALL_TOOLS` - Add all MCP tools with descriptions to context
 - `/context show` - Display current context (chat, session, metadata)
+- `/context metrics` - Show context size and usage metrics
 - `/context clear` - Clear context (keeps session active)
 
 **Usage Examples**:
@@ -275,12 +278,15 @@ src/
 /context add @src/main.py              # Add a single file
 /context add @src/utils/               # Add entire directory
 /context add @file1.py @file2.py       # Add multiple files
+/context add ALL                       # Add entire working directory
+/context add ALL_TOOLS                 # Add all MCP tools reference
 /context show                          # View what's in context
+/context metrics                       # View context size and metrics
 ```
 
-**Note**: Unlike using `@file` in a regular prompt (which triggers the LLM), `/context add`
-only loads the file/directory into context for later use. This allows you to build up context
-incrementally without wasting tokens on unnecessary LLM responses.
+**Notes**:
+- Unlike using `@file` in a regular prompt (which triggers the LLM), `/context add` only loads the file/directory into context for later use. This allows you to build up context incrementally without wasting tokens on unnecessary LLM responses.
+- **ALL_TOOLS keyword**: After running `/context add ALL_TOOLS`, you can reference "ALL_TOOLS" in your prompts to access the complete MCP tools documentation. The LLM will have access to all tool descriptions, parameters, and usage information.
 
 ### Model Management
 
