@@ -5,6 +5,7 @@ from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.layout import Layout, HSplit, Window, FloatContainer, Float
 from prompt_toolkit.layout.controls import FormattedTextControl, BufferControl
 from prompt_toolkit.layout.menus import CompletionsMenu
+from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.key_binding import KeyBindings
 
@@ -53,7 +54,9 @@ def custom_prompt_with_lines(console, history=None, completer=None):
             focus_on_click=True
         ),
         get_line_prefix=lambda line_number, wrap_count: FormattedText([('ansigreen bold', '▶ ' if line_number == 0 else '  ')]),
-        wrap_lines=True  # Wrap long lines
+        wrap_lines=True,  # Wrap long lines
+        height=Dimension(min=1, max=20),  # Start with 1 line, grow up to 20 lines
+        dont_extend_height=True  # Don't expand to fill available space
     )
 
     # For single-line input, just show the bottom line
