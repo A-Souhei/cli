@@ -1,7 +1,7 @@
 """Context command handlers for AI CLI."""
 import os
 import json
-import requests
+import httpx
 from src.file_completer import extract_at_context
 from src.utils.llmignore import filter_at_context
 
@@ -97,25 +97,30 @@ def handle_context_add(console, user_input_normalized, get_user_working_dir,
 
             # Parse result
             if not result:
-                debug_print(f"No result returned from add_file_context for {file_path}", icon="⚠️", style="yellow")
+                if verbose:
+                    debug_print(f"No result returned from add_file_context for {file_path}", icon="⚠️", style="yellow")
                 errors.append(f"{file_path}: No result returned")
             elif not result.strip():
-                debug_print(f"Empty result returned from add_file_context for {file_path}", icon="⚠️", style="yellow")
+                if verbose:
+                    debug_print(f"Empty result returned from add_file_context for {file_path}", icon="⚠️", style="yellow")
                 errors.append(f"{file_path}: Empty result")
             else:
                 try:
                     result_data = json.loads(result)
                     if result_data.get('status') == 'success':
                         added_files.append(file_path)
-                        debug_print(f"Added file context: {file_path}", icon="📄", style="cyan")
+                        if verbose:
+                            debug_print(f"Added file context: {file_path}", icon="📄", style="cyan")
                     else:
                         error_msg = result_data.get('error', 'Unknown error')
                         errors.append(f"{file_path}: {error_msg}")
                 except json.JSONDecodeError as e:
-                    debug_print(f"Failed to parse file context result for {file_path}: {e}", icon="⚠️", style="yellow")
+                    if verbose:
+                        debug_print(f"Failed to parse file context result for {file_path}: {e}", icon="⚠️", style="yellow")
                     errors.append(f"{file_path}: Parse error")
         except Exception as e:
-            debug_print(f"Failed to add file context for {file_path}: {e}", icon="⚠️", style="yellow")
+            if verbose:
+                debug_print(f"Failed to add file context for {file_path}: {e}", icon="⚠️", style="yellow")
             errors.append(f"{file_path}: {str(e)}")
 
     # Add directory contexts
@@ -137,15 +142,18 @@ def handle_context_add(console, user_input_normalized, get_user_working_dir,
                 if result_data.get('tree_added'):
                     tree_stats = result_data.get('tree_stats', {})
                     added_dirs.append((dir_path, tree_stats))
-                    debug_print(f"Added directory context: {dir_path}", icon="📁", style="cyan")
+                    if verbose:
+                        debug_print(f"Added directory context: {dir_path}", icon="📁", style="cyan")
                 else:
                     error_msg = result_data.get('error', 'Unknown error')
                     errors.append(f"{dir_path}: {error_msg}")
             except Exception as parse_err:
-                debug_print(f"Failed to parse directory result: {parse_err}", icon="⚠️", style="yellow")
+                if verbose:
+                    debug_print(f"Failed to parse directory result: {parse_err}", icon="⚠️", style="yellow")
                 errors.append(f"{dir_path}: Parse error")
         except Exception as e:
-            debug_print(f"Failed to add directory context for {dir_path}: {e}", icon="⚠️", style="yellow")
+            if verbose:
+                debug_print(f"Failed to add directory context for {dir_path}: {e}", icon="⚠️", style="yellow")
             errors.append(f"{dir_path}: {str(e)}")
 
     # Handle non-existing paths
@@ -249,25 +257,26 @@ def handle_context_show(console, chat_manager, session_manager):
             redis_api_url = os.getenv('REDIS_API_URL', 'http://localhost:17000')
             session_id = session_manager.get_session_id()
 
-            response = requests.get(
-                f"{redis_api_url}/context/list",
-                params={"session_id": session_id},
-                timeout=5
-            )
+            with httpx.Client() as client:
+                response = client.get(
+                    f"{redis_api_url}/context/list",
+                    params={"session_id": session_id},
+                    timeout=5
+                )
 
-            if response.status_code == 200:
-                data = response.json()
-                contexts = data.get('contexts', [])
+                if response.status_code == 200:
+                    data = response.json()
+                    contexts = data.get('contexts', [])
 
-                if contexts:
-                    console.print(f"\n[cyan]Loaded Files/Directories:[/cyan] {len(contexts)}")
-                    for ctx in contexts[:10]:  # Show first 10
-                        path = ctx.get('path', 'Unknown')
-                        context_type = ctx.get('context_type', 'unknown')
-                        type_icon = "📄" if context_type == "file" else "📁" if context_type == "directory" else "📦"
-                        console.print(f"  {type_icon} [cyan]{path}[/cyan]")
-                    if len(contexts) > 10:
-                        console.print(f"  [dim]... and {len(contexts) - 10} more[/dim]")
+                    if contexts:
+                        console.print(f"\n[cyan]Loaded Files/Directories:[/cyan] {len(contexts)}")
+                        for ctx in contexts[:10]:  # Show first 10
+                            path = ctx.get('path', 'Unknown')
+                            context_type = ctx.get('context_type', 'unknown')
+                            type_icon = "📄" if context_type == "file" else "📁" if context_type == "directory" else "📦"
+                            console.print(f"  {type_icon} [cyan]{path}[/cyan]")
+                        if len(contexts) > 10:
+                            console.print(f"  [dim]... and {len(contexts) - 10} more[/dim]")
         except Exception as e:
             # Silently fail - context listing is optional
             pass
