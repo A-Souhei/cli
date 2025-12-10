@@ -1,0 +1,58 @@
+# Tester MCP Tools Metadata
+# This file defines categories and metadata for tester MCP tools
+
+categories:
+  planning:
+    description: "Intelligent planning and workflow orchestration"
+    tools:
+      - plan_mode
+
+  testing:
+    description: "Test execution and validation tools"
+    tools:
+      - run_pytest
+      - create_pytest_test
+      - validate_with_test
+
+tools:
+  plan_mode:
+    category: planning
+    requires_llm: true
+    keywords:
+      - plan
+      - test
+      - testing
+      - validate
+      - workflow
+      - orchestrate
+    description: "Creates intelligent execution plans with tool matching and iterative execution"
+
+  run_pytest:
+    category: testing
+    requires_llm: false
+    keywords:
+      - pytest
+      - test
+      - run tests
+      - execute tests
+    description: "Executes pytest tests with various options and reporting"
+
+  create_pytest_test:
+    category: testing
+    requires_llm: false
+    keywords:
+      - create test
+      - scaffold test
+      - test template
+      - new test
+    description: "Creates pytest test file templates with common patterns"
+
+  validate_with_test:
+    category: testing
+    requires_llm: false
+    keywords:
+      - validate
+      - verify
+      - test validation
+      - check code
+    description: "Validates code by running associated tests"
