@@ -107,6 +107,8 @@ def print_help(console):
     console.print("  [bold]'@directory/'[/bold] - Add directory to context")
 
     console.print("\n[bold yellow]Keyboard Shortcuts:[/bold yellow]")
+    console.print("  [bold]'Ctrl+J'[/bold] - Submit multi-line input")
+    console.print("  [bold]'Alt+Enter'[/bold] - Submit multi-line input (alternative)")
     console.print("  [bold]'Ctrl+C'[/bold] - Clear current input (or skip rating)")
     console.print("  [bold]'Ctrl+D'[/bold] - Exit CLI")
     console.print()

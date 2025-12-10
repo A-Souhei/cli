@@ -101,7 +101,7 @@ def custom_prompt_with_lines(console, history=None, completer=None):
         # Alt+Enter accepts the current input (triggers accept_handler)
         event.current_buffer.validate_and_handle()
 
-    @kb.add('c-j')  # Ctrl+J also submits (alternative)
+    @kb.add('c-j')  # Ctrl+J also submits
     def _(event):
         # Ctrl+J accepts the current input (triggers accept_handler)
         event.current_buffer.validate_and_handle()

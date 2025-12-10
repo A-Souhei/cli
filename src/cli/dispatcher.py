@@ -138,7 +138,7 @@ class CommandDispatcher:
         
         # Handle MCP commands
         if user_input_normalized.lower() == 'mcps':
-            return handle_mcps(self.list_system_mcps)
+            return handle_mcps(self.console, self.list_system_mcps)
         
         if user_input_normalized.lower().startswith('mcp-tools '):
             return handle_mcp_tools(self.console, user_input_normalized,
