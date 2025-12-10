@@ -63,6 +63,12 @@ def handle_context_add(console, user_input_normalized, get_user_working_dir,
     # Get session ID if active
     session_id = session_manager.get_session_id() if session_manager.is_active() else None
 
+    if verbose:
+        if session_id:
+            debug_print(f"Adding context to session: {session_id[:16]}...", icon="🔍", style="cyan")
+        else:
+            debug_print("No active session - adding to temporary context", icon="⚠️", style="yellow")
+
     # Track what was added
     added_files = []
     added_dirs = []
@@ -79,7 +85,15 @@ def handle_context_add(console, user_input_normalized, get_user_working_dir,
             if session_id:
                 args['session_id'] = session_id
 
+            if verbose:
+                debug_print(f"Calling MCP tool with args: {args}", icon="🔧", style="dim")
+
             result = run_async(mcp_client.call_tool('coder', 'add_file_context', args))
+
+            if verbose:
+                debug_print(f"MCP result length: {len(result) if result else 0}", icon="📤", style="dim")
+                if result:
+                    debug_print(f"MCP result preview: {result[:150]}...", icon="📄", style="dim")
 
             # Parse result
             if not result:
