@@ -8,6 +8,7 @@ history-based context injection and Redis-based persistence.
 
 import uuid
 import os
+import sys
 from typing import List, Dict, Optional, Any, TYPE_CHECKING
 from datetime import datetime
 import httpx
@@ -202,28 +203,83 @@ class SessionManager:
                             If None, includes all interactions.
 
         Returns:
-            Formatted context string with conversation history
+            Formatted context string with conversation history and stored files
         """
-        if not self.active_session or not self.session_history:
+        if not self.active_session:
             return ""
 
-        history = self.session_history
-        if max_interactions:
-            history = history[-max_interactions:]
+        context_parts = []
 
-        context_parts = [f"[Session Context - {len(history)} previous interactions]"]
+        # First, add stored files/directories from Redis context
+        try:
+            with httpx.Client() as client:
+                response = client.get(
+                    f"{self.redis_api_url}/context/list",
+                    params={"session_id": self.active_session},
+                    timeout=5
+                )
 
-        for i, interaction in enumerate(history, 1):
-            context_parts.append(f"\nInteraction {i}:")
-            context_parts.append(f"User: {interaction['prompt']}")
-            # Truncate long responses for context
-            response = interaction['response']
-            if len(response) > 500:
-                response = response[:500] + "..."
-            context_parts.append(f"Assistant: {response}")
+                if response.status_code == 200:
+                    data = response.json()
+                    contexts = data.get('contexts', [])
 
-        context_parts.append("\n[Current prompt follows]")
-        return "\n".join(context_parts)
+                    if contexts:
+                        context_parts.append(f"[Session Context - {len(contexts)} stored file(s)/directory(s)]")
+
+                        for ctx in contexts:
+                            path = ctx.get('path', 'Unknown')
+                            context_type = ctx.get('context_type', 'unknown')
+
+                            # Retrieve full content from Redis
+                            try:
+                                get_response = client.get(
+                                    f"{self.redis_api_url}/context/get",
+                                    params={
+                                        "session_id": self.active_session,
+                                        "path": path
+                                    },
+                                    timeout=5
+                                )
+
+                                if get_response.status_code == 200:
+                                    content_data = get_response.json()
+                                    if content_data.get('status') == 'success':
+                                        context_obj = content_data.get('context', {})
+                                        content = context_obj.get('content', '')
+                                        if content:
+                                            context_parts.append(f"\n--- {context_type.capitalize()}: {path} ---")
+                                            context_parts.append(content)
+                            except Exception as e:
+                                # Skip this file if retrieval fails
+                                capture_exception(e)
+
+                        context_parts.append("\n")
+        except Exception as e:
+            # Silently skip if Redis context retrieval fails
+            capture_exception(e)
+
+        # Then, add conversation history
+        if self.session_history:
+            history = self.session_history
+            if max_interactions:
+                history = history[-max_interactions:]
+
+            context_parts.append(f"[Session Context - {len(history)} previous interactions]")
+
+            for i, interaction in enumerate(history, 1):
+                context_parts.append(f"\nInteraction {i}:")
+                context_parts.append(f"User: {interaction['prompt']}")
+                # Truncate long responses for context
+                response = interaction['response']
+                if len(response) > 500:
+                    response = response[:500] + "..."
+                context_parts.append(f"Assistant: {response}")
+
+        if context_parts:
+            context_parts.append("\n[Current prompt follows]")
+            return "\n".join(context_parts)
+
+        return ""
 
     def get_session_history(self) -> List[Dict[str, Any]]:
         """

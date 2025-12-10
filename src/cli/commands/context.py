@@ -1,4 +1,192 @@
 """Context command handlers for AI CLI."""
+import os
+import json
+import httpx
+from src.file_completer import extract_at_context
+from src.utils.llmignore import filter_at_context
+
+
+def display_ignored_items(console, ignored_items: list, item_type: str, max_display: int = 5) -> None:
+    """
+    Display a list of ignored files or directories from .llmignore.
+
+    Args:
+        console: Rich console for output
+        ignored_items: List of ignored file/directory paths
+        item_type: Type of items ('file' or 'directory')
+        max_display: Maximum number of items to display before truncating
+    """
+    if not ignored_items:
+        return
+
+    item_label = f"{item_type}(s)" if item_type == 'file' else f"{item_type}(ies)"
+    console.print(f"[yellow]⚠️  Ignored {len(ignored_items)} {item_label} by .llmignore:[/yellow]")
+
+    for item in ignored_items[:max_display]:
+        console.print(f"[dim]  • {item}[/dim]")
+
+    if len(ignored_items) > max_display:
+        remaining = len(ignored_items) - max_display
+        console.print(f"[dim]  ... and {remaining} more[/dim]")
+
+
+def handle_context_add(console, user_input_normalized, get_user_working_dir,
+                       session_manager, mcp_client, run_async, debug_print, verbose=False):
+    """
+    Handle context add command.
+
+    Add files or directories to context without triggering LLM.
+    Usage: /context add @file or /context add @subdirectory
+    """
+    # Extract @ prefixed paths from the command
+    at_context = extract_at_context(user_input_normalized, get_user_working_dir())
+
+    # Check if any paths were provided
+    if not at_context['files'] and not at_context['directories']:
+        console.print("\n⚠️  [yellow]No files or directories specified.[/yellow]")
+        console.print("[dim]Usage: /context add @file or /context add @subdirectory[/dim]\n")
+        return True
+
+    # Filter @ context based on .llmignore patterns
+    filtered_context, ignored_context = filter_at_context(at_context, get_user_working_dir())
+
+    # Warn user about ignored files/directories
+    if ignored_context['files'] or ignored_context['directories']:
+        console.print()
+        display_ignored_items(console, ignored_context['files'], 'file')
+        display_ignored_items(console, ignored_context['directories'], 'directory')
+        console.print()
+
+    # Use filtered context
+    at_context = filtered_context
+
+    # Get session ID if active
+    session_id = session_manager.get_session_id() if session_manager.is_active() else None
+
+    if verbose:
+        if session_id:
+            debug_print(f"Adding context to session: {session_id[:16]}...", icon="🔍", style="cyan")
+        else:
+            debug_print("No active session - adding to temporary context", icon="⚠️", style="yellow")
+
+    # Track what was added
+    added_files = []
+    added_dirs = []
+    errors = []
+
+    # Add file contexts
+    for file_path in at_context['files']:
+        try:
+            # Add file context using MCP tool
+            args = {
+                'file_path': file_path,
+                'working_dir': get_user_working_dir()
+            }
+            if session_id:
+                args['session_id'] = session_id
+
+            if verbose:
+                debug_print(f"Calling MCP tool with args: {args}", icon="🔧", style="dim")
+
+            result = run_async(mcp_client.call_tool('coder', 'add_file_context', args))
+
+            if verbose:
+                debug_print(f"MCP result length: {len(result) if result else 0}", icon="📤", style="dim")
+                if result:
+                    debug_print(f"MCP result preview: {result[:150]}...", icon="📄", style="dim")
+
+            # Parse result
+            if not result:
+                if verbose:
+                    debug_print(f"No result returned from add_file_context for {file_path}", icon="⚠️", style="yellow")
+                errors.append(f"{file_path}: No result returned")
+            elif not result.strip():
+                if verbose:
+                    debug_print(f"Empty result returned from add_file_context for {file_path}", icon="⚠️", style="yellow")
+                errors.append(f"{file_path}: Empty result")
+            else:
+                try:
+                    result_data = json.loads(result)
+                    if result_data.get('status') == 'success':
+                        added_files.append(file_path)
+                        if verbose:
+                            debug_print(f"Added file context: {file_path}", icon="📄", style="cyan")
+                    else:
+                        error_msg = result_data.get('error', 'Unknown error')
+                        errors.append(f"{file_path}: {error_msg}")
+                except json.JSONDecodeError as e:
+                    if verbose:
+                        debug_print(f"Failed to parse file context result for {file_path}: {e}", icon="⚠️", style="yellow")
+                    errors.append(f"{file_path}: Parse error")
+        except Exception as e:
+            if verbose:
+                debug_print(f"Failed to add file context for {file_path}: {e}", icon="⚠️", style="yellow")
+            errors.append(f"{file_path}: {str(e)}")
+
+    # Add directory contexts
+    for dir_path in at_context['directories']:
+        try:
+            # Add directory context using MCP tool
+            args = {
+                'dir_path': dir_path,
+                'working_dir': get_user_working_dir()
+            }
+            if session_id:
+                args['session_id'] = session_id
+
+            result = run_async(mcp_client.call_tool('coder', 'add_directory_context', args))
+
+            # Parse result
+            try:
+                result_data = json.loads(result)
+                if result_data.get('tree_added'):
+                    tree_stats = result_data.get('tree_stats', {})
+                    added_dirs.append((dir_path, tree_stats))
+                    if verbose:
+                        debug_print(f"Added directory context: {dir_path}", icon="📁", style="cyan")
+                else:
+                    error_msg = result_data.get('error', 'Unknown error')
+                    errors.append(f"{dir_path}: {error_msg}")
+            except Exception as parse_err:
+                if verbose:
+                    debug_print(f"Failed to parse directory result: {parse_err}", icon="⚠️", style="yellow")
+                errors.append(f"{dir_path}: Parse error")
+        except Exception as e:
+            if verbose:
+                debug_print(f"Failed to add directory context for {dir_path}: {e}", icon="⚠️", style="yellow")
+            errors.append(f"{dir_path}: {str(e)}")
+
+    # Handle non-existing paths
+    if at_context['non_existing']:
+        console.print("\n⚠️  [yellow]Non-existing paths (skipped):[/yellow]")
+        for path in at_context['non_existing']:
+            console.print(f"  • [dim]{path}[/dim]")
+        console.print()
+
+    # Display summary
+    console.print()
+    if added_files:
+        console.print(f"✓ [green]Added {len(added_files)} file(s) to context:[/green]")
+        for file_path in added_files:
+            console.print(f"  • [cyan]{file_path}[/cyan]")
+
+    if added_dirs:
+        console.print(f"✓ [green]Added {len(added_dirs)} directory(s) to context:[/green]")
+        for dir_path, stats in added_dirs:
+            files_count = stats.get('files', 0)
+            dirs_count = stats.get('directories', 0)
+            console.print(f"  • [cyan]{dir_path}[/cyan] [dim]({files_count} files, {dirs_count} directories)[/dim]")
+
+    if errors and verbose:
+        console.print(f"\n⚠️  [yellow]Errors ({len(errors)}):[/yellow]")
+        for error in errors:
+            console.print(f"  • [dim]{error}[/dim]")
+
+    if not added_files and not added_dirs:
+        console.print("⚠️  [yellow]No content was added to context.[/yellow]")
+
+    console.print()
+    return True
 
 
 def handle_context_show(console, chat_manager, session_manager):
@@ -63,9 +251,38 @@ def handle_context_show(console, chat_manager, session_manager):
                 console.print(f"  {i}. [dim]{prompt}[/dim]")
             if len(session_manager.session_history) > 3:
                 console.print(f"  [dim]... and {len(session_manager.session_history) - 3} more[/dim]")
+
+        # Show loaded files/directories from Redis context
+        try:
+            redis_api_url = os.getenv('REDIS_API_URL', 'http://localhost:17000')
+            session_id = session_manager.get_session_id()
+
+            with httpx.Client() as client:
+                response = client.get(
+                    f"{redis_api_url}/context/list",
+                    params={"session_id": session_id},
+                    timeout=5
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    contexts = data.get('contexts', [])
+
+                    if contexts:
+                        console.print(f"\n[cyan]Loaded Files/Directories:[/cyan] {len(contexts)}")
+                        for ctx in contexts[:10]:  # Show first 10
+                            path = ctx.get('path', 'Unknown')
+                            context_type = ctx.get('context_type', 'unknown')
+                            type_icon = "📄" if context_type == "file" else "📁" if context_type == "directory" else "📦"
+                            console.print(f"  {type_icon} [cyan]{path}[/cyan]")
+                        if len(contexts) > 10:
+                            console.print(f"  [dim]... and {len(contexts) - 10} more[/dim]")
+        except Exception as e:
+            # Silently fail - context listing is optional
+            pass
     else:
         console.print("[cyan]Session:[/cyan] [dim]Not active[/dim]")
-    
+
     console.print()
     return True
 

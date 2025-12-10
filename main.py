@@ -1955,7 +1955,7 @@ Output format:
                                         ))
 
                                         # Display verification result
-                                        display_execution_result(verify_result)
+                                        display_execution_result(verify_result, console=console)
                                     else:
                                         console.print("\n[dim]Skipping verification run[/dim]\n")
 
@@ -1968,7 +1968,7 @@ Output format:
                         # Execute code (with user confirmation)
                         exec_result = run_async(handle_code_execution(mcp_client, full_response))
                         if exec_result:
-                            display_execution_result(exec_result)
+                            display_execution_result(exec_result, console=console)
                 except Exception as e:
                     debug_print(f"Error during code handling: {e}", icon="❌")
 

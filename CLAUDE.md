@@ -257,6 +257,31 @@ src/
 - `/session restore <id>` - Restore previous session
 - `/session clear` - Clear all sessions
 
+### Context Management
+
+**Features**:
+- Add files/directories to context without triggering LLM
+- View current context (chat messages, session data, loaded files)
+- Clear context while keeping session active
+
+**Commands**:
+- `/context add @file` - Add file to context without LLM call
+- `/context add @directory` - Add directory to context without LLM call
+- `/context show` - Display current context (chat, session, metadata)
+- `/context clear` - Clear context (keeps session active)
+
+**Usage Examples**:
+```bash
+/context add @src/main.py              # Add a single file
+/context add @src/utils/               # Add entire directory
+/context add @file1.py @file2.py       # Add multiple files
+/context show                          # View what's in context
+```
+
+**Note**: Unlike using `@file` in a regular prompt (which triggers the LLM), `/context add`
+only loads the file/directory into context for later use. This allows you to build up context
+incrementally without wasting tokens on unnecessary LLM responses.
+
 ### Model Management
 
 **Commands**:

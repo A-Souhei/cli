@@ -314,7 +314,7 @@ async def handle_code_execution(mcp_client, response_text: str, selector_class=N
 
     # Execute the code
     _debug(f"Executing {language} code...", icon="⚙️")
-    _print("[yellow]Executing code...[/yellow]\n")
+    _print("[yellow]Executing code...[/yellow]")
 
     result = await mcp_client.call_tool(
         mcp_name=mcp_name,
@@ -364,7 +364,7 @@ def display_execution_result(result: str, console=None, debug_print_func=None):
 
         # Show stderr if present
         if result_data.get("stderr"):
-            _print("⚠️  [bold yellow]Warnings/Errors:[/bold yellow]")
+            _print("⚠️ [bold yellow]Warnings/Errors:[/bold yellow]")
             _print(f"[yellow]{result_data['stderr'].strip()}[/yellow]")
             _print("")
 
