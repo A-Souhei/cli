@@ -1,6 +1,7 @@
 """Context command handlers for AI CLI."""
 import os
 import json
+import requests
 from src.file_completer import extract_at_context
 from src.utils.llmignore import filter_at_context
 
@@ -228,9 +229,37 @@ def handle_context_show(console, chat_manager, session_manager):
                 console.print(f"  {i}. [dim]{prompt}[/dim]")
             if len(session_manager.session_history) > 3:
                 console.print(f"  [dim]... and {len(session_manager.session_history) - 3} more[/dim]")
+
+        # Show loaded files/directories from Redis context
+        try:
+            redis_api_url = os.getenv('REDIS_API_URL', 'http://localhost:17000')
+            session_id = session_manager.get_session_id()
+
+            response = requests.get(
+                f"{redis_api_url}/context/list",
+                params={"session_id": session_id},
+                timeout=5
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                contexts = data.get('contexts', [])
+
+                if contexts:
+                    console.print(f"\n[cyan]Loaded Files/Directories:[/cyan] {len(contexts)}")
+                    for ctx in contexts[:10]:  # Show first 10
+                        path = ctx.get('path', 'Unknown')
+                        context_type = ctx.get('context_type', 'unknown')
+                        type_icon = "📄" if context_type == "file" else "📁" if context_type == "directory" else "📦"
+                        console.print(f"  {type_icon} [cyan]{path}[/cyan]")
+                    if len(contexts) > 10:
+                        console.print(f"  [dim]... and {len(contexts) - 10} more[/dim]")
+        except Exception as e:
+            # Silently fail - context listing is optional
+            pass
     else:
         console.print("[cyan]Session:[/cyan] [dim]Not active[/dim]")
-    
+
     console.print()
     return True
 
