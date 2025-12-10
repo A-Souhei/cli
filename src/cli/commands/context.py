@@ -2,7 +2,31 @@
 import os
 import json
 from src.file_completer import extract_at_context
-from src.cli.commands.ignore import filter_at_context, display_ignored_items
+from src.utils.llmignore import filter_at_context
+
+
+def display_ignored_items(console, ignored_items: list, item_type: str, max_display: int = 5) -> None:
+    """
+    Display a list of ignored files or directories from .llmignore.
+
+    Args:
+        console: Rich console for output
+        ignored_items: List of ignored file/directory paths
+        item_type: Type of items ('file' or 'directory')
+        max_display: Maximum number of items to display before truncating
+    """
+    if not ignored_items:
+        return
+
+    item_label = f"{item_type}(s)" if item_type == 'file' else f"{item_type}(ies)"
+    console.print(f"[yellow]⚠️  Ignored {len(ignored_items)} {item_label} by .llmignore:[/yellow]")
+
+    for item in ignored_items[:max_display]:
+        console.print(f"[dim]  • {item}[/dim]")
+
+    if len(ignored_items) > max_display:
+        remaining = len(ignored_items) - max_display
+        console.print(f"[dim]  ... and {remaining} more[/dim]")
 
 
 def handle_context_add(console, user_input_normalized, get_user_working_dir,
