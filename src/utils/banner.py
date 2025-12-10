@@ -62,6 +62,7 @@ def print_help(console):
     console.print("  [bold]'/session clear'[/bold] - Clear all saved sessions")
 
     console.print("\n[bold yellow]Context:[/bold yellow]")
+    console.print("  [bold]'/context add @file'[/bold] - Add file/directory to context without LLM call")
     console.print("  [bold]'/context show'[/bold] - Show current context (chat, session, metadata)")
     console.print("  [bold]'/context clear'[/bold] - Clear current context (keeps session active)")
 

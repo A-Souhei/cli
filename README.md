@@ -260,6 +260,10 @@ Once the CLI starts, you can:
   - `/session list` - List all saved sessions (NEW)
   - `/session restore <id>` - Restore a previous session (NEW)
   - `/session clear` - Clear all saved sessions (NEW)
+- **Context commands:**
+  - `/context add @file` - Add file/directory to context without LLM call (NEW)
+  - `/context show` - Display current context (chat, session, metadata)
+  - `/context clear` - Clear context (keeps session active)
 - **Repomap commands:**
   - `/repomap create` - Create a repository map from working directory
   - `/repomap load` - Load existing .repomap file into context
@@ -388,6 +392,42 @@ Sessions are automatically saved to Redis and can be restored later:
 ```
 
 See [docs/SESSION_FEATURE.md](docs/SESSION_FEATURE.md) and [docs/SESSION_PERSISTENCE.md](docs/SESSION_PERSISTENCE.md) for detailed documentation.
+
+### Context Management (NEW)
+
+The `/context add` command allows you to add files and directories to the conversation context **without triggering an LLM response**. This is useful when you want to incrementally build up context before asking questions, avoiding unnecessary token usage.
+
+**Difference from `@` prefix:**
+- Using `@file.py what does this do?` - Adds file to context AND triggers LLM response
+- Using `/context add @file.py` - Only adds file to context, no LLM call
+
+**Example:**
+```
+▶ /context add @src/main.py
+✓ Added 1 file(s) to context:
+  • src/main.py
+
+▶ /context add @src/utils/
+✓ Added 1 directory(s) to context:
+  • src/utils/ (15 files, 3 directories)
+
+▶ /context show
+📋 Current Context:
+Chat Messages: 0
+Session: Active
+  • ID: abc123...
+  • Duration: 120s
+  • Interactions: 2
+
+▶ Now explain how main.py uses the utils module
+# AI now has both main.py and utils/ in context
+```
+
+**Use Cases:**
+- **Batch Context Loading**: Add multiple files/directories before asking questions
+- **Token Efficiency**: Build context incrementally without triggering LLM on each addition
+- **Session Preparation**: Prepare context at the start of a session for later questions
+- **Code Review Setup**: Load all relevant files first, then ask specific questions
 
 ### Code Command (NEW)
 

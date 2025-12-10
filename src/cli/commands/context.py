@@ -1,4 +1,145 @@
 """Context command handlers for AI CLI."""
+import os
+import json
+from src.file_completer import extract_at_context
+from src.cli.commands.ignore import filter_at_context, display_ignored_items
+
+
+def handle_context_add(console, user_input_normalized, get_user_working_dir,
+                       session_manager, mcp_client, run_async, debug_print, verbose=False):
+    """
+    Handle context add command.
+
+    Add files or directories to context without triggering LLM.
+    Usage: /context add @file or /context add @subdirectory
+    """
+    # Extract @ prefixed paths from the command
+    at_context = extract_at_context(user_input_normalized, get_user_working_dir())
+
+    # Check if any paths were provided
+    if not at_context['files'] and not at_context['directories']:
+        console.print("\n⚠️  [yellow]No files or directories specified.[/yellow]")
+        console.print("[dim]Usage: /context add @file or /context add @subdirectory[/dim]\n")
+        return True
+
+    # Filter @ context based on .llmignore patterns
+    filtered_context, ignored_context = filter_at_context(at_context, get_user_working_dir())
+
+    # Warn user about ignored files/directories
+    if ignored_context['files'] or ignored_context['directories']:
+        console.print()
+        display_ignored_items(console, ignored_context['files'], 'file')
+        display_ignored_items(console, ignored_context['directories'], 'directory')
+        console.print()
+
+    # Use filtered context
+    at_context = filtered_context
+
+    # Get session ID if active
+    session_id = session_manager.get_session_id() if session_manager.is_active() else None
+
+    # Track what was added
+    added_files = []
+    added_dirs = []
+    errors = []
+
+    # Add file contexts
+    for file_path in at_context['files']:
+        try:
+            # Add file context using MCP tool
+            args = {
+                'file_path': file_path,
+                'working_dir': get_user_working_dir()
+            }
+            if session_id:
+                args['session_id'] = session_id
+
+            result = run_async(mcp_client.call_tool('coder', 'add_file_context', args))
+
+            # Parse result
+            if not result:
+                debug_print(f"No result returned from add_file_context for {file_path}", icon="⚠️", style="yellow")
+                errors.append(f"{file_path}: No result returned")
+            elif not result.strip():
+                debug_print(f"Empty result returned from add_file_context for {file_path}", icon="⚠️", style="yellow")
+                errors.append(f"{file_path}: Empty result")
+            else:
+                try:
+                    result_data = json.loads(result)
+                    if result_data.get('status') == 'success':
+                        added_files.append(file_path)
+                        debug_print(f"Added file context: {file_path}", icon="📄", style="cyan")
+                    else:
+                        error_msg = result_data.get('error', 'Unknown error')
+                        errors.append(f"{file_path}: {error_msg}")
+                except json.JSONDecodeError as e:
+                    debug_print(f"Failed to parse file context result for {file_path}: {e}", icon="⚠️", style="yellow")
+                    errors.append(f"{file_path}: Parse error")
+        except Exception as e:
+            debug_print(f"Failed to add file context for {file_path}: {e}", icon="⚠️", style="yellow")
+            errors.append(f"{file_path}: {str(e)}")
+
+    # Add directory contexts
+    for dir_path in at_context['directories']:
+        try:
+            # Add directory context using MCP tool
+            args = {
+                'dir_path': dir_path,
+                'working_dir': get_user_working_dir()
+            }
+            if session_id:
+                args['session_id'] = session_id
+
+            result = run_async(mcp_client.call_tool('coder', 'add_directory_context', args))
+
+            # Parse result
+            try:
+                result_data = json.loads(result)
+                if result_data.get('tree_added'):
+                    tree_stats = result_data.get('tree_stats', {})
+                    added_dirs.append((dir_path, tree_stats))
+                    debug_print(f"Added directory context: {dir_path}", icon="📁", style="cyan")
+                else:
+                    error_msg = result_data.get('error', 'Unknown error')
+                    errors.append(f"{dir_path}: {error_msg}")
+            except Exception as parse_err:
+                debug_print(f"Failed to parse directory result: {parse_err}", icon="⚠️", style="yellow")
+                errors.append(f"{dir_path}: Parse error")
+        except Exception as e:
+            debug_print(f"Failed to add directory context for {dir_path}: {e}", icon="⚠️", style="yellow")
+            errors.append(f"{dir_path}: {str(e)}")
+
+    # Handle non-existing paths
+    if at_context['non_existing']:
+        console.print("\n⚠️  [yellow]Non-existing paths (skipped):[/yellow]")
+        for path in at_context['non_existing']:
+            console.print(f"  • [dim]{path}[/dim]")
+        console.print()
+
+    # Display summary
+    console.print()
+    if added_files:
+        console.print(f"✓ [green]Added {len(added_files)} file(s) to context:[/green]")
+        for file_path in added_files:
+            console.print(f"  • [cyan]{file_path}[/cyan]")
+
+    if added_dirs:
+        console.print(f"✓ [green]Added {len(added_dirs)} directory(s) to context:[/green]")
+        for dir_path, stats in added_dirs:
+            files_count = stats.get('files', 0)
+            dirs_count = stats.get('directories', 0)
+            console.print(f"  • [cyan]{dir_path}[/cyan] [dim]({files_count} files, {dirs_count} directories)[/dim]")
+
+    if errors and verbose:
+        console.print(f"\n⚠️  [yellow]Errors ({len(errors)}):[/yellow]")
+        for error in errors:
+            console.print(f"  • [dim]{error}[/dim]")
+
+    if not added_files and not added_dirs:
+        console.print("⚠️  [yellow]No content was added to context.[/yellow]")
+
+    console.print()
+    return True
 
 
 def handle_context_show(console, chat_manager, session_manager):
