@@ -35,7 +35,7 @@ def custom_prompt_with_lines(console, history=None, completer=None):
 
     # Create a buffer for the input
     buffer = Buffer(
-        multiline=False,
+        multiline=True,  # Enable multi-line input
         history=history,
         completer=completer,
         complete_while_typing=True,
@@ -52,10 +52,12 @@ def custom_prompt_with_lines(console, history=None, completer=None):
             focusable=True,
             focus_on_click=True
         ),
-        get_line_prefix=lambda line_number, wrap_count: FormattedText([('ansigreen bold', '▶ ')]),
-        height=1
+        get_line_prefix=lambda line_number, wrap_count: FormattedText([('ansigreen bold', '▶ ' if line_number == 0 else '  ')]),
+        wrap_lines=True  # Wrap long lines
     )
 
+    # For single-line input, just show the bottom line
+    # For multi-line, we'll handle it with a simpler approach
     root_container = HSplit([
         # Top horizontal line
         Window(
@@ -64,7 +66,7 @@ def custom_prompt_with_lines(console, history=None, completer=None):
         ),
         # Input area with green arrow prompt
         input_window,
-        # Bottom horizontal line
+        # Bottom line - keep it simple and always one line
         Window(
             content=FormattedTextControl(text=line),
             height=1
@@ -88,7 +90,17 @@ def custom_prompt_with_lines(console, history=None, completer=None):
 
     @kb.add('enter')
     def _(event):
-        # Accept the current input (triggers accept_handler)
+        # Enter adds a new line in multi-line mode
+        event.current_buffer.insert_text('\n')
+
+    @kb.add('escape', 'enter')  # Alt+Enter submits
+    def _(event):
+        # Alt+Enter accepts the current input (triggers accept_handler)
+        event.current_buffer.validate_and_handle()
+
+    @kb.add('c-j')  # Ctrl+J also submits (alternative)
+    def _(event):
+        # Ctrl+J accepts the current input (triggers accept_handler)
         event.current_buffer.validate_and_handle()
 
     @kb.add('c-c')
@@ -99,8 +111,14 @@ def custom_prompt_with_lines(console, history=None, completer=None):
     @kb.add('c-d')
     def _(event):
         # Ctrl+D returns special marker for exit intent
-        result_text['value'] = '__CTRL_D__'
-        event.app.exit()
+        # Only exit if buffer is empty, otherwise delete character
+        if event.current_buffer.text:
+            # If there's text, Ctrl+D deletes the character after cursor
+            event.current_buffer.delete()
+        else:
+            # If buffer is empty, Ctrl+D exits
+            result_text['value'] = '__CTRL_D__'
+            event.app.exit()
 
     # Create the application
     app = Application(

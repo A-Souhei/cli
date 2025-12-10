@@ -14,7 +14,9 @@ from src.cli.commands.session import (
 )
 from src.cli.commands.context import (
     handle_context_show, handle_context_clear, handle_context_add,
-    handle_context_metrics, handle_context_add_all_tools
+    handle_context_metrics, handle_context_add_all_tools,
+    handle_context_generate_todo_list, handle_context_load_todo_list,
+    handle_context_save_todo_list
 )
 from src.cli.commands.mcp import handle_mcps, handle_mcp_tools
 from src.cli.commands.model import (
@@ -181,12 +183,41 @@ class CommandDispatcher:
         if user_input_normalized.lower() == 'context metrics':
             return handle_context_metrics(self.console, self.chat_manager, self.session_manager)
 
+        # Handle /context load TODO_LIST
+        if user_input_normalized.lower() == 'context load todo_list':
+            return handle_context_load_todo_list(
+                self.console, self.session_manager, self.get_user_working_dir,
+                self.debug_print, verbose=self.verbose
+            )
+
+        # Handle /context save TODO_LIST
+        if user_input_normalized.lower() == 'context save todo_list':
+            return handle_context_save_todo_list(
+                self.console, self.session_manager, self.get_user_working_dir,
+                self.debug_print, verbose=self.verbose
+            )
+
         if user_input_normalized.lower().startswith('context add '):
             # Check for special keywords
             if 'ALL_TOOLS' in user_input_normalized.upper():
                 return handle_context_add_all_tools(
                     self.console, self.session_manager, self.mcp_client,
                     self.run_async, self.debug_print, verbose=self.verbose
+                )
+            elif 'TODO_LIST' in user_input_normalized.upper():
+                # Extract the user request (everything after TODO_LIST)
+                parts = user_input_normalized.split('TODO_LIST', 1)
+                user_request = parts[1].strip() if len(parts) > 1 else ""
+
+                if not user_request:
+                    self.console.print("\n⚠️  [yellow]Please provide a description for TODO_LIST generation[/yellow]")
+                    self.console.print("[dim]Usage: /context add TODO_LIST <description of task>[/dim]\n")
+                    return True
+
+                return handle_context_generate_todo_list(
+                    self.console, self.session_manager, self.mcp_client,
+                    self.ollama_client, self.config, self.run_async,
+                    self.debug_print, user_request, verbose=self.verbose
                 )
             else:
                 return handle_context_add(

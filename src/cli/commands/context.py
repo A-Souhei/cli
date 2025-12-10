@@ -414,6 +414,7 @@ def handle_context_metrics(console, chat_manager, session_manager):
                         dir_count = 0
                         tree_count = 0
                         tool_count = 0
+                        todo_list_count = 0
 
                         for ctx in contexts:
                             context_type = ctx.get('context_type', 'unknown')
@@ -435,12 +436,16 @@ def handle_context_metrics(console, chat_manager, session_manager):
                                 tree_count += 1
                             elif context_type == 'tools':
                                 tool_count += 1
+                            elif context_type == 'todo_list':
+                                todo_list_count += 1
 
                         console.print(f"  • Files: [cyan]{file_count}[/cyan]")
                         console.print(f"  • Directories: [cyan]{dir_count}[/cyan]")
                         console.print(f"  • Trees: [cyan]{tree_count}[/cyan]")
                         if tool_count > 0:
                             console.print(f"  • Tool Collections: [cyan]{tool_count}[/cyan]")
+                        if todo_list_count > 0:
+                            console.print(f"  • TODO Lists: [cyan]{todo_list_count}[/cyan]")
                         console.print(f"  • Total Content Size: [cyan]{total_content_size:,}[/cyan] bytes ([cyan]{total_content_size / 1024:.2f}[/cyan] KB)")
                         console.print(f"  • Est. Tokens: [cyan]{total_content_size // 4:,}[/cyan] (approximate)")
         except Exception:
@@ -462,6 +467,335 @@ def handle_context_metrics(console, chat_manager, session_manager):
     console.print(f"  • Est. Tokens: [cyan]{total_size // 4:,}[/cyan] (approximate)")
 
     console.print()
+    return True
+
+
+def handle_context_load_todo_list(console, session_manager, get_user_working_dir, debug_print, verbose=False):
+    """
+    Handle loading TODO_LIST from .todo_list file.
+
+    Reads the .todo_list file from working directory and adds it to context.
+    """
+    console.print("\n📂 [cyan]Loading TODO_LIST from file...[/cyan]")
+
+    working_dir = get_user_working_dir()
+    todo_file_path = os.path.join(working_dir, '.todo_list')
+
+    # Check if file exists
+    if not os.path.exists(todo_file_path):
+        console.print(f"\n⚠️  [yellow]File not found: {todo_file_path}[/yellow]")
+        console.print("[dim]Create a TODO_LIST first or generate one with:[/dim]")
+        console.print("[dim]/context add TODO_LIST <description>[/dim]\n")
+        return True
+
+    try:
+        # Read the file
+        with open(todo_file_path, 'r', encoding='utf-8') as f:
+            todo_content = f.read()
+
+        if not todo_content.strip():
+            console.print(f"\n⚠️  [yellow]File is empty: {todo_file_path}[/yellow]\n")
+            return True
+
+        # Get session ID
+        session_id = session_manager.get_session_id() if session_manager.is_active() else None
+
+        if not session_id:
+            console.print("\n⚠️  [yellow]No active session - TODO_LIST will be added to temporary context[/yellow]")
+        elif verbose:
+            debug_print(f"Loading TODO_LIST to session: {session_id[:16]}...", icon="📂", style="cyan")
+
+        # Store in context
+        redis_api_url = os.getenv('REDIS_API_URL', 'http://localhost:17000')
+
+        payload = {
+            'context_type': 'todo_list',
+            'path': 'TODO_LIST',
+            'content': todo_content,
+            'metadata': {
+                'size': len(todo_content),
+                'loaded_from_file': True,
+                'file_path': todo_file_path
+            }
+        }
+
+        if session_id:
+            payload['session_id'] = session_id
+
+        with httpx.Client() as client:
+            response = client.post(
+                f"{redis_api_url}/context/store",
+                json=payload,
+                timeout=30
+            )
+
+            if response.status_code in [200, 201]:
+                result = response.json()
+                if result.get('status') == 'success':
+                    console.print(f"\n✓ [green]TODO_LIST loaded from file successfully![/green]")
+                    console.print(f"[dim]File: {todo_file_path}[/dim]")
+                    console.print(f"\n💡 [dim]You can now reference 'TODO_LIST' in your prompts[/dim]\n")
+                else:
+                    console.print(f"\n⚠️  [yellow]Failed to store TODO_LIST: {result.get('message')}[/yellow]\n")
+            else:
+                console.print(f"\n⚠️  [yellow]Failed to store TODO_LIST: HTTP {response.status_code}[/yellow]\n")
+
+    except Exception as e:
+        console.print(f"\n⚠️  [yellow]Error loading TODO_LIST: {str(e)}[/yellow]\n")
+        if verbose:
+            debug_print(f"Exception details: {e}", icon="❌", style="red")
+
+    return True
+
+
+def handle_context_save_todo_list(console, session_manager, get_user_working_dir, debug_print, verbose=False):
+    """
+    Handle saving TODO_LIST to .todo_list file.
+
+    Retrieves the TODO_LIST from context and saves it to .todo_list file in working directory.
+    """
+    console.print("\n💾 [cyan]Saving TODO_LIST to file...[/cyan]")
+
+    # Get session ID
+    session_id = session_manager.get_session_id() if session_manager.is_active() else None
+
+    if not session_id:
+        console.print("\n⚠️  [yellow]No active session - cannot save TODO_LIST[/yellow]\n")
+        return True
+
+    try:
+        redis_api_url = os.getenv('REDIS_API_URL', 'http://localhost:17000')
+
+        # Retrieve TODO_LIST from context
+        with httpx.Client() as client:
+            response = client.get(
+                f"{redis_api_url}/context/get",
+                params={"session_id": session_id, "path": "TODO_LIST"},
+                timeout=5
+            )
+
+            if response.status_code != 200:
+                console.print("\n⚠️  [yellow]TODO_LIST not found in context[/yellow]")
+                console.print("[dim]Generate a TODO_LIST first with:[/dim]")
+                console.print("[dim]/context add TODO_LIST <description>[/dim]\n")
+                return True
+
+            data = response.json()
+            context_data = data.get('context', {})
+            todo_content = context_data.get('content', '')
+
+            if not todo_content:
+                console.print("\n⚠️  [yellow]TODO_LIST is empty[/yellow]\n")
+                return True
+
+        # Save to file
+        working_dir = get_user_working_dir()
+        todo_file_path = os.path.join(working_dir, '.todo_list')
+
+        if verbose:
+            debug_print(f"Saving to: {todo_file_path}", icon="💾", style="cyan")
+
+        with open(todo_file_path, 'w', encoding='utf-8') as f:
+            f.write(todo_content)
+
+        console.print(f"\n✓ [green]TODO_LIST saved successfully![/green]")
+        console.print(f"[dim]File: {todo_file_path}[/dim]")
+        console.print(f"[dim]Size: {len(todo_content)} bytes[/dim]\n")
+
+    except Exception as e:
+        console.print(f"\n⚠️  [yellow]Error saving TODO_LIST: {str(e)}[/yellow]\n")
+        if verbose:
+            debug_print(f"Exception details: {e}", icon="❌", style="red")
+
+    return True
+
+
+def handle_context_generate_todo_list(console, session_manager, mcp_client, ollama_client,
+                                      config, run_async, debug_print, user_request, verbose=False):
+    """
+    Handle TODO_LIST generation.
+
+    Generates a strategic TODO list by:
+    1. Ensuring ALL_TOOLS is loaded in context
+    2. Using LLM to analyze the request and match with available tools
+    3. Creating a structured plan with tool references
+    4. Storing in context as TODO_LIST keyword
+    """
+    console.print("\n📋 [cyan]Generating TODO_LIST...[/cyan]")
+
+    # Get session ID
+    session_id = session_manager.get_session_id() if session_manager.is_active() else None
+
+    if not session_id:
+        console.print("\n⚠️  [yellow]No active session - TODO_LIST will be added to temporary context[/yellow]")
+    elif verbose:
+        debug_print(f"Generating TODO_LIST for session: {session_id[:16]}...", icon="🔍", style="cyan")
+
+    try:
+        redis_api_url = os.getenv('REDIS_API_URL', 'http://localhost:17000')
+
+        # Step 1: Check if ALL_TOOLS is already loaded
+        all_tools_loaded = False
+        if session_id:
+            with httpx.Client() as client:
+                response = client.get(
+                    f"{redis_api_url}/context/list",
+                    params={"session_id": session_id},
+                    timeout=5
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    contexts = data.get('contexts', [])
+                    all_tools_loaded = any(
+                        ctx.get('path') == 'ALL_TOOLS' and ctx.get('context_type') == 'tools'
+                        for ctx in contexts
+                    )
+
+        # Step 2: Load ALL_TOOLS if not present
+        if not all_tools_loaded:
+            if verbose:
+                debug_print("ALL_TOOLS not found, loading...", icon="🔧", style="yellow")
+            console.print("  [dim]Loading ALL_TOOLS first...[/dim]")
+
+            # Call the ALL_TOOLS handler
+            result = handle_context_add_all_tools(
+                console, session_manager, mcp_client, run_async,
+                debug_print, verbose=verbose
+            )
+            if not result:
+                console.print("\n⚠️  [yellow]Failed to load ALL_TOOLS, cannot generate TODO_LIST[/yellow]\n")
+                return True
+
+        # Step 3: Get ALL_TOOLS content for LLM context
+        all_tools_content = ""
+        if session_id:
+            with httpx.Client() as client:
+                response = client.get(
+                    f"{redis_api_url}/context/get",
+                    params={"session_id": session_id, "path": "ALL_TOOLS"},
+                    timeout=5
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    context_data = data.get('context', {})
+                    all_tools_content = context_data.get('content', '')
+
+        if not all_tools_content:
+            console.print("\n⚠️  [yellow]Could not retrieve ALL_TOOLS content[/yellow]\n")
+            return True
+
+        # Step 4: Generate TODO_LIST using LLM
+        if verbose:
+            debug_print("Calling LLM to generate TODO_LIST...", icon="🤖", style="cyan")
+
+        console.print("  [dim]Analyzing request and matching with available tools...[/dim]")
+
+        # Create prompt for LLM
+        system_prompt = """You are a strategic planning assistant. Your task is to create a detailed TODO list for code-related tasks.
+
+When creating the TODO list:
+1. Break down the user's request into logical, actionable steps
+2. For each step, identify which MCP tools from ALL_TOOLS can be used
+3. Consider both tool capabilities AND your own LLM capabilities (code generation, analysis, etc.)
+4. Create a comprehensive plan that leverages the best combination of tools and LLM reasoning
+5. Format as a markdown list with tool references in [brackets]
+
+Format:
+# TODO_LIST: [Brief Title]
+
+## Steps:
+1. [Step description] - [Tool: tool_name OR LLM: capability]
+2. [Step description] - [Tool: tool_name OR LLM: capability]
+...
+
+## Notes:
+- Any important considerations
+- Dependencies between steps
+- Expected outcomes"""
+
+        user_prompt = f"""Based on the following user request, create a strategic TODO list:
+
+USER REQUEST: {user_request}
+
+AVAILABLE TOOLS:
+{all_tools_content}
+
+Generate a comprehensive TODO list that matches each step with the appropriate tool or LLM capability."""
+
+        # Call LLM (supports both Ollama and Anthropic)
+        # The client already has the correct model configured
+        temperature = 0.3  # Lower temperature for more structured output
+
+        # Build messages for chat
+        messages = [
+            {'role': 'system', 'content': system_prompt},
+            {'role': 'user', 'content': user_prompt}
+        ]
+
+        # Call chat API (works for both OllamaClient and AnthropicClient)
+        # Don't pass model parameter - use the client's configured model
+        response = ollama_client.chat(
+            messages=messages,
+            stream=False,
+            temperature=temperature
+        )
+
+        if not response:
+            console.print("\n⚠️  [yellow]Failed to generate TODO_LIST from LLM[/yellow]\n")
+            return True
+
+        # Extract content from response
+        if isinstance(response, dict):
+            todo_list_content = response.get('message', {}).get('content', '')
+        else:
+            todo_list_content = str(response)
+
+        if not todo_list_content:
+            console.print("\n⚠️  [yellow]Empty response from LLM[/yellow]\n")
+            return True
+
+        # Step 5: Store TODO_LIST in context
+        if verbose:
+            debug_print("Storing TODO_LIST in context...", icon="💾", style="cyan")
+
+        payload = {
+            'context_type': 'todo_list',
+            'path': 'TODO_LIST',
+            'content': todo_list_content,
+            'metadata': {
+                'size': len(todo_list_content),
+                'user_request': user_request,
+                'generated_with_tools': True
+            }
+        }
+
+        if session_id:
+            payload['session_id'] = session_id
+
+        with httpx.Client() as client:
+            response = client.post(
+                f"{redis_api_url}/context/store",
+                json=payload,
+                timeout=30
+            )
+
+            if response.status_code in [200, 201]:
+                result = response.json()
+                if result.get('status') == 'success':
+                    console.print("\n✓ [green]TODO_LIST generated and stored successfully![/green]")
+                    console.print("\n[cyan]Generated TODO_LIST:[/cyan]")
+                    console.print(f"\n{todo_list_content}\n")
+                    console.print("💡 [dim]You can now reference 'TODO_LIST' in your prompts[/dim]\n")
+                else:
+                    console.print(f"\n⚠️  [yellow]Failed to store TODO_LIST: {result.get('message')}[/yellow]\n")
+            else:
+                console.print(f"\n⚠️  [yellow]Failed to store TODO_LIST: HTTP {response.status_code}[/yellow]\n")
+
+    except Exception as e:
+        console.print(f"\n⚠️  [yellow]Error generating TODO_LIST: {str(e)}[/yellow]\n")
+        if verbose:
+            debug_print(f"Exception details: {e}", icon="❌", style="red")
+
     return True
 
 
