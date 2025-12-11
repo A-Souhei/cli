@@ -16,7 +16,8 @@ from src.cli.commands.context import (
     handle_context_show, handle_context_clear, handle_context_add,
     handle_context_metrics, handle_context_add_all_tools,
     handle_context_generate_todo_list, handle_context_load_todo_list,
-    handle_context_save_todo_list
+    handle_context_save_todo_list, handle_context_generate_make_list,
+    handle_context_load_make_list, handle_context_save_make_list
 )
 from src.cli.commands.mcp import handle_mcps, handle_mcp_tools
 from src.cli.commands.model import (
@@ -183,18 +184,56 @@ class CommandDispatcher:
         if user_input_normalized.lower() == 'context metrics':
             return handle_context_metrics(self.console, self.chat_manager, self.session_manager)
 
-        # Handle /context load TODO_LIST
-        if user_input_normalized.lower() == 'context load todo_list':
+        # Handle /context load TODO_LIST [@file]
+        if user_input_normalized.lower().startswith('context load todo_list'):
+            # Extract optional file path
+            file_path = None
+            parts = user_input_normalized.split(None, 3)  # ['context', 'load', 'todo_list', '@file']
+            if len(parts) > 3:
+                file_path = parts[3].strip()
+
             return handle_context_load_todo_list(
                 self.console, self.session_manager, self.get_user_working_dir,
-                self.debug_print, verbose=self.verbose
+                self.debug_print, verbose=self.verbose, file_path=file_path
             )
 
-        # Handle /context save TODO_LIST
-        if user_input_normalized.lower() == 'context save todo_list':
+        # Handle /context save TODO_LIST [@file]
+        if user_input_normalized.lower().startswith('context save todo_list'):
+            # Extract optional file path
+            file_path = None
+            parts = user_input_normalized.split(None, 3)  # ['context', 'save', 'todo_list', '@file']
+            if len(parts) > 3:
+                file_path = parts[3].strip()
+
             return handle_context_save_todo_list(
                 self.console, self.session_manager, self.get_user_working_dir,
-                self.debug_print, verbose=self.verbose
+                self.debug_print, verbose=self.verbose, file_path=file_path
+            )
+
+        # Handle /context load MAKE_LIST [@file]
+        if user_input_normalized.lower().startswith('context load make_list'):
+            # Extract optional file path
+            file_path = None
+            parts = user_input_normalized.split(None, 3)  # ['context', 'load', 'make_list', '@file']
+            if len(parts) > 3:
+                file_path = parts[3].strip()
+
+            return handle_context_load_make_list(
+                self.console, self.session_manager, self.get_user_working_dir,
+                self.debug_print, verbose=self.verbose, file_path=file_path
+            )
+
+        # Handle /context save MAKE_LIST [@file]
+        if user_input_normalized.lower().startswith('context save make_list'):
+            # Extract optional file path
+            file_path = None
+            parts = user_input_normalized.split(None, 3)  # ['context', 'save', 'make_list', '@file']
+            if len(parts) > 3:
+                file_path = parts[3].strip()
+
+            return handle_context_save_make_list(
+                self.console, self.session_manager, self.get_user_working_dir,
+                self.debug_print, verbose=self.verbose, file_path=file_path
             )
 
         if user_input_normalized.lower().startswith('context add '):
@@ -219,6 +258,22 @@ class CommandDispatcher:
                     self.console, self.session_manager, self.mcp_client,
                     self.ollama_client, self.config, self.run_async,
                     self.debug_print, user_request, verbose=self.verbose
+                )
+            elif 'MAKE_LIST' in user_input_normalized.upper():
+                # Extract the user request (everything after MAKE_LIST)
+                # Find the position case-insensitively
+                idx = user_input_normalized.upper().find('MAKE_LIST')
+                user_request = user_input_normalized[idx + len('MAKE_LIST'):].strip() if idx != -1 else ""
+
+                if not user_request:
+                    self.console.print("\n⚠️  [yellow]Please provide a description for MAKE_LIST generation[/yellow]")
+                    self.console.print("[dim]Usage: /context add MAKE_LIST <description of task>[/dim]\n")
+                    return True
+
+                return handle_context_generate_make_list(
+                    self.console, self.session_manager, self.ollama_client,
+                    self.config, self.run_async, self.debug_print, user_request,
+                    self.get_user_working_dir, verbose=self.verbose
                 )
             else:
                 return handle_context_add(

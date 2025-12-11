@@ -4,6 +4,33 @@ import json
 import httpx
 from src.file_completer import extract_at_context
 from src.utils.llmignore import filter_at_context
+from src.utils.makemap import find_makefile, parse_makefile, generate_makemap_prompt
+
+
+def resolve_file_path(file_path: str, working_dir: str, default_filename: str) -> str:
+    """
+    Resolve a file path with @ prefix handling and absolute/relative path support.
+
+    Args:
+        file_path: Optional custom file path (may have @ prefix)
+        working_dir: Working directory for relative paths
+        default_filename: Default filename if file_path is None
+
+    Returns:
+        Resolved absolute file path
+    """
+    if file_path:
+        # Remove @ prefix if present
+        if file_path.startswith('@'):
+            file_path = file_path[1:]
+
+        # Handle both absolute and relative paths
+        if os.path.isabs(file_path):
+            return file_path
+        else:
+            return os.path.join(working_dir, file_path)
+    else:
+        return os.path.join(working_dir, default_filename)
 
 
 def display_ignored_items(console, ignored_items: list, item_type: str, max_display: int = 5) -> None:
@@ -472,16 +499,19 @@ def handle_context_metrics(console, chat_manager, session_manager):
     return True
 
 
-def handle_context_load_todo_list(console, session_manager, get_user_working_dir, debug_print, verbose=False):
+def handle_context_load_todo_list(console, session_manager, get_user_working_dir, debug_print, verbose=False, file_path=None):
     """
-    Handle loading TODO_LIST from .todo_list file.
+    Handle loading TODO_LIST from file.
 
-    Reads the .todo_list file from working directory and adds it to context.
+    Args:
+        file_path: Optional custom file path. If None, defaults to '.todo_list' in working directory.
+
+    Reads the TODO_LIST file and adds it to context.
     """
     console.print("\n📂 [cyan]Loading TODO_LIST from file...[/cyan]")
 
     working_dir = get_user_working_dir()
-    todo_file_path = os.path.join(working_dir, '.todo_list')
+    todo_file_path = resolve_file_path(file_path, working_dir, '.todo_list')
 
     # Check if file exists
     if not os.path.exists(todo_file_path):
@@ -550,11 +580,14 @@ def handle_context_load_todo_list(console, session_manager, get_user_working_dir
     return True
 
 
-def handle_context_save_todo_list(console, session_manager, get_user_working_dir, debug_print, verbose=False):
+def handle_context_save_todo_list(console, session_manager, get_user_working_dir, debug_print, verbose=False, file_path=None):
     """
-    Handle saving TODO_LIST to .todo_list file.
+    Handle saving TODO_LIST to file.
 
-    Retrieves the TODO_LIST from context and saves it to .todo_list file in working directory.
+    Args:
+        file_path: Optional custom file path. If None, defaults to '.todo_list' in working directory.
+
+    Retrieves the TODO_LIST from context and saves it to the specified file.
     """
     console.print("\n💾 [cyan]Saving TODO_LIST to file...[/cyan]")
 
@@ -590,12 +623,15 @@ def handle_context_save_todo_list(console, session_manager, get_user_working_dir
                 console.print("\n⚠️  [yellow]TODO_LIST is empty[/yellow]\n")
                 return True
 
-        # Save to file
+        # Determine save path
         working_dir = get_user_working_dir()
-        todo_file_path = os.path.join(working_dir, '.todo_list')
+        todo_file_path = resolve_file_path(file_path, working_dir, '.todo_list')
 
         if verbose:
             debug_print(f"Saving to: {todo_file_path}", icon="💾", style="cyan")
+
+        # Create parent directories if they don't exist
+        os.makedirs(os.path.dirname(todo_file_path), exist_ok=True)
 
         with open(todo_file_path, 'w', encoding='utf-8') as f:
             f.write(todo_content)
@@ -910,6 +946,381 @@ def handle_context_add_all_tools(console, session_manager, mcp_client, run_async
 
     except Exception as e:
         console.print(f"\n⚠️  [yellow]Error adding tools to context: {str(e)}[/yellow]\n")
+        if verbose:
+            debug_print(f"Exception details: {e}", icon="❌", style="red")
+
+    return True
+
+
+def handle_context_load_make_list(console, session_manager, get_user_working_dir, debug_print, verbose=False, file_path=None):
+    """
+    Handle loading MAKE_LIST from file.
+
+    Args:
+        file_path: Optional custom file path. If None, defaults to '.make_list' in working directory.
+
+    Reads the MAKE_LIST file and adds it to context.
+    """
+    console.print("\n📂 [cyan]Loading MAKE_LIST from file...[/cyan]")
+
+    working_dir = get_user_working_dir()
+    make_file_path = resolve_file_path(file_path, working_dir, '.make_list')
+
+    # Check if file exists
+    if not os.path.exists(make_file_path):
+        console.print(f"\n⚠️  [yellow]File not found: {make_file_path}[/yellow]")
+        console.print("[dim]Create a MAKE_LIST first or generate one with:[/dim]")
+        console.print("[dim]/context add MAKE_LIST <description>[/dim]\n")
+        return True
+
+    try:
+        # Read the file
+        with open(make_file_path, 'r', encoding='utf-8') as f:
+            make_content = f.read()
+
+        if not make_content.strip():
+            console.print(f"\n⚠️  [yellow]File is empty: {make_file_path}[/yellow]\n")
+            return True
+
+        # Get session ID
+        session_id = session_manager.get_session_id() if session_manager.is_active() else None
+
+        if not session_id:
+            console.print("\n⚠️  [yellow]No active session - MAKE_LIST will be added to temporary context[/yellow]")
+        elif verbose:
+            debug_print(f"Loading MAKE_LIST to session: {session_id[:16]}...", icon="📂", style="cyan")
+
+        # Store in context
+        redis_api_url = os.getenv('REDIS_API_URL', 'http://localhost:17000')
+
+        payload = {
+            'context_type': 'make_list',
+            'path': 'MAKE_LIST',
+            'content': make_content,
+            'metadata': {
+                'size': len(make_content),
+                'loaded_from_file': True,
+                'file_path': make_file_path
+            }
+        }
+
+        if session_id:
+            payload['session_id'] = session_id
+
+        with httpx.Client() as client:
+            response = client.post(
+                f"{redis_api_url}/context/store",
+                json=payload,
+                timeout=30
+            )
+
+            if response.status_code in [200, 201]:
+                result = response.json()
+                if result.get('status') == 'success':
+                    console.print(f"\n✓ [green]MAKE_LIST loaded from file successfully![/green]")
+                    console.print(f"[dim]File: {make_file_path}[/dim]")
+                    console.print(f"\n💡 [dim]You can now reference 'MAKE_LIST' in your prompts[/dim]\n")
+                else:
+                    console.print(f"\n⚠️  [yellow]Failed to store MAKE_LIST: {result.get('message')}[/yellow]\n")
+            else:
+                console.print(f"\n⚠️  [yellow]Failed to store MAKE_LIST: HTTP {response.status_code}[/yellow]\n")
+
+    except Exception as e:
+        console.print(f"\n⚠️  [yellow]Error loading MAKE_LIST: {str(e)}[/yellow]\n")
+        if verbose:
+            debug_print(f"Exception details: {e}", icon="❌", style="red")
+
+    return True
+
+
+def handle_context_save_make_list(console, session_manager, get_user_working_dir, debug_print, verbose=False, file_path=None):
+    """
+    Handle saving MAKE_LIST to file.
+
+    Args:
+        file_path: Optional custom file path. If None, defaults to '.make_list' in working directory.
+
+    Retrieves the MAKE_LIST from context and saves it to the specified file.
+    """
+    console.print("\n💾 [cyan]Saving MAKE_LIST to file...[/cyan]")
+
+    # Get session ID
+    session_id = session_manager.get_session_id() if session_manager.is_active() else None
+
+    if not session_id:
+        console.print("\n⚠️  [yellow]No active session - cannot save MAKE_LIST[/yellow]\n")
+        return True
+
+    try:
+        redis_api_url = os.getenv('REDIS_API_URL', 'http://localhost:17000')
+
+        # Retrieve MAKE_LIST from context
+        with httpx.Client() as client:
+            response = client.get(
+                f"{redis_api_url}/context/get",
+                params={"session_id": session_id, "path": "MAKE_LIST"},
+                timeout=5
+            )
+
+            if response.status_code != 200:
+                console.print("\n⚠️  [yellow]MAKE_LIST not found in context[/yellow]")
+                console.print("[dim]Generate a MAKE_LIST first with:[/dim]")
+                console.print("[dim]/context add MAKE_LIST <description>[/dim]\n")
+                return True
+
+            data = response.json()
+            context_data = data.get('context', {})
+            make_content = context_data.get('content', '')
+
+            if not make_content:
+                console.print("\n⚠️  [yellow]MAKE_LIST is empty[/yellow]\n")
+                return True
+
+        # Determine save path
+        working_dir = get_user_working_dir()
+        make_file_path = resolve_file_path(file_path, working_dir, '.make_list')
+
+        if verbose:
+            debug_print(f"Saving to: {make_file_path}", icon="💾", style="cyan")
+
+        # Create parent directories if they don't exist
+        os.makedirs(os.path.dirname(make_file_path), exist_ok=True)
+
+        with open(make_file_path, 'w', encoding='utf-8') as f:
+            f.write(make_content)
+
+        console.print(f"\n✓ [green]MAKE_LIST saved successfully![/green]")
+        console.print(f"[dim]File: {make_file_path}[/dim]")
+        console.print(f"[dim]Size: {len(make_content)} bytes[/dim]\n")
+
+    except Exception as e:
+        console.print(f"\n⚠️  [yellow]Error saving MAKE_LIST: {str(e)}[/yellow]\n")
+        if verbose:
+            debug_print(f"Exception details: {e}", icon="❌", style="red")
+
+    return True
+
+
+def handle_context_generate_make_list(console, session_manager, ollama_client,
+                                       config, run_async, debug_print, user_request,
+                                       get_user_working_dir, verbose=False):
+    """
+    Handle MAKE_LIST generation.
+
+    Generates a strategic MAKE_LIST by:
+    1. Checking if Makefile exists
+    2. Checking if .makemap exists, generating it if needed
+    3. Using LLM to analyze the request and match with available make targets
+    4. Creating a structured plan with make command references
+    5. Storing in context as MAKE_LIST keyword
+    """
+    console.print("\n📋 [cyan]Generating MAKE_LIST...[/cyan]")
+
+    # Get session ID
+    session_id = session_manager.get_session_id() if session_manager.is_active() else None
+
+    if not session_id:
+        console.print("\n⚠️  [yellow]No active session - MAKE_LIST will be added to temporary context[/yellow]")
+    elif verbose:
+        debug_print(f"Generating MAKE_LIST for session: {session_id[:16]}...", icon="🔍", style="cyan")
+
+    try:
+        working_dir = get_user_working_dir()
+
+        # Step 1: Check if Makefile exists
+        makefile_path = find_makefile(working_dir)
+        if not makefile_path:
+            console.print(f"\n⚠️  [yellow]No Makefile found in: {working_dir}[/yellow]")
+            console.print("[dim]This command requires a Makefile to exist in the working directory.[/dim]\n")
+            return True
+
+        # Step 2: Check if .makemap exists
+        makemap_path = os.path.join(working_dir, '.makemap')
+        makemap_content = ""
+
+        if not os.path.exists(makemap_path):
+            # Generate .makemap
+            if verbose:
+                debug_print("No .makemap found, generating...", icon="🔧", style="yellow")
+            console.print("  [dim]Generating .makemap from Makefile...[/dim]")
+
+            # Parse the Makefile
+            parsed = parse_makefile(str(makefile_path))
+
+            if 'error' in parsed:
+                console.print(f"\n⚠️  [yellow]Error parsing Makefile: {parsed['error']}[/yellow]\n")
+                return True
+
+            targets = parsed.get('targets', [])
+
+            if not targets:
+                console.print("\n⚠️  [yellow]No targets found in Makefile[/yellow]\n")
+                return True
+
+            # Generate makemap using LLM
+            makemap_prompt = generate_makemap_prompt(parsed)
+
+            # Create a temporary chat manager for makemap generation
+            from src.chat import ChatManager
+            makemap_chat = ChatManager(system_prompt="", max_context_length=10)
+            makemap_chat.add_user_message(makemap_prompt)
+            messages = makemap_chat.get_messages()
+
+            # Call LLM to generate makemap
+            response = ollama_client.chat(
+                messages=messages,
+                stream=False,
+                temperature=0.3
+            )
+
+            if not response:
+                console.print("\n⚠️  [yellow]Failed to generate .makemap from LLM[/yellow]\n")
+                return True
+
+            # Extract makemap content
+            if isinstance(response, dict):
+                makemap_content = response.get('message', {}).get('content', '')
+            else:
+                makemap_content = str(response)
+
+            if not makemap_content:
+                console.print("\n⚠️  [yellow]Empty .makemap generated[/yellow]\n")
+                return True
+
+            # Save .makemap to file
+            try:
+                with open(makemap_path, 'w', encoding='utf-8') as f:
+                    f.write(makemap_content)
+                console.print(f"  [dim]✓ Generated .makemap ({len(makemap_content)} bytes)[/dim]")
+            except Exception as write_error:
+                console.print(f"\n⚠️  [yellow]Failed to save .makemap: {write_error}[/yellow]\n")
+                # Continue with in-memory makemap_content
+        else:
+            # Load existing .makemap
+            if verbose:
+                debug_print("Loading existing .makemap...", icon="📂", style="cyan")
+            try:
+                with open(makemap_path, 'r', encoding='utf-8') as f:
+                    makemap_content = f.read()
+                console.print(f"  [dim]Loaded existing .makemap ({len(makemap_content)} bytes)[/dim]")
+            except Exception as read_error:
+                console.print(f"\n⚠️  [yellow]Failed to read .makemap: {read_error}[/yellow]\n")
+                return True
+
+        if not makemap_content:
+            console.print("\n⚠️  [yellow]Could not load .makemap content[/yellow]\n")
+            return True
+
+        # Step 3: Generate MAKE_LIST using LLM
+        if verbose:
+            debug_print("Calling LLM to generate MAKE_LIST...", icon="🤖", style="cyan")
+
+        console.print("  [dim]Analyzing request and matching with available make targets...[/dim]")
+
+        # Create prompt for LLM
+        system_prompt = """You are a strategic planning assistant for Makefile-based projects. Your task is to create a detailed MAKE_LIST for build and development tasks.
+
+When creating the MAKE_LIST:
+1. Break down the user's request into logical, actionable steps
+2. For each step, identify which make targets from the makemap can be used
+3. Consider dependencies between make targets
+4. Create a comprehensive plan that leverages the available make commands
+5. Format as a markdown list with make command references
+
+Format:
+# MAKE_LIST: [Brief Title]
+
+## Steps:
+1. [Step description] - [Make: make target]
+2. [Step description] - [Make: make target]
+...
+
+## Notes:
+- Any important considerations
+- Dependencies between steps
+- Expected outcomes"""
+
+        user_prompt = f"""Based on the following user request, create a strategic MAKE_LIST:
+
+USER REQUEST: {user_request}
+
+AVAILABLE MAKE TARGETS:
+{makemap_content}
+
+Generate a comprehensive MAKE_LIST that matches each step with the appropriate make target."""
+
+        # Call LLM (supports both Ollama and Anthropic)
+        temperature = 0.3  # Lower temperature for more structured output
+
+        # Build messages for chat
+        messages = [
+            {'role': 'system', 'content': system_prompt},
+            {'role': 'user', 'content': user_prompt}
+        ]
+
+        # Call chat API
+        response = ollama_client.chat(
+            messages=messages,
+            stream=False,
+            temperature=temperature
+        )
+
+        if not response:
+            console.print("\n⚠️  [yellow]Failed to generate MAKE_LIST from LLM[/yellow]\n")
+            return True
+
+        # Extract content from response
+        if isinstance(response, dict):
+            make_list_content = response.get('message', {}).get('content', '')
+        else:
+            make_list_content = str(response)
+
+        if not make_list_content:
+            console.print("\n⚠️  [yellow]Empty response from LLM[/yellow]\n")
+            return True
+
+        # Step 4: Store MAKE_LIST in context
+        if verbose:
+            debug_print("Storing MAKE_LIST in context...", icon="💾", style="cyan")
+
+        redis_api_url = os.getenv('REDIS_API_URL', 'http://localhost:17000')
+
+        payload = {
+            'context_type': 'make_list',
+            'path': 'MAKE_LIST',
+            'content': make_list_content,
+            'metadata': {
+                'size': len(make_list_content),
+                'user_request': user_request,
+                'generated_with_makemap': True,
+                'makefile_path': str(makefile_path)
+            }
+        }
+
+        if session_id:
+            payload['session_id'] = session_id
+
+        with httpx.Client() as client:
+            response = client.post(
+                f"{redis_api_url}/context/store",
+                json=payload,
+                timeout=30
+            )
+
+            if response.status_code in [200, 201]:
+                result = response.json()
+                if result.get('status') == 'success':
+                    console.print("\n✓ [green]MAKE_LIST generated and stored successfully![/green]")
+                    console.print("\n[cyan]Generated MAKE_LIST:[/cyan]")
+                    console.print(f"\n{make_list_content}\n")
+                    console.print("💡 [dim]You can now reference 'MAKE_LIST' in your prompts[/dim]\n")
+                else:
+                    console.print(f"\n⚠️  [yellow]Failed to store MAKE_LIST: {result.get('message')}[/yellow]\n")
+            else:
+                console.print(f"\n⚠️  [yellow]Failed to store MAKE_LIST: HTTP {response.status_code}[/yellow]\n")
+
+    except Exception as e:
+        console.print(f"\n⚠️  [yellow]Error generating MAKE_LIST: {str(e)}[/yellow]\n")
         if verbose:
             debug_print(f"Exception details: {e}", icon="❌", style="red")
 
