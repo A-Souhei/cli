@@ -272,6 +272,9 @@ src/
 - `/context add TODO_LIST <description>` - Generate strategic TODO list with tool references
 - `/context load TODO_LIST [@path]` - Load TODO_LIST from file (default: .todo_list)
 - `/context save TODO_LIST [@path]` - Save TODO_LIST to file (default: .todo_list)
+- `/context add MAKE_LIST <description>` - Generate strategic MAKE_LIST with makemap targets
+- `/context load MAKE_LIST [@path]` - Load MAKE_LIST from file (default: .make_list)
+- `/context save MAKE_LIST [@path]` - Save MAKE_LIST to file (default: .make_list)
 - `/context show` - Display current context (chat, session, metadata)
 - `/context metrics` - Show context size and usage metrics
 - `/context clear` - Clear context (keeps session active)
@@ -288,6 +291,11 @@ src/
 /context save TODO_LIST @my_todos.md   # Save to custom file
 /context load TODO_LIST                # Load from .todo_list file (default)
 /context load TODO_LIST @my_todos.md   # Load from custom file
+/context add MAKE_LIST set up development environment and run tests
+/context save MAKE_LIST                # Save to .make_list file (default)
+/context save MAKE_LIST @deploy.md     # Save to custom file
+/context load MAKE_LIST                # Load from .make_list file (default)
+/context load MAKE_LIST @deploy.md     # Load from custom file
 /context show                          # View what's in context
 /context metrics                       # View context size and metrics
 ```
@@ -336,6 +344,48 @@ src/
    - `TODO_LIST`: Intelligently matches steps with available tools, considers dependencies, and creates a comprehensive strategic plan that leverages both MCP tools and LLM capabilities
 
    After generation, reference "TODO_LIST" in your prompts to access the plan.
+
+3. **MAKE_LIST**: A strategic planning feature for Makefile-based projects that generates a comprehensive action plan by:
+   - Checking if Makefile exists in working directory
+   - Automatically loading or generating .makemap if not present
+   - Using the LLM to analyze your request
+   - Matching steps with appropriate make targets from Makefile
+   - Considering dependencies between make targets
+   - Creating a structured plan with make command references
+   - Storing the plan in context for future reference
+
+   **Generation**:
+   ```bash
+   /context add MAKE_LIST set up development environment and run tests
+   ```
+
+   **Persistence** (save/load MAKE_LIST files):
+   ```bash
+   # Using default .make_list file:
+   /context save MAKE_LIST          # Save to .make_list
+   /context load MAKE_LIST          # Load from .make_list
+
+   # Using custom file paths:
+   /context save MAKE_LIST @make/deploy.md     # Save deployment plan
+   /context load MAKE_LIST @make/deploy.md     # Load deployment plan
+   /context save MAKE_LIST @dev_setup.md       # Different plan for setup
+   /context load MAKE_LIST @testing.md         # Different plan for testing
+   ```
+
+   **Benefits**:
+   - Leverages existing Makefile targets for project-specific tasks
+   - Auto-generates .makemap if missing (requires LLM)
+   - Manage multiple MAKE_LISTs for different workflows (dev, deploy, test)
+   - Share plans with team members
+   - Version control with git
+   - Edit manually in your preferred editor
+   - Gracefully fails if no Makefile exists
+
+   **Difference from /make commands**:
+   - `/make <prompt>`: Directly matches and executes make commands from .makemap
+   - `MAKE_LIST`: Creates a strategic multi-step plan with make targets, considers dependencies, but doesn't execute
+
+   After generation, reference "MAKE_LIST" in your prompts to access the plan.
 
 **Notes**:
 - Unlike using `@file` in a regular prompt (which triggers the LLM), `/context add` only loads the file/directory into context for later use. This allows you to build up context incrementally without wasting tokens on unnecessary LLM responses.
