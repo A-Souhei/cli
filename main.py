@@ -276,7 +276,7 @@ def debug_print(message, icon="🔍", style="dim"):
         console.print(f"{icon} {message}", style=style)
 
 
-def main(verbose=False):
+def main(verbose=False, auto_session=False):
     """Main function to run the AI CLI."""
     global VERBOSE
     VERBOSE = verbose
@@ -335,8 +335,14 @@ def main(verbose=False):
             stream=stream,
             temperature=temperature,
             CustomMarkdown=CustomMarkdown,
-            secrets_manager=secrets_manager
+            secrets_manager=secrets_manager,
+            auto_session=auto_session
         )
+
+        # Auto-session: Start a session automatically if enabled
+        if auto_session and not session_manager.is_active():
+            session_manager.start_session(working_dir=get_user_working_dir())
+            debug_print("Auto-session enabled: Started initial session", icon="🔄")
 
         # Main chat loop
         while True:
@@ -2049,6 +2055,11 @@ if __name__ == "__main__":
         action='store_true',
         help='Stop the running UI server'
     )
+    parser.add_argument(
+        '--auto-session',
+        action='store_true',
+        help='Automatically create and maintain sessions (creates new session on start and after /session end)'
+    )
     args = parser.parse_args()
 
     # Import UI process utilities
@@ -2073,7 +2084,7 @@ if __name__ == "__main__":
             # Don't open browser automatically since user is in terminal
             success = start_ui_server_background(verbose=args.verbose, open_browser=False)
             if success:
-                main(verbose=args.verbose)
+                main(verbose=args.verbose, auto_session=args.auto_session)
             else:
                 sys.exit(1)
         else:
@@ -2083,4 +2094,4 @@ if __name__ == "__main__":
     else:
         # Always cleanup UI on CLI startup (even without --show-ui)
         cleanup_ui_on_startup(verbose=args.verbose)
-        main(verbose=args.verbose)
+        main(verbose=args.verbose, auto_session=args.auto_session)

@@ -93,6 +93,11 @@ def print_help(console):
     console.print("  [bold]'/make map load'[/bold] - Load existing .makemap file")
     console.print("  [bold]'/make map update'[/bold] - Update .makemap with new targets")
 
+    console.print("\n[bold yellow]Plan Execution:[/bold yellow]")
+    console.print("  [bold]'/execute TODO_LIST'[/bold] - Execute TODO_LIST from session context")
+    console.print("  [bold]'/execute MAKE_LIST'[/bold] - Execute MAKE_LIST from session context")
+    console.print("  [bold]'/execute @path/to/file.md'[/bold] - Execute plan directly from file")
+
     console.print("\n[bold yellow]Code Execution:[/bold yellow]")
     console.print("  [bold]'/code <prompt>'[/bold] - Analyze and execute code tasks (requires session)")
 
