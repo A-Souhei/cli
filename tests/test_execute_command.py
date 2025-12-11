@@ -3,7 +3,7 @@
 import os
 import tempfile
 import shutil
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from io import StringIO
 
 import pytest

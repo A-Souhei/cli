@@ -134,7 +134,7 @@ This document summarizes the comprehensive test suite for the `/execute @path/to
 
 ### Example 3: Execute with absolute path
 ```bash
-/execute @/home/user/projects/myapp/MAKE_list.md
+/execute @/home/user/projects/myapp/MAKE_LIST.md
 ```
 
 ### Example 4: Execute with relative path

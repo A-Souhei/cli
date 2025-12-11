@@ -2250,8 +2250,6 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             }, indent=2))]
 
     elif name == "execute_plan":
-        import re as regex_module  # Explicit import to avoid scope issues
-
         session_id = arguments.get("session_id")
         plan_type = arguments.get("plan_type")
         working_dir = arguments.get("working_dir", os.getcwd())
@@ -2333,9 +2331,9 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 line = line.strip()
 
                 # Detect bullet points (-, *, •, 1., 2., etc.)
-                if regex_module.match(r'^[-*•]|\d+\.', line):
+                if re.match(r'^[-*•]|\d+\.', line):
                     # Remove bullet point marker and leading/trailing whitespace
-                    step_text = regex_module.sub(r'^[-*•]|\d+\.', '', line).strip()
+                    step_text = re.sub(r'^[-*•]|\d+\.', '', line).strip()
 
                     # Skip empty steps
                     if step_text:

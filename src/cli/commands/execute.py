@@ -1,6 +1,7 @@
 """Execute command handlers for running TODO_LIST and MAKE_LIST plans."""
 
 import json
+import os
 import re
 import subprocess
 
@@ -25,6 +26,10 @@ def parse_tool_reference(step_text):
     return (None, None)
 
 
+# Validation pattern for make targets (alphanumeric, hyphens, underscores, dots)
+VALID_MAKE_TARGET_PATTERN = re.compile(r'^[a-zA-Z0-9_\-\.]+$')
+
+
 def execute_make_command(target, working_dir, console, debug_print):
     """
     Execute a make command.
@@ -33,6 +38,12 @@ def execute_make_command(target, working_dir, console, debug_print):
         tuple: (success, output)
     """
     try:
+        # Validate make target to prevent command injection
+        if not VALID_MAKE_TARGET_PATTERN.match(target):
+            error = f"Invalid make target: {target}. Only alphanumeric characters, hyphens, underscores, and dots are allowed."
+            console.print(f"[red]  ✗ {error}[/red]")
+            return (False, error)
+        
         console.print(f"[dim]  → Executing: make {target}[/dim]")
 
         result = subprocess.run(
@@ -120,18 +131,30 @@ def execute_plan_from_file(console, file_path, get_user_working_dir, mcp_client,
         stream: Stream responses
         temperature: LLM temperature
     """
-    import os
-
     working_dir = get_user_working_dir()
 
     # Resolve file path (handle relative paths)
     if not os.path.isabs(file_path):
         file_path = os.path.join(working_dir, file_path)
+    
+    # Security: Validate that resolved path is within or explicitly allowed
+    # Prevent access to sensitive system files
+    resolved_path = os.path.realpath(file_path)
+    working_dir_real = os.path.realpath(working_dir)
+    
+    # Allow files in working directory or explicitly absolute paths from user
+    if not (resolved_path.startswith(working_dir_real) or os.path.isabs(file_path)):
+        console.print(f"\n❌ [red]Access denied: File must be in working directory or use absolute path[/red]\n")
+        debug_print(f"Security: Blocked access to {resolved_path}", icon="🔒")
+        return True
 
     # Check if file exists
-    if not os.path.exists(file_path):
-        console.print(f"\n❌ [red]File not found: {file_path}[/red]\n")
+    if not os.path.exists(resolved_path):
+        console.print(f"\n❌ [red]File not found: {resolved_path}[/red]\n")
         return True
+    
+    # Use resolved path for remaining operations
+    file_path = resolved_path
 
     # Read file content
     try:
@@ -314,11 +337,6 @@ def handle_execute_plan(console, session_manager, mcp_client, get_user_working_d
         stream: Stream responses
         temperature: LLM temperature
     """
-    # Check if session is active
-    if not session_manager.is_active():
-        console.print("\n⚠️  [yellow]No active session. Start a session first with /session start[/yellow]\n")
-        return True
-
     # Parse command arguments
     parts = user_input_normalized.split(maxsplit=1)
 
@@ -335,13 +353,19 @@ def handle_execute_plan(console, session_manager, mcp_client, get_user_working_d
 
     # Check if it's a file path (starts with @)
     if arg.startswith('@'):
-        # Execute from file
+        # Execute from file - no session required
         file_path = arg[1:]  # Remove @ prefix
         return execute_plan_from_file(
             console, file_path, get_user_working_dir, mcp_client,
             run_async, debug_print, CustomMarkdown, ollama_client,
             config, stream, temperature
         )
+
+    # Session required for TODO_LIST/MAKE_LIST execution from context
+    if not session_manager.is_active():
+        console.print("\n⚠️  [yellow]No active session. Start a session first with /session start[/yellow]\n")
+        console.print("[dim]Tip: Use /execute @path/to/file.md to execute from a file without a session[/dim]\n")
+        return True
 
     # Otherwise, treat as plan type (TODO_LIST or MAKE_LIST)
     plan_type = arg.upper()
