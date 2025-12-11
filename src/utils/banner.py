@@ -93,6 +93,10 @@ def print_help(console):
     console.print("  [bold]'/make map load'[/bold] - Load existing .makemap file")
     console.print("  [bold]'/make map update'[/bold] - Update .makemap with new targets")
 
+    console.print("\n[bold yellow]Plan Execution:[/bold yellow]")
+    console.print("  [bold]'/execute TODO_LIST [model]'[/bold] - Execute TODO_LIST plan sequentially")
+    console.print("  [bold]'/execute MAKE_LIST [model]'[/bold] - Execute MAKE_LIST plan sequentially")
+
     console.print("\n[bold yellow]Code Execution:[/bold yellow]")
     console.print("  [bold]'/code <prompt>'[/bold] - Analyze and execute code tasks (requires session)")
 

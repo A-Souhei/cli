@@ -1075,6 +1075,36 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": []
             }
+        ),
+        Tool(
+            name="execute_plan",
+            description=(
+                "Parse a TODO_LIST or MAKE_LIST from session context into executable steps. "
+                "This tool retrieves the plan from Redis and parses each bullet point into a list of steps. "
+                "The steps are returned for execution by the CLI using the configured LLM (Ollama or Claude). "
+                "This is useful for breaking down complex multi-step plans that were generated with "
+                "/context add TODO_LIST or /context add MAKE_LIST. "
+                "Requires an active session with the plan already loaded in context."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Required session ID containing the plan in context"
+                    },
+                    "plan_type": {
+                        "type": "string",
+                        "description": "Type of plan to execute: 'TODO_LIST' or 'MAKE_LIST'",
+                        "enum": ["TODO_LIST", "MAKE_LIST"]
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Optional working directory context. Defaults to current directory."
+                    }
+                },
+                "required": ["session_id", "plan_type"]
+            }
         )
     ]
 
@@ -2217,6 +2247,157 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             return [TextContent(type="text", text=json.dumps({
                 "status": "error",
                 "message": f"Error executing make: {str(e)}"
+            }, indent=2))]
+
+    elif name == "execute_plan":
+        import re as regex_module  # Explicit import to avoid scope issues
+
+        session_id = arguments.get("session_id")
+        plan_type = arguments.get("plan_type")
+        working_dir = arguments.get("working_dir", os.getcwd())
+
+        debug_print("execute_plan called", session_id=session_id, plan_type=plan_type, working_dir=working_dir)
+
+        # Validate required parameters
+        if not session_id:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": "session_id is required"
+            }, indent=2))]
+
+        if not plan_type or plan_type not in ["TODO_LIST", "MAKE_LIST"]:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": "plan_type must be either 'TODO_LIST' or 'MAKE_LIST'"
+            }, indent=2))]
+
+        # Validate working directory
+        is_valid, error_msg = validate_working_dir(working_dir)
+        if not is_valid:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": error_msg
+            }, indent=2))]
+
+        try:
+            # Step 1: Retrieve the plan from Redis context
+            redis_api_url = get_redis_api_url()
+            debug_print(f"execute_plan: Retrieving {plan_type} from Redis session {session_id}")
+
+            # Use the /context/get endpoint with path and session_id
+            response = requests.get(
+                f"{redis_api_url}/context/get",
+                params={
+                    "path": plan_type,
+                    "session_id": session_id
+                },
+                timeout=30
+            )
+
+            if response.status_code != 200:
+                return [TextContent(type="text", text=json.dumps({
+                    "status": "error",
+                    "message": f"Failed to retrieve {plan_type} from Redis: {response.status_code}",
+                    "response": response.text
+                }, indent=2))]
+
+            context_data = response.json()
+            debug_print(f"execute_plan: Retrieved context data")
+
+            # Step 2: Extract the plan content from context
+            # The response should have a 'context' field containing the plan data
+            if context_data.get('status') != 'success':
+                return [TextContent(type="text", text=json.dumps({
+                    "status": "error",
+                    "message": f"Redis API returned error: {context_data.get('message', 'Unknown error')}"
+                }, indent=2))]
+
+            context = context_data.get('context', {})
+            plan_content = context.get('content', '')
+
+            if not plan_content:
+                return [TextContent(type="text", text=json.dumps({
+                    "status": "error",
+                    "message": f"{plan_type} not found in session context. Use /context add {plan_type} first."
+                }, indent=2))]
+
+            debug_print(f"execute_plan: Found {plan_type} in context ({len(plan_content)} chars)")
+
+            # Step 3: Parse the plan to extract bullet points
+            # Plans are formatted as markdown lists with bullet points
+            lines = plan_content.split('\n')
+            steps = []
+            current_step = None
+
+            for line in lines:
+                line = line.strip()
+
+                # Detect bullet points (-, *, •, 1., 2., etc.)
+                if regex_module.match(r'^[-*•]|\d+\.', line):
+                    # Remove bullet point marker and leading/trailing whitespace
+                    step_text = regex_module.sub(r'^[-*•]|\d+\.', '', line).strip()
+
+                    # Skip empty steps
+                    if step_text:
+                        # Skip meta-information lines (headers, etc.)
+                        if not any(keyword in step_text.lower() for keyword in ['todo_list', 'make_list', 'plan:', 'steps:']):
+                            if current_step:
+                                steps.append(current_step)
+                            current_step = step_text
+                # Handle continuation lines (indented text under a bullet point)
+                elif current_step and line and not line.startswith('#'):
+                    current_step += " " + line
+
+            # Add the last step
+            if current_step:
+                steps.append(current_step)
+
+            if not steps:
+                return [TextContent(type="text", text=json.dumps({
+                    "status": "error",
+                    "message": f"No executable steps found in {plan_type}"
+                }, indent=2))]
+
+            debug_print(f"execute_plan: Parsed {len(steps)} steps from {plan_type}")
+
+            # Step 4: Return the parsed steps for execution by the CLI
+            steps_data = []
+            for idx, step in enumerate(steps):
+                steps_data.append({
+                    "step_number": idx + 1,
+                    "step": step,
+                    "status": "pending"
+                })
+
+            return [TextContent(type="text", text=json.dumps({
+                "status": "success",
+                "message": f"Parsed {len(steps)} step{'s' if len(steps) != 1 else ''} from {plan_type}",
+                "plan_type": plan_type,
+                "session_id": session_id,
+                "total_steps": len(steps),
+                "steps": steps_data,
+                "working_dir": working_dir
+            }, indent=2))]
+
+        except requests.exceptions.Timeout:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": "Request to Redis API timed out"
+            }, indent=2))]
+        except requests.exceptions.ConnectionError:
+            redis_api_url = get_redis_api_url()
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": f"Could not connect to Redis API at {redis_api_url}"
+            }, indent=2))]
+        except Exception as e:
+            import traceback
+            error_traceback = traceback.format_exc()
+            debug_print(f"execute_plan error: {error_traceback}")
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": f"Error in execute_plan: {str(e)}",
+                "traceback": error_traceback
             }, indent=2))]
 
     else:

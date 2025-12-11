@@ -11,7 +11,7 @@ def handle_session_start(console, session_manager, get_user_working_dir):
     return True  # Continue the loop
 
 
-def handle_session_end(console, session_manager, debug_print):
+def handle_session_end(console, session_manager, debug_print, auto_session=False, get_user_working_dir=None):
     """Handle session end command."""
     summary = session_manager.end_session()
     if summary:
@@ -21,6 +21,12 @@ def handle_session_end(console, session_manager, debug_print):
         except Exception as e:
             debug_print(f"Failed to save session on end: {e}", icon="⚠️")
         console.print()
+
+        # Auto-session: Automatically start a new session after ending if enabled
+        if auto_session and get_user_working_dir:
+            session_manager.start_session(working_dir=get_user_working_dir())
+            debug_print("Auto-session: Started new session", icon="🔄")
+            console.print()
     return True  # Continue the loop
 
 

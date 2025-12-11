@@ -29,6 +29,7 @@ from src.cli.commands.make import (
     handle_make_map_update, handle_make_execute
 )
 from src.cli.commands.ignore import handle_ignore_command
+from src.cli.commands.execute import handle_execute_plan
 
 
 class CommandDispatcher:
@@ -49,7 +50,7 @@ class CommandDispatcher:
                  debug_print, InteractiveSelector, CombinedCompleter,
                  list_system_mcps, get_mcp_tools, WorkingDirectoryMismatchError,
                  verbose=False, stream=False, temperature=0.7, CustomMarkdown=None,
-                 secrets_manager=None):
+                 secrets_manager=None, auto_session=False):
         """Initialize the command dispatcher with necessary dependencies."""
         self.console = console
         self.config = config
@@ -74,6 +75,7 @@ class CommandDispatcher:
         self.temperature = temperature
         self.CustomMarkdown = CustomMarkdown
         self.secrets_manager = secrets_manager
+        self.auto_session = auto_session
         self.combined_completer = None
     
     def dispatch(self, user_input_normalized):
@@ -152,7 +154,8 @@ class CommandDispatcher:
         
         if user_input_normalized.lower() == 'session end':
             return handle_session_end(self.console, self.session_manager,
-                                     self.debug_print)
+                                     self.debug_print, self.auto_session,
+                                     self.get_user_working_dir)
         
         if user_input_normalized.lower() == 'session info':
             return handle_session_info(self.console, self.session_manager)
@@ -326,7 +329,16 @@ class CommandDispatcher:
                 self.stream, self.temperature, self.run_async, self.debug_print,
                 self.verbose, self.CustomMarkdown
             )
-        
+
+        # Handle /execute command - execute TODO_LIST or MAKE_LIST plans
+        if user_input_normalized.lower().startswith('execute '):
+            return handle_execute_plan(
+                self.console, self.session_manager, self.mcp_client,
+                self.get_user_working_dir, self.run_async, user_input_normalized,
+                self.debug_print, self.CustomMarkdown, self.ollama_client,
+                self.config, self.stream, self.temperature
+            )
+
         # Not a recognized command - return False to indicate chat processing
         return False
     

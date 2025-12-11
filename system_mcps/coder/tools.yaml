@@ -33,6 +33,7 @@ categories:
       - retrieve_all_tools
       - roll_the_dice
       - spin_the_roulette
+      - execute_plan
 
   context:
     description: "Tools for adding context to the session"
@@ -128,3 +129,9 @@ tools:
     requires_llm_generation: false
     executes_command: true
     no_confirmation: true
+
+  execute_plan:
+    requires_llm_generation: false
+    is_meta: true
+    requires_session: true
+    executes_sequentially: true
