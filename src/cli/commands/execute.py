@@ -1,6 +1,104 @@
 """Execute command handlers for running TODO_LIST and MAKE_LIST plans."""
 
 import json
+import re
+import subprocess
+
+
+def parse_tool_reference(step_text):
+    """
+    Parse tool reference from step text.
+
+    Returns:
+        tuple: (tool_type, tool_name) where tool_type is 'tool' or 'make', or (None, None) if no reference found
+    """
+    # Check for [Tool: tool_name] pattern
+    tool_match = re.search(r'\[Tool:\s*([^\]]+)\]', step_text, re.IGNORECASE)
+    if tool_match:
+        return ('tool', tool_match.group(1).strip())
+
+    # Check for [Make: make target] pattern
+    make_match = re.search(r'\[Make:\s*make\s+([^\]]+)\]', step_text, re.IGNORECASE)
+    if make_match:
+        return ('make', make_match.group(1).strip())
+
+    return (None, None)
+
+
+def execute_make_command(target, working_dir, console, debug_print):
+    """
+    Execute a make command.
+
+    Returns:
+        tuple: (success, output)
+    """
+    try:
+        console.print(f"[dim]  → Executing: make {target}[/dim]")
+
+        result = subprocess.run(
+            ['make', target],
+            cwd=working_dir,
+            capture_output=True,
+            text=True,
+            timeout=300  # 5 minute timeout
+        )
+
+        output = result.stdout + result.stderr
+        success = result.returncode == 0
+
+        if success:
+            console.print(f"[green]  ✓ Make command succeeded[/green]")
+        else:
+            console.print(f"[red]  ✗ Make command failed with exit code {result.returncode}[/red]")
+
+        return (success, output)
+
+    except subprocess.TimeoutExpired:
+        error = f"Make command timed out after 5 minutes"
+        console.print(f"[red]  ✗ {error}[/red]")
+        return (False, error)
+    except Exception as e:
+        error = f"Error executing make command: {str(e)}"
+        console.print(f"[red]  ✗ {error}[/red]")
+        debug_print(error, icon="❌")
+        return (False, error)
+
+
+def execute_mcp_tool(tool_name, working_dir, mcp_client, run_async, console, debug_print, accumulated_context):
+    """
+    Execute an MCP tool.
+
+    Returns:
+        tuple: (success, output)
+    """
+    try:
+        console.print(f"[dim]  → Calling tool: {tool_name}[/dim]")
+
+        # Build tool arguments based on tool name and context
+        tool_args = {
+            "working_dir": working_dir
+        }
+
+        # For code execution tools, we might need to extract code from context
+        # For now, pass basic arguments
+
+        result = run_async(
+            mcp_client.call_tool('coder', tool_name, tool_args)
+        )
+
+        if result:
+            console.print(f"[green]  ✓ Tool executed successfully[/green]")
+            return (True, result)
+        else:
+            error = "Tool returned no result"
+            console.print(f"[yellow]  ⚠ {error}[/yellow]")
+            return (False, error)
+
+    except Exception as e:
+        error = f"Error executing tool: {str(e)}"
+        console.print(f"[red]  ✗ {error}[/red]")
+        debug_print(error, icon="❌")
+        return (False, error)
 
 
 def handle_execute_plan(console, session_manager, mcp_client, get_user_working_dir,
@@ -140,41 +238,72 @@ def handle_execute_plan(console, session_manager, mcp_client, get_user_working_d
             console.print(f"[bold cyan]Step {step_num}:[/bold cyan] {step_text}")
             console.print()
 
-            # Build prompt for this step with accumulated context
-            step_prompt = f"{accumulated_context}Step {step_num}: {step_text}\n\nExecute this step:"
-
             try:
-                # Call the LLM using existing infrastructure
-                # Format as messages for both OllamaClient and AnthropicClient
-                # Include system prompt like ChatManager does
-                messages = []
-                system_prompt = config.get_system_prompt()
-                if system_prompt:
-                    messages.append({"role": "system", "content": system_prompt})
-                messages.append({"role": "user", "content": step_prompt})
+                # Check if step has a tool or make reference
+                tool_type, tool_name = parse_tool_reference(step_text)
 
-                response = ollama_client.chat(
-                    messages=messages,
-                    stream=False,
-                    temperature=temperature
-                )
+                execution_result = None
+                success = False
 
-                # Extract content from response
-                llm_response = response.get('message', {}).get('content', '') if isinstance(response, dict) else response
+                if tool_type == 'make':
+                    # Execute make command
+                    success, output = execute_make_command(
+                        tool_name, working_dir, console, debug_print
+                    )
+                    execution_result = output
 
-                if llm_response:
-                    # Display response with CustomMarkdown
-                    md = CustomMarkdown(llm_response)
+                elif tool_type == 'tool':
+                    # Execute MCP tool
+                    success, output = execute_mcp_tool(
+                        tool_name, working_dir, mcp_client, run_async,
+                        console, debug_print, accumulated_context
+                    )
+                    execution_result = output
+
+                else:
+                    # No tool reference - use LLM for reasoning/planning
+                    console.print(f"[dim]  → Using LLM for reasoning step[/dim]")
+
+                    # Build prompt for this step with accumulated context
+                    step_prompt = f"{accumulated_context}Step {step_num}: {step_text}\n\nExecute this step:"
+
+                    # Format as messages for both OllamaClient and AnthropicClient
+                    # Include system prompt like ChatManager does
+                    messages = []
+                    system_prompt = config.get_system_prompt()
+                    if system_prompt:
+                        messages.append({"role": "system", "content": system_prompt})
+                    messages.append({"role": "user", "content": step_prompt})
+
+                    response = ollama_client.chat(
+                        messages=messages,
+                        stream=False,
+                        temperature=temperature
+                    )
+
+                    # Extract content from response
+                    llm_response = response.get('message', {}).get('content', '') if isinstance(response, dict) else response
+
+                    if llm_response:
+                        execution_result = llm_response
+                        success = True
+                    else:
+                        console.print(f"[red]⚠️  Step {step_num} failed - no response from LLM[/red]\n")
+
+                # Display result and accumulate context
+                if success and execution_result:
+                    # Display execution result
+                    if tool_type:
+                        console.print(f"\n[dim]Output:[/dim]")
+                    md = CustomMarkdown(str(execution_result))
                     console.print(md)
                     console.print()
 
                     # Accumulate context for next steps (truncate to avoid context bloat)
-                    response_preview = llm_response[:500] if len(llm_response) > 500 else llm_response
-                    accumulated_context += f"\nStep {step_num}: {step_text}\nResult: {response_preview}\n"
+                    result_preview = str(execution_result)[:500] if len(str(execution_result)) > 500 else str(execution_result)
+                    accumulated_context += f"\nStep {step_num}: {step_text}\nResult: {result_preview}\n"
 
                     executed_count += 1
-                else:
-                    console.print(f"[red]⚠️  Step {step_num} failed - no response from LLM[/red]\n")
 
             except Exception as e:
                 console.print(f"[red]⚠️  Error executing step {step_num}: {str(e)}[/red]\n")
