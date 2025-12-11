@@ -1,0 +1,7 @@
+# MAKE_LIST
+
+- Clean build directory [Make: make clean]
+- Compile source files [Make: make compile]
+- Run all tests [Make: make test]
+- Generate documentation [Make: make docs]
+- Package application [Make: make package]
