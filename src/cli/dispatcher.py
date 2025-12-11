@@ -183,18 +183,30 @@ class CommandDispatcher:
         if user_input_normalized.lower() == 'context metrics':
             return handle_context_metrics(self.console, self.chat_manager, self.session_manager)
 
-        # Handle /context load TODO_LIST
-        if user_input_normalized.lower() == 'context load todo_list':
+        # Handle /context load TODO_LIST [@file]
+        if user_input_normalized.lower().startswith('context load todo_list'):
+            # Extract optional file path
+            file_path = None
+            parts = user_input_normalized.split(None, 3)  # ['context', 'load', 'todo_list', '@file']
+            if len(parts) > 3:
+                file_path = parts[3].strip()
+
             return handle_context_load_todo_list(
                 self.console, self.session_manager, self.get_user_working_dir,
-                self.debug_print, verbose=self.verbose
+                self.debug_print, verbose=self.verbose, file_path=file_path
             )
 
-        # Handle /context save TODO_LIST
-        if user_input_normalized.lower() == 'context save todo_list':
+        # Handle /context save TODO_LIST [@file]
+        if user_input_normalized.lower().startswith('context save todo_list'):
+            # Extract optional file path
+            file_path = None
+            parts = user_input_normalized.split(None, 3)  # ['context', 'save', 'todo_list', '@file']
+            if len(parts) > 3:
+                file_path = parts[3].strip()
+
             return handle_context_save_todo_list(
                 self.console, self.session_manager, self.get_user_working_dir,
-                self.debug_print, verbose=self.verbose
+                self.debug_print, verbose=self.verbose, file_path=file_path
             )
 
         if user_input_normalized.lower().startswith('context add '):

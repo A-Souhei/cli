@@ -472,16 +472,32 @@ def handle_context_metrics(console, chat_manager, session_manager):
     return True
 
 
-def handle_context_load_todo_list(console, session_manager, get_user_working_dir, debug_print, verbose=False):
+def handle_context_load_todo_list(console, session_manager, get_user_working_dir, debug_print, verbose=False, file_path=None):
     """
-    Handle loading TODO_LIST from .todo_list file.
+    Handle loading TODO_LIST from file.
 
-    Reads the .todo_list file from working directory and adds it to context.
+    Args:
+        file_path: Optional custom file path. If None, defaults to '.todo_list' in working directory.
+
+    Reads the TODO_LIST file and adds it to context.
     """
     console.print("\n📂 [cyan]Loading TODO_LIST from file...[/cyan]")
 
     working_dir = get_user_working_dir()
-    todo_file_path = os.path.join(working_dir, '.todo_list')
+
+    # Use custom file path if provided, otherwise default to .todo_list
+    if file_path:
+        # Remove @ prefix if present
+        if file_path.startswith('@'):
+            file_path = file_path[1:]
+
+        # Handle both absolute and relative paths
+        if os.path.isabs(file_path):
+            todo_file_path = file_path
+        else:
+            todo_file_path = os.path.join(working_dir, file_path)
+    else:
+        todo_file_path = os.path.join(working_dir, '.todo_list')
 
     # Check if file exists
     if not os.path.exists(todo_file_path):
@@ -550,11 +566,14 @@ def handle_context_load_todo_list(console, session_manager, get_user_working_dir
     return True
 
 
-def handle_context_save_todo_list(console, session_manager, get_user_working_dir, debug_print, verbose=False):
+def handle_context_save_todo_list(console, session_manager, get_user_working_dir, debug_print, verbose=False, file_path=None):
     """
-    Handle saving TODO_LIST to .todo_list file.
+    Handle saving TODO_LIST to file.
 
-    Retrieves the TODO_LIST from context and saves it to .todo_list file in working directory.
+    Args:
+        file_path: Optional custom file path. If None, defaults to '.todo_list' in working directory.
+
+    Retrieves the TODO_LIST from context and saves it to the specified file.
     """
     console.print("\n💾 [cyan]Saving TODO_LIST to file...[/cyan]")
 
@@ -590,9 +609,21 @@ def handle_context_save_todo_list(console, session_manager, get_user_working_dir
                 console.print("\n⚠️  [yellow]TODO_LIST is empty[/yellow]\n")
                 return True
 
-        # Save to file
+        # Determine save path
         working_dir = get_user_working_dir()
-        todo_file_path = os.path.join(working_dir, '.todo_list')
+
+        if file_path:
+            # Remove @ prefix if present
+            if file_path.startswith('@'):
+                file_path = file_path[1:]
+
+            # Handle both absolute and relative paths
+            if os.path.isabs(file_path):
+                todo_file_path = file_path
+            else:
+                todo_file_path = os.path.join(working_dir, file_path)
+        else:
+            todo_file_path = os.path.join(working_dir, '.todo_list')
 
         if verbose:
             debug_print(f"Saving to: {todo_file_path}", icon="💾", style="cyan")

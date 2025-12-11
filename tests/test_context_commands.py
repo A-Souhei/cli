@@ -248,14 +248,84 @@ class TestContextLoadTodoList:
         todo_file = os.path.join(self.test_dir, '.todo_list')
         with open(todo_file, 'w') as f:
             f.write("")
-        
+
         self.session_manager.is_active.return_value = True
-        
+
         result = handle_context_load_todo_list(
             self.console, self.session_manager, self.get_user_working_dir,
             self.debug_print, verbose=False
         )
-        
+
+        assert result is True
+
+    def test_load_todo_list_custom_path(self):
+        """Test loading TODO_LIST from custom file path."""
+        # Create custom todo file
+        custom_file = os.path.join(self.test_dir, 'my_todos.md')
+        with open(custom_file, 'w') as f:
+            f.write("# TODO_LIST\n1. Custom Task 1\n2. Custom Task 2\n")
+
+        self.session_manager.is_active.return_value = True
+        self.session_manager.get_session_id.return_value = 'test-session'
+
+        with patch('httpx.Client') as mock_client:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {'status': 'success'}
+            mock_client.return_value.__enter__.return_value.post.return_value = mock_response
+
+            result = handle_context_load_todo_list(
+                self.console, self.session_manager, self.get_user_working_dir,
+                self.debug_print, verbose=False, file_path='my_todos.md'
+            )
+
+        assert result is True
+
+    def test_load_todo_list_custom_path_with_at_prefix(self):
+        """Test loading TODO_LIST from custom file path with @ prefix."""
+        # Create custom todo file
+        custom_file = os.path.join(self.test_dir, 'todos', 'project.md')
+        os.makedirs(os.path.dirname(custom_file), exist_ok=True)
+        with open(custom_file, 'w') as f:
+            f.write("# TODO_LIST\n1. Task 1\n")
+
+        self.session_manager.is_active.return_value = True
+        self.session_manager.get_session_id.return_value = 'test-session'
+
+        with patch('httpx.Client') as mock_client:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {'status': 'success'}
+            mock_client.return_value.__enter__.return_value.post.return_value = mock_response
+
+            result = handle_context_load_todo_list(
+                self.console, self.session_manager, self.get_user_working_dir,
+                self.debug_print, verbose=False, file_path='@todos/project.md'
+            )
+
+        assert result is True
+
+    def test_load_todo_list_absolute_path(self):
+        """Test loading TODO_LIST from absolute file path."""
+        # Create custom todo file
+        custom_file = os.path.join(self.test_dir, 'absolute_todos.md')
+        with open(custom_file, 'w') as f:
+            f.write("# TODO_LIST\n1. Task 1\n")
+
+        self.session_manager.is_active.return_value = True
+        self.session_manager.get_session_id.return_value = 'test-session'
+
+        with patch('httpx.Client') as mock_client:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {'status': 'success'}
+            mock_client.return_value.__enter__.return_value.post.return_value = mock_response
+
+            result = handle_context_load_todo_list(
+                self.console, self.session_manager, self.get_user_working_dir,
+                self.debug_print, verbose=False, file_path=custom_file
+            )
+
         assert result is True
 
 
@@ -321,18 +391,111 @@ class TestContextSaveTodoList:
         """Test saving when TODO_LIST not in context."""
         self.session_manager.is_active.return_value = True
         self.session_manager.get_session_id.return_value = 'test-session'
-        
+
         with patch('httpx.Client') as mock_client:
             mock_response = Mock()
             mock_response.status_code = 404
             mock_client.return_value.__enter__.return_value.get.return_value = mock_response
-            
+
             result = handle_context_save_todo_list(
                 self.console, self.session_manager, self.get_user_working_dir,
                 self.debug_print, verbose=False
             )
-        
+
         assert result is True
+
+    def test_save_todo_list_custom_path(self):
+        """Test saving TODO_LIST to custom file path."""
+        self.session_manager.is_active.return_value = True
+        self.session_manager.get_session_id.return_value = 'test-session'
+
+        todo_content = "# TODO_LIST\n1. Task 1\n2. Task 2\n"
+
+        with patch('httpx.Client') as mock_client:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                'context': {
+                    'content': todo_content
+                }
+            }
+            mock_client.return_value.__enter__.return_value.get.return_value = mock_response
+
+            result = handle_context_save_todo_list(
+                self.console, self.session_manager, self.get_user_working_dir,
+                self.debug_print, verbose=False, file_path='my_todos.md'
+            )
+
+        assert result is True
+
+        # Verify file was created with custom name
+        custom_file = os.path.join(self.test_dir, 'my_todos.md')
+        assert os.path.exists(custom_file)
+        with open(custom_file, 'r') as f:
+            assert f.read() == todo_content
+
+    def test_save_todo_list_custom_path_with_at_prefix(self):
+        """Test saving TODO_LIST to custom file path with @ prefix."""
+        self.session_manager.is_active.return_value = True
+        self.session_manager.get_session_id.return_value = 'test-session'
+
+        todo_content = "# TODO_LIST\n1. Task\n"
+
+        # Create subdirectory
+        os.makedirs(os.path.join(self.test_dir, 'todos'), exist_ok=True)
+
+        with patch('httpx.Client') as mock_client:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                'context': {
+                    'content': todo_content
+                }
+            }
+            mock_client.return_value.__enter__.return_value.get.return_value = mock_response
+
+            result = handle_context_save_todo_list(
+                self.console, self.session_manager, self.get_user_working_dir,
+                self.debug_print, verbose=False, file_path='@todos/project.md'
+            )
+
+        assert result is True
+
+        # Verify file was created
+        custom_file = os.path.join(self.test_dir, 'todos', 'project.md')
+        assert os.path.exists(custom_file)
+        with open(custom_file, 'r') as f:
+            assert f.read() == todo_content
+
+    def test_save_todo_list_absolute_path(self):
+        """Test saving TODO_LIST to absolute file path."""
+        self.session_manager.is_active.return_value = True
+        self.session_manager.get_session_id.return_value = 'test-session'
+
+        todo_content = "# TODO_LIST\n1. Task\n"
+        custom_file = os.path.join(self.test_dir, 'absolute_todos.md')
+
+        with patch('httpx.Client') as mock_client:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                'context': {
+                    'content': todo_content
+                }
+            }
+            mock_client.return_value.__enter__.return_value.get.return_value = mock_response
+
+            result = handle_context_save_todo_list(
+                self.console, self.session_manager, self.get_user_working_dir,
+                self.debug_print, verbose=False, file_path=custom_file
+            )
+
+        assert result is True
+
+        # Verify file was created
+        assert os.path.exists(custom_file)
+        with open(custom_file, 'r') as f:
+            assert f.read() == todo_content
 
 
 class TestContextGenerateTodoList:

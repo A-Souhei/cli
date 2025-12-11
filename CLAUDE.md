@@ -270,8 +270,8 @@ src/
 - `/context add ALL` - Add entire working directory to context
 - `/context add ALL_TOOLS` - Add all MCP tools with descriptions to context
 - `/context add TODO_LIST <description>` - Generate strategic TODO list with tool references
-- `/context load TODO_LIST` - Load TODO_LIST from .todo_list file
-- `/context save TODO_LIST` - Save TODO_LIST to .todo_list file
+- `/context load TODO_LIST [@path]` - Load TODO_LIST from file (default: .todo_list)
+- `/context save TODO_LIST [@path]` - Save TODO_LIST to file (default: .todo_list)
 - `/context show` - Display current context (chat, session, metadata)
 - `/context metrics` - Show context size and usage metrics
 - `/context clear` - Clear context (keeps session active)
@@ -284,8 +284,10 @@ src/
 /context add ALL                       # Add entire working directory
 /context add ALL_TOOLS                 # Add all MCP tools reference
 /context add TODO_LIST build a user authentication system with JWT
-/context save TODO_LIST                # Save to .todo_list file
-/context load TODO_LIST                # Load from .todo_list file
+/context save TODO_LIST                # Save to .todo_list file (default)
+/context save TODO_LIST @my_todos.md   # Save to custom file
+/context load TODO_LIST                # Load from .todo_list file (default)
+/context load TODO_LIST @my_todos.md   # Load from custom file
 /context show                          # View what's in context
 /context metrics                       # View context size and metrics
 ```
@@ -307,18 +309,27 @@ src/
    /context add TODO_LIST create a REST API with user authentication and database
    ```
 
-   **Persistence** (save/load from `.todo_list` file):
+   **Persistence** (save/load TODO_LIST files):
    ```bash
-   /context save TODO_LIST    # Save current TODO_LIST to .todo_list file
-   /context load TODO_LIST    # Load TODO_LIST from .todo_list file
+   # Using default .todo_list file:
+   /context save TODO_LIST          # Save to .todo_list
+   /context load TODO_LIST          # Load from .todo_list
+
+   # Using custom file paths:
+   /context save TODO_LIST @todos/auth.md      # Save to custom file
+   /context load TODO_LIST @todos/auth.md      # Load from custom file
+   /context save TODO_LIST @backend_plan.md    # Different plan for backend
+   /context load TODO_LIST @frontend_plan.md   # Different plan for frontend
    ```
 
    **Benefits of file persistence**:
+   - Manage multiple TODO lists for different features/projects
    - Share TODO_LIST with team members
    - Version control with git
    - Edit manually in your preferred editor
    - Persist across sessions
    - Reuse plans for similar projects
+   - Organize by feature, sprint, or module
 
    **Difference from /code mode**:
    - `/code mode`: Simply breaks down prompts into step-by-step tasks
