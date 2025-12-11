@@ -267,7 +267,13 @@ src/
 **Commands**:
 - `/context add @file` - Add file to context without LLM call
 - `/context add @directory` - Add directory to context without LLM call
+- `/context add ALL` - Add entire working directory to context
+- `/context add ALL_TOOLS` - Add all MCP tools with descriptions to context
+- `/context add TODO_LIST <description>` - Generate strategic TODO list with tool references
+- `/context load TODO_LIST` - Load TODO_LIST from .todo_list file
+- `/context save TODO_LIST` - Save TODO_LIST to .todo_list file
 - `/context show` - Display current context (chat, session, metadata)
+- `/context metrics` - Show context size and usage metrics
 - `/context clear` - Clear context (keeps session active)
 
 **Usage Examples**:
@@ -275,12 +281,53 @@ src/
 /context add @src/main.py              # Add a single file
 /context add @src/utils/               # Add entire directory
 /context add @file1.py @file2.py       # Add multiple files
+/context add ALL                       # Add entire working directory
+/context add ALL_TOOLS                 # Add all MCP tools reference
+/context add TODO_LIST build a user authentication system with JWT
+/context save TODO_LIST                # Save to .todo_list file
+/context load TODO_LIST                # Load from .todo_list file
 /context show                          # View what's in context
+/context metrics                       # View context size and metrics
 ```
 
-**Note**: Unlike using `@file` in a regular prompt (which triggers the LLM), `/context add`
-only loads the file/directory into context for later use. This allows you to build up context
-incrementally without wasting tokens on unnecessary LLM responses.
+**Special Keywords**:
+
+1. **ALL_TOOLS**: After running `/context add ALL_TOOLS`, you can reference "ALL_TOOLS" in your prompts to access the complete MCP tools documentation. The LLM will have access to all tool descriptions, parameters, and usage information.
+
+2. **TODO_LIST**: A strategic planning feature that generates a comprehensive action plan by:
+   - Automatically loading ALL_TOOLS if not already in context
+   - Using the LLM to analyze your request
+   - Matching steps with appropriate MCP tools
+   - Considering both tool capabilities AND LLM reasoning capabilities
+   - Creating a structured plan with tool references
+   - Storing the plan in context for future reference
+
+   **Generation**:
+   ```bash
+   /context add TODO_LIST create a REST API with user authentication and database
+   ```
+
+   **Persistence** (save/load from `.todo_list` file):
+   ```bash
+   /context save TODO_LIST    # Save current TODO_LIST to .todo_list file
+   /context load TODO_LIST    # Load TODO_LIST from .todo_list file
+   ```
+
+   **Benefits of file persistence**:
+   - Share TODO_LIST with team members
+   - Version control with git
+   - Edit manually in your preferred editor
+   - Persist across sessions
+   - Reuse plans for similar projects
+
+   **Difference from /code mode**:
+   - `/code mode`: Simply breaks down prompts into step-by-step tasks
+   - `TODO_LIST`: Intelligently matches steps with available tools, considers dependencies, and creates a comprehensive strategic plan that leverages both MCP tools and LLM capabilities
+
+   After generation, reference "TODO_LIST" in your prompts to access the plan.
+
+**Notes**:
+- Unlike using `@file` in a regular prompt (which triggers the LLM), `/context add` only loads the file/directory into context for later use. This allows you to build up context incrementally without wasting tokens on unnecessary LLM responses.
 
 ### Model Management
 

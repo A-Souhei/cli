@@ -1,9 +1,9 @@
 """MCP-related command handlers for AI CLI."""
 
 
-def handle_mcps(list_system_mcps):
+def handle_mcps(console, list_system_mcps):
     """Handle mcps command."""
-    list_system_mcps()
+    list_system_mcps(console=console)
     return True  # Continue the loop
 
 

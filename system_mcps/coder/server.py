@@ -1399,7 +1399,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 file_info['full_path'],
                 file_info['content'],
                 session_id,
-                "directory"
+                "file"
             )
 
             if result.get('status') == 'success':

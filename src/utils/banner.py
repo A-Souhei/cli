@@ -61,10 +61,20 @@ def print_help(console):
     console.print("  [bold]'/session list'[/bold] - List all saved sessions")
     console.print("  [bold]'/session clear'[/bold] - Clear all saved sessions")
 
-    console.print("\n[bold yellow]Context:[/bold yellow]")
+    console.print("\n[bold yellow]Context Management:[/bold yellow]")
     console.print("  [bold]'/context add @file'[/bold] - Add file/directory to context without LLM call")
-    console.print("  [bold]'/context show'[/bold] - Show current context (chat, session, metadata)")
+    console.print("  [bold]'/context add ALL'[/bold] - Add entire working directory to context")
+    console.print("  [bold]'/context add ALL_TOOLS'[/bold] - Add all MCP tools with descriptions to context")
+    console.print("  [bold]'/context add TODO_LIST <desc>'[/bold] - Generate strategic TODO list with tool references")
+    console.print("  [bold]'/context load TODO_LIST'[/bold] - Load TODO_LIST from .todo_list file")
+    console.print("  [bold]'/context save TODO_LIST'[/bold] - Save TODO_LIST to .todo_list file")
+    console.print("  [bold]'/context show'[/bold] - Display current context (chat, session, metadata)")
+    console.print("  [bold]'/context metrics'[/bold] - Show context size and usage metrics")
     console.print("  [bold]'/context clear'[/bold] - Clear current context (keeps session active)")
+
+    console.print("\n[bold yellow]Security & Ignore:[/bold yellow]")
+    console.print("  [bold]'/ignore create'[/bold] - Create .llmignore file with default patterns")
+    console.print("  [bold]'/ignore add @file'[/bold] - Add file(s) to .llmignore")
 
     console.print("\n[bold yellow]Repository & Data Mapping:[/bold yellow]")
     console.print("  [bold]'/repomap create'[/bold] - Create a repository map")
@@ -97,8 +107,10 @@ def print_help(console):
     console.print("  [bold]'@directory/'[/bold] - Add directory to context")
 
     console.print("\n[bold yellow]Keyboard Shortcuts:[/bold yellow]")
+    console.print("  [bold]'Ctrl+J'[/bold] - Submit multi-line input")
+    console.print("  [bold]'Alt+Enter'[/bold] - Submit multi-line input (Escape then Enter)")
     console.print("  [bold]'Ctrl+C'[/bold] - Clear current input (or skip rating)")
-    console.print("  [bold]'Ctrl+D'[/bold] - Exit CLI")
+    console.print("  [bold]'Ctrl+D'[/bold] - Delete character (or exit if input is empty)")
     console.print()
 
 

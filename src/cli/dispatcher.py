@@ -12,7 +12,12 @@ from src.cli.commands.session import (
     handle_session_restore, handle_session_delete, handle_session_list,
     handle_session_clear
 )
-from src.cli.commands.context import handle_context_show, handle_context_clear, handle_context_add
+from src.cli.commands.context import (
+    handle_context_show, handle_context_clear, handle_context_add,
+    handle_context_metrics, handle_context_add_all_tools,
+    handle_context_generate_todo_list, handle_context_load_todo_list,
+    handle_context_save_todo_list
+)
 from src.cli.commands.mcp import handle_mcps, handle_mcp_tools
 from src.cli.commands.model import (
     handle_models_alias, handle_models_list, handle_switch_model,
@@ -133,7 +138,7 @@ class CommandDispatcher:
         
         # Handle MCP commands
         if user_input_normalized.lower() == 'mcps':
-            return handle_mcps(self.list_system_mcps)
+            return handle_mcps(self.console, self.list_system_mcps)
         
         if user_input_normalized.lower().startswith('mcp-tools '):
             return handle_mcp_tools(self.console, user_input_normalized,
@@ -175,12 +180,52 @@ class CommandDispatcher:
         if user_input_normalized.lower() == 'context clear':
             return handle_context_clear(self.console, self.chat_manager, self.session_manager)
 
-        if user_input_normalized.lower().startswith('context add '):
-            return handle_context_add(
-                self.console, user_input_normalized, self.get_user_working_dir,
-                self.session_manager, self.mcp_client, self.run_async,
+        if user_input_normalized.lower() == 'context metrics':
+            return handle_context_metrics(self.console, self.chat_manager, self.session_manager)
+
+        # Handle /context load TODO_LIST
+        if user_input_normalized.lower() == 'context load todo_list':
+            return handle_context_load_todo_list(
+                self.console, self.session_manager, self.get_user_working_dir,
                 self.debug_print, verbose=self.verbose
             )
+
+        # Handle /context save TODO_LIST
+        if user_input_normalized.lower() == 'context save todo_list':
+            return handle_context_save_todo_list(
+                self.console, self.session_manager, self.get_user_working_dir,
+                self.debug_print, verbose=self.verbose
+            )
+
+        if user_input_normalized.lower().startswith('context add '):
+            # Check for special keywords
+            if 'ALL_TOOLS' in user_input_normalized.upper():
+                return handle_context_add_all_tools(
+                    self.console, self.session_manager, self.mcp_client,
+                    self.run_async, self.debug_print, verbose=self.verbose
+                )
+            elif 'TODO_LIST' in user_input_normalized.upper():
+                # Extract the user request (everything after TODO_LIST)
+                # Find the position case-insensitively
+                idx = user_input_normalized.upper().find('TODO_LIST')
+                user_request = user_input_normalized[idx + len('TODO_LIST'):].strip() if idx != -1 else ""
+
+                if not user_request:
+                    self.console.print("\n⚠️  [yellow]Please provide a description for TODO_LIST generation[/yellow]")
+                    self.console.print("[dim]Usage: /context add TODO_LIST <description of task>[/dim]\n")
+                    return True
+
+                return handle_context_generate_todo_list(
+                    self.console, self.session_manager, self.mcp_client,
+                    self.ollama_client, self.config, self.run_async,
+                    self.debug_print, user_request, verbose=self.verbose
+                )
+            else:
+                return handle_context_add(
+                    self.console, user_input_normalized, self.get_user_working_dir,
+                    self.session_manager, self.mcp_client, self.run_async,
+                    self.debug_print, verbose=self.verbose
+                )
         
         # Handle ignore commands
         if user_input_normalized.lower().startswith('ignore '):
