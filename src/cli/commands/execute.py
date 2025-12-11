@@ -101,6 +101,189 @@ def execute_mcp_tool(tool_name, working_dir, mcp_client, run_async, console, deb
         return (False, error)
 
 
+def execute_plan_from_file(console, file_path, get_user_working_dir, mcp_client,
+                          run_async, debug_print, CustomMarkdown, ollama_client,
+                          config, stream, temperature):
+    """
+    Execute a plan directly from a file.
+
+    Args:
+        console: Rich console for output
+        file_path: Path to the plan file
+        get_user_working_dir: Function to get working directory
+        mcp_client: MCP client for calling tools
+        run_async: Function to run async coroutines
+        debug_print: Debug print function
+        CustomMarkdown: Custom markdown renderer class
+        ollama_client: OllamaClient for calling LLM
+        config: Configuration manager
+        stream: Stream responses
+        temperature: LLM temperature
+    """
+    import os
+
+    working_dir = get_user_working_dir()
+
+    # Resolve file path (handle relative paths)
+    if not os.path.isabs(file_path):
+        file_path = os.path.join(working_dir, file_path)
+
+    # Check if file exists
+    if not os.path.exists(file_path):
+        console.print(f"\n❌ [red]File not found: {file_path}[/red]\n")
+        return True
+
+    # Read file content
+    try:
+        with open(file_path, 'r') as f:
+            plan_content = f.read()
+    except Exception as e:
+        console.print(f"\n❌ [red]Error reading file: {str(e)}[/red]\n")
+        return True
+
+    # Detect plan type from content or filename
+    plan_type = None
+    if 'TODO_LIST' in plan_content.upper() or 'todo' in file_path.lower():
+        plan_type = 'TODO_LIST'
+    elif 'MAKE_LIST' in plan_content.upper() or 'make' in file_path.lower():
+        plan_type = 'MAKE_LIST'
+    else:
+        # Default to TODO_LIST
+        plan_type = 'TODO_LIST'
+
+    console.print(f"\n🚀 [bold cyan]Executing {plan_type} from file[/bold cyan]")
+    console.print(f"[dim]File: {file_path}[/dim]")
+    console.print(f"[dim]Working Directory: {working_dir}[/dim]\n")
+
+    # Parse the plan content directly (similar to execute_plan MCP tool logic)
+    lines = plan_content.split('\n')
+    steps = []
+    current_step = None
+
+    for line in lines:
+        line = line.strip()
+
+        # Detect bullet points (-, *, •, 1., 2., etc.)
+        if re.match(r'^[-*•]|\d+\.', line):
+            # Remove bullet point marker and leading/trailing whitespace
+            step_text = re.sub(r'^[-*•]|\d+\.', '', line).strip()
+
+            # Skip empty steps
+            if step_text:
+                # Skip meta-information lines (headers, etc.)
+                if not any(keyword in step_text.lower() for keyword in ['todo_list', 'make_list', 'plan:', 'steps:']):
+                    if current_step:
+                        steps.append(current_step)
+                    current_step = step_text
+        # Handle continuation lines (indented text under a bullet point)
+        elif current_step and line and not line.startswith('#'):
+            current_step += " " + line
+
+    # Add the last step
+    if current_step:
+        steps.append(current_step)
+
+    if not steps:
+        console.print("⚠️  [yellow]No executable steps found in file[/yellow]\n")
+        return True
+
+    total_steps = len(steps)
+    console.print(f"✅ [green]Parsed {total_steps} step{'s' if total_steps != 1 else ''}[/green]\n")
+
+    # Execute steps using the same logic as handle_execute_plan
+    accumulated_context = f"Executing {plan_type} from {file_path}:\n\n"
+    executed_count = 0
+
+    for idx, step_text in enumerate(steps):
+        step_num = idx + 1
+
+        console.print(f"[bold cyan]Step {step_num}:[/bold cyan] {step_text}")
+        console.print()
+
+        try:
+            # Check if step has a tool or make reference
+            tool_type, tool_name = parse_tool_reference(step_text)
+
+            execution_result = None
+            success = False
+
+            if tool_type == 'make':
+                # Execute make command
+                success, output = execute_make_command(
+                    tool_name, working_dir, console, debug_print
+                )
+                execution_result = output
+
+            elif tool_type == 'tool':
+                # Execute MCP tool
+                success, output = execute_mcp_tool(
+                    tool_name, working_dir, mcp_client, run_async,
+                    console, debug_print, accumulated_context
+                )
+                execution_result = output
+
+            else:
+                # No tool reference - use LLM for reasoning/planning
+                console.print(f"[dim]  → Using LLM for reasoning step[/dim]")
+
+                # Build prompt for this step with accumulated context
+                step_prompt = f"{accumulated_context}Step {step_num}: {step_text}\n\nExecute this step:"
+
+                # Format as messages for both OllamaClient and AnthropicClient
+                messages = []
+                system_prompt = config.get_system_prompt()
+                if system_prompt:
+                    messages.append({"role": "system", "content": system_prompt})
+                messages.append({"role": "user", "content": step_prompt})
+
+                response = ollama_client.chat(
+                    messages=messages,
+                    stream=False,
+                    temperature=temperature
+                )
+
+                # Extract content from response
+                llm_response = response.get('message', {}).get('content', '') if isinstance(response, dict) else response
+
+                if llm_response:
+                    execution_result = llm_response
+                    success = True
+                else:
+                    console.print(f"[red]⚠️  Step {step_num} failed - no response from LLM[/red]\n")
+
+            # Display result and accumulate context
+            if success and execution_result:
+                # Display execution result
+                if tool_type:
+                    console.print(f"\n[dim]Output:[/dim]")
+                md = CustomMarkdown(str(execution_result))
+                console.print(md)
+                console.print()
+
+                # Accumulate context for next steps (truncate to avoid context bloat)
+                result_preview = str(execution_result)[:500] if len(str(execution_result)) > 500 else str(execution_result)
+                accumulated_context += f"\nStep {step_num}: {step_text}\nResult: {result_preview}\n"
+
+                executed_count += 1
+
+        except Exception as e:
+            console.print(f"[red]⚠️  Error executing step {step_num}: {str(e)}[/red]\n")
+            debug_print(f"Step {step_num} error: {e}", icon="❌")
+
+    # Display summary
+    console.print("─" * 60)
+    console.print(f"[bold]Summary:[/bold] Executed {executed_count}/{total_steps} steps successfully")
+
+    if executed_count == total_steps:
+        console.print(f"✅ [green]All steps completed![/green]\n")
+    elif executed_count > 0:
+        console.print(f"⚠️  [yellow]Partial completion: {total_steps - executed_count} step(s) failed[/yellow]\n")
+    else:
+        console.print(f"❌ [red]No steps were executed successfully[/red]\n")
+
+    return True
+
+
 def handle_execute_plan(console, session_manager, mcp_client, get_user_working_dir,
                         run_async, user_input_normalized, debug_print, CustomMarkdown,
                         ollama_client, config, stream, temperature):
@@ -140,18 +323,33 @@ def handle_execute_plan(console, session_manager, mcp_client, get_user_working_d
     parts = user_input_normalized.split(maxsplit=1)
 
     if len(parts) < 2:
-        console.print("\n❌ [red]Usage: /execute TODO_LIST or /execute MAKE_LIST[/red]")
+        console.print("\n❌ [red]Usage: /execute TODO_LIST or /execute MAKE_LIST or /execute @path/to/file.md[/red]")
         console.print("[dim]Examples:[/dim]")
         console.print("[dim]  /execute TODO_LIST[/dim]")
-        console.print("[dim]  /execute MAKE_LIST[/dim]\n")
+        console.print("[dim]  /execute MAKE_LIST[/dim]")
+        console.print("[dim]  /execute @.todo_list[/dim]")
+        console.print("[dim]  /execute @path/to/plan.md[/dim]\n")
         return True
 
-    plan_type = parts[1].upper()
+    arg = parts[1]
+
+    # Check if it's a file path (starts with @)
+    if arg.startswith('@'):
+        # Execute from file
+        file_path = arg[1:]  # Remove @ prefix
+        return execute_plan_from_file(
+            console, file_path, get_user_working_dir, mcp_client,
+            run_async, debug_print, CustomMarkdown, ollama_client,
+            config, stream, temperature
+        )
+
+    # Otherwise, treat as plan type (TODO_LIST or MAKE_LIST)
+    plan_type = arg.upper()
 
     # Validate plan type
     if plan_type not in ["TODO_LIST", "MAKE_LIST"]:
-        console.print(f"\n❌ [red]Invalid plan type: {plan_type}[/red]")
-        console.print("[yellow]Must be either TODO_LIST or MAKE_LIST[/yellow]\n")
+        console.print(f"\n❌ [red]Invalid argument: {arg}[/red]")
+        console.print("[yellow]Must be either TODO_LIST, MAKE_LIST, or @path/to/file.md[/yellow]\n")
         return True
 
     # Get session info
