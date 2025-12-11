@@ -444,9 +444,6 @@ class TestContextSaveTodoList:
 
         todo_content = "# TODO_LIST\n1. Task\n"
 
-        # Create subdirectory
-        os.makedirs(os.path.join(self.test_dir, 'todos'), exist_ok=True)
-
         with patch('httpx.Client') as mock_client:
             mock_response = Mock()
             mock_response.status_code = 200
@@ -841,3 +838,51 @@ class TestContextGenerateMakeList:
 
         assert result is True
         self.ollama_client.chat.assert_called_once()
+
+    def test_generate_make_list_without_makemap_generates_it(self):
+        """Test generating MAKE_LIST when Makefile exists but .makemap doesn't - should auto-generate makemap."""
+        # Create a Makefile
+        makefile_path = os.path.join(self.test_dir, 'Makefile')
+        with open(makefile_path, 'w') as f:
+            f.write("test:\n\t@echo 'Running tests'\n\nbuild:\n\t@echo 'Building'\n")
+
+        # Don't create .makemap - it should be generated automatically
+        makemap_path = os.path.join(self.test_dir, '.makemap')
+        assert not os.path.exists(makemap_path)
+
+        self.session_manager.is_active.return_value = True
+        self.session_manager.get_session_id.return_value = 'test-session'
+
+        with patch('httpx.Client') as mock_client:
+            mock_store_response = Mock()
+            mock_store_response.status_code = 200
+            mock_store_response.json.return_value = {'status': 'success'}
+            mock_client.return_value.__enter__.return_value.post.return_value = mock_store_response
+
+            # Mock LLM response for both makemap generation and MAKE_LIST generation
+            # First call generates makemap, second call generates MAKE_LIST
+            self.ollama_client.chat.side_effect = [
+                {
+                    'message': {
+                        'content': '## make test\nRuns the test suite\n\n## make build\nBuilds the project\n'
+                    }
+                },
+                {
+                    'message': {
+                        'content': '# MAKE_LIST: Test and Build\n\n1. Run tests - [Make: make test]\n2. Build project - [Make: make build]\n'
+                    }
+                }
+            ]
+
+            result = handle_context_generate_make_list(
+                self.console, self.session_manager, self.ollama_client,
+                self.config, self.run_async, self.debug_print,
+                "Test and build", self.get_user_working_dir,
+                verbose=False
+            )
+
+        assert result is True
+        # Should be called twice - once for makemap, once for MAKE_LIST
+        assert self.ollama_client.chat.call_count == 2
+        # Verify .makemap was created
+        assert os.path.exists(makemap_path)

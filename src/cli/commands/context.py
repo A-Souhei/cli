@@ -7,6 +7,32 @@ from src.utils.llmignore import filter_at_context
 from src.utils.makemap import find_makefile, parse_makefile, generate_makemap_prompt
 
 
+def resolve_file_path(file_path: str, working_dir: str, default_filename: str) -> str:
+    """
+    Resolve a file path with @ prefix handling and absolute/relative path support.
+
+    Args:
+        file_path: Optional custom file path (may have @ prefix)
+        working_dir: Working directory for relative paths
+        default_filename: Default filename if file_path is None
+
+    Returns:
+        Resolved absolute file path
+    """
+    if file_path:
+        # Remove @ prefix if present
+        if file_path.startswith('@'):
+            file_path = file_path[1:]
+
+        # Handle both absolute and relative paths
+        if os.path.isabs(file_path):
+            return file_path
+        else:
+            return os.path.join(working_dir, file_path)
+    else:
+        return os.path.join(working_dir, default_filename)
+
+
 def display_ignored_items(console, ignored_items: list, item_type: str, max_display: int = 5) -> None:
     """
     Display a list of ignored files or directories from .llmignore.
@@ -485,20 +511,7 @@ def handle_context_load_todo_list(console, session_manager, get_user_working_dir
     console.print("\n📂 [cyan]Loading TODO_LIST from file...[/cyan]")
 
     working_dir = get_user_working_dir()
-
-    # Use custom file path if provided, otherwise default to .todo_list
-    if file_path:
-        # Remove @ prefix if present
-        if file_path.startswith('@'):
-            file_path = file_path[1:]
-
-        # Handle both absolute and relative paths
-        if os.path.isabs(file_path):
-            todo_file_path = file_path
-        else:
-            todo_file_path = os.path.join(working_dir, file_path)
-    else:
-        todo_file_path = os.path.join(working_dir, '.todo_list')
+    todo_file_path = resolve_file_path(file_path, working_dir, '.todo_list')
 
     # Check if file exists
     if not os.path.exists(todo_file_path):
@@ -612,22 +625,13 @@ def handle_context_save_todo_list(console, session_manager, get_user_working_dir
 
         # Determine save path
         working_dir = get_user_working_dir()
-
-        if file_path:
-            # Remove @ prefix if present
-            if file_path.startswith('@'):
-                file_path = file_path[1:]
-
-            # Handle both absolute and relative paths
-            if os.path.isabs(file_path):
-                todo_file_path = file_path
-            else:
-                todo_file_path = os.path.join(working_dir, file_path)
-        else:
-            todo_file_path = os.path.join(working_dir, '.todo_list')
+        todo_file_path = resolve_file_path(file_path, working_dir, '.todo_list')
 
         if verbose:
             debug_print(f"Saving to: {todo_file_path}", icon="💾", style="cyan")
+
+        # Create parent directories if they don't exist
+        os.makedirs(os.path.dirname(todo_file_path), exist_ok=True)
 
         with open(todo_file_path, 'w', encoding='utf-8') as f:
             f.write(todo_content)
@@ -960,20 +964,7 @@ def handle_context_load_make_list(console, session_manager, get_user_working_dir
     console.print("\n📂 [cyan]Loading MAKE_LIST from file...[/cyan]")
 
     working_dir = get_user_working_dir()
-
-    # Use custom file path if provided, otherwise default to .make_list
-    if file_path:
-        # Remove @ prefix if present
-        if file_path.startswith('@'):
-            file_path = file_path[1:]
-
-        # Handle both absolute and relative paths
-        if os.path.isabs(file_path):
-            make_file_path = file_path
-        else:
-            make_file_path = os.path.join(working_dir, file_path)
-    else:
-        make_file_path = os.path.join(working_dir, '.make_list')
+    make_file_path = resolve_file_path(file_path, working_dir, '.make_list')
 
     # Check if file exists
     if not os.path.exists(make_file_path):
@@ -1087,22 +1078,13 @@ def handle_context_save_make_list(console, session_manager, get_user_working_dir
 
         # Determine save path
         working_dir = get_user_working_dir()
-
-        if file_path:
-            # Remove @ prefix if present
-            if file_path.startswith('@'):
-                file_path = file_path[1:]
-
-            # Handle both absolute and relative paths
-            if os.path.isabs(file_path):
-                make_file_path = file_path
-            else:
-                make_file_path = os.path.join(working_dir, file_path)
-        else:
-            make_file_path = os.path.join(working_dir, '.make_list')
+        make_file_path = resolve_file_path(file_path, working_dir, '.make_list')
 
         if verbose:
             debug_print(f"Saving to: {make_file_path}", icon="💾", style="cyan")
+
+        # Create parent directories if they don't exist
+        os.makedirs(os.path.dirname(make_file_path), exist_ok=True)
 
         with open(make_file_path, 'w', encoding='utf-8') as f:
             f.write(make_content)
@@ -1176,11 +1158,11 @@ def handle_context_generate_make_list(console, session_manager, ollama_client,
                 return True
 
             # Generate makemap using LLM
-            makemap_prompt = generate_makemap_prompt(targets, parsed.get('variables', {}))
+            makemap_prompt = generate_makemap_prompt(parsed)
 
             # Create a temporary chat manager for makemap generation
             from src.chat import ChatManager
-            makemap_chat = ChatManager(max_messages=10)
+            makemap_chat = ChatManager(system_prompt="", max_context_length=10)
             makemap_chat.add_user_message(makemap_prompt)
             messages = makemap_chat.get_messages()
 
