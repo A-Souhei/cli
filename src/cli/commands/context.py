@@ -42,7 +42,9 @@ def handle_context_add(console, user_input_normalized, get_user_working_dir,
         /context add ALL - Add entire working directory
     """
     # Check if user wants to add ALL (entire working directory)
-    if 'ALL' in user_input_normalized.upper():
+    # Use token matching to avoid false positives with filenames containing 'ALL'
+    tokens = user_input_normalized.strip().split()
+    if len(tokens) >= 3 and tokens[2].upper() == 'ALL':
         working_dir = get_user_working_dir()
         console.print(f"\n📁 [cyan]Adding entire working directory to context:[/cyan] {working_dir}")
 
@@ -390,6 +392,7 @@ def handle_context_metrics(console, chat_manager, session_manager):
         console.print(f"  • History Size: [cyan]{history_size:,}[/cyan] bytes")
 
         # Get loaded files/directories from Redis
+        total_content_size = 0
         try:
             redis_api_url = os.getenv('REDIS_API_URL', 'http://localhost:17000')
             session_id = session_manager.get_session_id()
@@ -409,7 +412,6 @@ def handle_context_metrics(console, chat_manager, session_manager):
                         console.print()
                         console.print("[cyan]Loaded Files/Directories:[/cyan]")
 
-                        total_content_size = 0
                         file_count = 0
                         dir_count = 0
                         tree_count = 0

@@ -96,12 +96,13 @@ def custom_prompt_with_lines(console, history=None, completer=None):
         # Enter adds a new line in multi-line mode
         event.current_buffer.insert_text('\n')
 
-    @kb.add('escape', 'enter')  # Alt+Enter submits
+    @kb.add('escape', 'enter')  # Alt+Enter submits (Escape followed by Enter)
     def _(event):
-        # Alt+Enter accepts the current input (triggers accept_handler)
+        # Note: This is a two-key sequence (Escape, then Enter), not simultaneous
+        # Terminal compatibility may vary
         event.current_buffer.validate_and_handle()
 
-    @kb.add('c-j')  # Ctrl+J also submits
+    @kb.add('c-j')  # Ctrl+J submits (more reliable than Alt+Enter)
     def _(event):
         # Ctrl+J accepts the current input (triggers accept_handler)
         event.current_buffer.validate_and_handle()

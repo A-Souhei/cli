@@ -206,8 +206,9 @@ class CommandDispatcher:
                 )
             elif 'TODO_LIST' in user_input_normalized.upper():
                 # Extract the user request (everything after TODO_LIST)
-                parts = user_input_normalized.split('TODO_LIST', 1)
-                user_request = parts[1].strip() if len(parts) > 1 else ""
+                # Find the position case-insensitively
+                idx = user_input_normalized.upper().find('TODO_LIST')
+                user_request = user_input_normalized[idx + len('TODO_LIST'):].strip() if idx != -1 else ""
 
                 if not user_request:
                     self.console.print("\n⚠️  [yellow]Please provide a description for TODO_LIST generation[/yellow]")
