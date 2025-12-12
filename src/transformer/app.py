@@ -27,6 +27,8 @@ configure_sentry(service_name="transformer-nlp")
 
 # Load embedding model
 model = None
+codebert_model = None
+codebert_tokenizer = None
 
 
 def get_model():
@@ -36,6 +38,17 @@ def get_model():
         model_name = os.getenv('EMBEDDING_MODEL', 'all-MiniLM-L6-v2')
         model = SentenceTransformer(model_name)
     return model
+
+
+def get_codebert_model():
+    """Lazy load the CodeBERT model for code embeddings."""
+    global codebert_model, codebert_tokenizer
+    if codebert_model is None:
+        from transformers import AutoTokenizer, AutoModel
+        model_name = 'microsoft/codebert-base'
+        codebert_tokenizer = AutoTokenizer.from_pretrained(model_name)
+        codebert_model = AutoModel.from_pretrained(model_name)
+    return codebert_model, codebert_tokenizer
 
 
 def handle_error(e, status_code=500):
@@ -265,6 +278,121 @@ def extract_keywords_endpoint():
         return handle_error(e)
 
 
+@app.route('/code/embed', methods=['POST'])
+def embed_code():
+    """
+    Generate embeddings for code snippets using CodeBERT.
+
+    Request Body (JSON):
+    - code: The code snippet to embed
+    - language: Optional programming language (e.g., python, javascript)
+
+    Returns:
+    - embedding: List of float values representing the code embedding
+    - dimension: Size of the embedding vector
+    - model: Model used for embedding
+    """
+    try:
+        import torch
+        
+        data = request.get_json()
+        if not data or 'code' not in data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing code in request body'
+            }), 400
+
+        code = data['code']
+        language = data.get('language', '')
+
+        # Get CodeBERT model and tokenizer
+        model, tokenizer = get_codebert_model()
+
+        # Tokenize the code
+        inputs = tokenizer(code, return_tensors='pt', truncation=True, max_length=512, padding=True)
+
+        # Generate embeddings
+        with torch.no_grad():
+            outputs = model(**inputs)
+            # Use [CLS] token embedding as code representation
+            embedding = outputs.last_hidden_state[:, 0, :].squeeze().numpy()
+
+        return jsonify({
+            'status': 'success',
+            'code': code,
+            'language': language,
+            'embedding': embedding.tolist(),
+            'dimension': len(embedding),
+            'model': 'microsoft/codebert-base'
+        }), 200
+
+    except Exception as e:
+        return handle_error(e)
+
+
+@app.route('/code/embed/batch', methods=['POST'])
+def embed_code_batch():
+    """
+    Generate embeddings for multiple code snippets using CodeBERT.
+
+    Request Body (JSON):
+    - codes: List of code snippets to embed
+    - languages: Optional list of programming languages (same length as codes)
+
+    Returns:
+    - embeddings: List of embedding vectors
+    - count: Number of code snippets embedded
+    - dimension: Size of each embedding vector
+    - model: Model used for embedding
+    """
+    try:
+        import torch
+        
+        data = request.get_json()
+        if not data or 'codes' not in data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing codes array in request body'
+            }), 400
+
+        codes = data['codes']
+        languages = data.get('languages', [''] * len(codes))
+
+        if not isinstance(codes, list) or not codes:
+            return jsonify({
+                'status': 'error',
+                'message': 'codes must be a non-empty array'
+            }), 400
+
+        # Get CodeBERT model and tokenizer
+        model, tokenizer = get_codebert_model()
+
+        embeddings = []
+        for code in codes:
+            # Tokenize the code
+            inputs = tokenizer(code, return_tensors='pt', truncation=True, max_length=512, padding=True)
+
+            # Generate embeddings
+            with torch.no_grad():
+                outputs = model(**inputs)
+                # Use [CLS] token embedding as code representation
+                embedding = outputs.last_hidden_state[:, 0, :].squeeze().numpy()
+                embeddings.append(embedding.tolist())
+
+        return jsonify({
+            'status': 'success',
+            'codes': codes,
+            'languages': languages,
+            'embeddings': embeddings,
+            'count': len(codes),
+            'dimension': len(embeddings[0]),
+            'model': 'microsoft/codebert-base'
+        }), 200
+
+    except Exception as e:
+        return handle_error(e)
+
+
 @app.route('/similarity', methods=['GET'])
 def compare_similarity():
     """
@@ -326,6 +454,83 @@ def compare_similarity():
         return handle_error(e)
 
 
+@app.route('/code/similarity', methods=['POST'])
+def compare_code_similarity():
+    """
+    Compare the similarity between two code snippets using CodeBERT embeddings.
+
+    Request Body (JSON):
+    - code1: First code snippet to compare
+    - code2: Second code snippet to compare
+    - language1: Optional programming language for code1
+    - language2: Optional programming language for code2
+    - metric: Distance metric (default: cosine). Options: cosine, euclidean, dot_product
+
+    Returns:
+    - similarity: Similarity score between the two code snippets
+    - metric: The metric used for comparison
+    - interpretation: Human-readable interpretation of the score
+    - model: Model used for embeddings
+    """
+    try:
+        import torch
+        
+        data = request.get_json()
+        if not data or 'code1' not in data or 'code2' not in data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing code1 or code2 in request body'
+            }), 400
+
+        code1 = data['code1']
+        code2 = data['code2']
+        language1 = data.get('language1', '')
+        language2 = data.get('language2', '')
+        metric = data.get('metric', 'cosine')
+
+        # Validate metric
+        valid_metrics = ['cosine', 'euclidean', 'dot_product']
+        if metric not in valid_metrics:
+            return jsonify({
+                'status': 'error',
+                'message': f'Invalid metric. Must be one of: {", ".join(valid_metrics)}'
+            }), 400
+
+        # Get CodeBERT model and tokenizer
+        model, tokenizer = get_codebert_model()
+
+        # Generate embeddings for both code snippets
+        embeddings = []
+        for code in [code1, code2]:
+            inputs = tokenizer(code, return_tensors='pt', truncation=True, max_length=512, padding=True)
+            with torch.no_grad():
+                outputs = model(**inputs)
+                embedding = outputs.last_hidden_state[:, 0, :].squeeze().numpy()
+                embeddings.append(embedding)
+
+        # Convert to numpy arrays
+        vec1 = np.array(embeddings[0])
+        vec2 = np.array(embeddings[1])
+
+        # Calculate similarity
+        similarity = calculate_similarity(vec1, vec2, metric=metric)
+
+        return jsonify({
+            'status': 'success',
+            'code1': code1,
+            'code2': code2,
+            'language1': language1,
+            'language2': language2,
+            'metric': metric,
+            'similarity': float(similarity),
+            'interpretation': _interpret_similarity(similarity, metric),
+            'model': 'microsoft/codebert-base'
+        }), 200
+
+    except Exception as e:
+        return handle_error(e)
+
+
 def _interpret_similarity(score: float, metric: str) -> str:
     """Helper function to interpret similarity scores."""
     if metric == 'cosine':
@@ -376,6 +581,9 @@ if __name__ == '__main__':
     print("  GET  /summarize?text=<text> - Summarize text")
     print("  GET  /keywords?text=<text> - Extract keywords from text")
     print("  GET  /similarity?text1=<text>&text2=<text> - Compare similarity between two texts")
+    print("  POST /code/embed - Generate code embeddings using CodeBERT")
+    print("  POST /code/embed/batch - Generate embeddings for multiple code snippets")
+    print("  POST /code/similarity - Compare similarity between two code snippets")
     print()
 
     # Run the app

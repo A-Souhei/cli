@@ -31,7 +31,8 @@ RUN git clone --branch v0.7.4 https://github.com/pgvector/pgvector.git /tmp/pgve
     rm -rf /tmp/pgvector
 
 # Install Flask and related packages with cache mount
-RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+# IMPORTANT: Using cache mount means packages are downloaded once and reused across builds
+RUN --mount=type=cache,target=/root/.cache/pip \
     pip3 install --no-cache-dir \
     flask \
     flask-sqlalchemy \

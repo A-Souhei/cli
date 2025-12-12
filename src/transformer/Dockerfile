@@ -21,20 +21,21 @@ COPY src/transformer/requirements.txt .
 
 # Install base dependencies first (numpy with version constraint)
 # This layer is separate to avoid invalidating torch cache when numpy constraints change
-RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
-    pip install -r requirements-base.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir -r requirements-base.txt
 
 # Install heavy dependencies in a single layer with cache mount
 # The pip cache mount ensures torch (~800MB) and transformers (~400MB) are cached between builds
-RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
-    pip install \
+# IMPORTANT: Using cache mount means packages are downloaded once and reused across builds
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir \
     torch==2.1.2 \
     transformers==4.36.2 \
     sentence-transformers==2.7.0
 
 # Install remaining dependencies (lighter packages)
-RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
-    pip install \
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir \
     flask==2.3.3 \
     flask-cors==4.0.0 \
     keybert==0.8.5 \
@@ -45,12 +46,21 @@ RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
 # This allows models to be cached across rebuilds when using volume mounts
 RUN mkdir -p /root/.cache/huggingface
 
-# Pre-download sentence-transformers model to avoid first-run delay
-# This model (paraphrase-mpnet-base-v2) is ~420MB and produces 768-dimensional embeddings
-RUN python3 -c "from sentence_transformers import SentenceTransformer; \
+# Pre-download models to avoid first-run delay
+# These models will be cached in the Docker layer and also persisted via volume mount
+RUN --mount=type=cache,target=/root/.cache/huggingface \
+    python3 -c "from sentence_transformers import SentenceTransformer; \
     print('Downloading sentence-transformers model...'); \
     model = SentenceTransformer('paraphrase-mpnet-base-v2'); \
     print('Model downloaded successfully')"
+
+# Pre-download CodeBERT model (~500MB) for code embeddings
+RUN --mount=type=cache,target=/root/.cache/huggingface \
+    python3 -c "from transformers import AutoTokenizer, AutoModel; \
+    print('Downloading CodeBERT model...'); \
+    tokenizer = AutoTokenizer.from_pretrained('microsoft/codebert-base'); \
+    model = AutoModel.from_pretrained('microsoft/codebert-base'); \
+    print('CodeBERT model downloaded successfully')"
 
 # Copy application code
 COPY src/transformer/ .

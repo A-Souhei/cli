@@ -1,6 +1,6 @@
 .PHONY: help setup run run-verbose venv install build up down restart logs status clean test test-unit test-integration test-spin test-all
 .PHONY: exec-ollama pull-model list-models build-postgres exec-postgres flask-logs update-schema migrate-session
-.PHONY: build-redis build-all-services up-redis up-all redis-logs redis-cli redis-clear ui ui-logs ui-stop
+.PHONY: build-redis build-transformer build-ollama-api build-all-services up-redis up-all redis-logs redis-cli redis-clear ui ui-logs ui-stop
 
 # Default target
 .DEFAULT_GOAL := help
@@ -71,27 +71,33 @@ install: venv ## Install Python dependencies
 	@touch $(VENV_DIR)/.requirements_installed
 	@echo "$(GREEN)✓ Dependencies installed$(NC)"
 
-build: ## Build Docker images
-	@echo "$(YELLOW)Building PostgreSQL Docker image...$(NC)"
-	@docker build -f src/postgresql/Dockerfile -t cli-postgres:latest .
-	@echo "$(GREEN)✓ PostgreSQL + Flask image built$(NC)"
+build: ## Build PostgreSQL Docker image with BuildKit caching
+	@echo "$(YELLOW)Building PostgreSQL Docker image with BuildKit cache optimization...$(NC)"
+	@chmod +x scripts/build_postgres.sh
+	@./scripts/build_postgres.sh
 
-build-transformer: ## Build transformer Docker image
-	@echo "$(YELLOW)Building Transformer Docker image...$(NC)"
-	@docker build -f src/transformer/Dockerfile -t cli-transformer:latest .
-	@echo "$(GREEN)✓ Transformer image built$(NC)"
+build-transformer: ## Build transformer Docker image with BuildKit caching
+	@echo "$(YELLOW)Building Transformer Docker image with BuildKit cache optimization...$(NC)"
+	@chmod +x scripts/build_transformer.sh
+	@./scripts/build_transformer.sh
 
-build-redis: ## Build Redis API image
-	@echo "$(YELLOW)Building Redis API image...$(NC)"
-	@$(DOCKER_COMPOSE) build redis-api
-	@echo "$(GREEN)✓ Redis API image built$(NC)"
+build-redis: ## Build Redis API image with BuildKit caching
+	@echo "$(YELLOW)Building Redis API image with BuildKit cache optimization...$(NC)"
+	@chmod +x scripts/build_redis.sh
+	@./scripts/build_redis.sh
 
-build-all: build build-transformer build-redis ## Build all Docker images
-	@echo "$(GREEN)✓ All images built$(NC)"
-	@echo "$(GREEN)✓ Using pre-built ollama/ollama:latest and redis:7-alpine$(NC)"
+build-ollama-api: ## Build Ollama API service with BuildKit caching
+	@echo "$(YELLOW)Building Ollama API service with BuildKit cache optimization...$(NC)"
+	@chmod +x scripts/build_ollama_api.sh
+	@./scripts/build_ollama_api.sh
 
-build-all-services: build build-transformer build-redis ## Build all service images (alias for build-all)
-	@echo "$(GREEN)✓ All service images built$(NC)"
+build-all: ## Build all Docker images with BuildKit caching
+	@echo "$(YELLOW)Building all Docker images with BuildKit cache optimization...$(NC)"
+	@chmod +x scripts/build_all.sh
+	@./scripts/build_all.sh
+
+build-all-services: build-all ## Build all service images (alias for build-all)
+	@echo "$(GREEN)✓ All service images built with BuildKit caching$(NC)"
 
 up: ## Start Docker containers (Ollama profile only)
 	@echo "$(YELLOW)Starting Ollama containers...$(NC)"
@@ -216,10 +222,10 @@ test-all: install ## Run all tests including slow tests
 .PHONY: exec-ollama pull-model list-models
 .PHONY: redis-logs redis-cli redis-clear redis-info redis-api-health transformer-health
 
-build-postgres: ## Build PostgreSQL + Flask image
-	@echo "$(YELLOW)Building PostgreSQL + Flask image...$(NC)"
-	@$(DOCKER_COMPOSE) build postgres
-	@echo "$(GREEN)✓ PostgreSQL + Flask image built$(NC)"
+build-postgres: ## Build PostgreSQL + Flask image with BuildKit caching
+	@echo "$(YELLOW)Building PostgreSQL + Flask image with BuildKit cache optimization...$(NC)"
+	@chmod +x scripts/build_postgres.sh
+	@./scripts/build_postgres.sh
 
 exec-postgres: ## Execute psql in PostgreSQL container
 	@$(DOCKER_COMPOSE) exec postgres su - postgres -c "psql -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-vuhitra}"
