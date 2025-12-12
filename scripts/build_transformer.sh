@@ -2,6 +2,8 @@
 # Build transformer service with BuildKit for optimal caching
 # This ensures pip cache mounts work properly and heavy packages aren't re-downloaded
 
+set -e  # Exit on first error
+
 echo "🚀 Building transformer service with BuildKit cache optimization..."
 echo ""
 echo "This build uses:"

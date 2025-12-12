@@ -30,10 +30,9 @@ RUN git clone --branch v0.7.4 https://github.com/pgvector/pgvector.git /tmp/pgve
     make install && \
     rm -rf /tmp/pgvector
 
-# Install Flask and related packages with cache mount
-# IMPORTANT: Using cache mount means packages are downloaded once and reused across builds
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip3 install --no-cache-dir \
+# Install Flask and related packages from pre-downloaded packages (bind mount)
+RUN --mount=type=bind,source=packages,target=/packages \
+    pip3 install --find-links=/packages \
     flask \
     flask-sqlalchemy \
     psycopg2-binary \

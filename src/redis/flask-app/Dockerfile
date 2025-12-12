@@ -3,10 +3,9 @@ FROM python:3.10-slim
 # Create app directory
 WORKDIR /app
 
-# Install Python dependencies with cache mount
-# IMPORTANT: Using cache mount means packages are downloaded once and reused across builds
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --no-cache-dir \
+# Install Python dependencies from pre-downloaded packages (bind mount)
+RUN --mount=type=bind,source=packages,target=/packages \
+    pip install --find-links=/packages \
     Flask==2.3.2 \
     redis==5.0.1 \
     requests==2.31.0 \

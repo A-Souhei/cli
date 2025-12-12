@@ -1,6 +1,8 @@
 #!/bin/bash
 # Build PostgreSQL service with BuildKit for optimal caching
 
+set -e  # Exit on first error
+
 echo "🚀 Building PostgreSQL service with BuildKit cache optimization..."
 echo ""
 echo "This build uses:"

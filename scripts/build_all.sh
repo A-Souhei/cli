@@ -1,7 +1,17 @@
 #!/bin/bash
 # Build all services with BuildKit for optimal caching
 
-echo "🚀 Building all services with BuildKit cache optimization..."
+set -e  # Exit on first error
+
+echo "🚀 Building all services with pre-downloaded packages..."
+echo ""
+
+# Download all packages first
+echo "📥 Downloading all Python packages..."
+./scripts/download_all_packages.sh
+
+echo ""
+echo "🚀 Building services with BuildKit..."
 echo ""
 
 # Enable BuildKit for better caching

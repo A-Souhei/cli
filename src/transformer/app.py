@@ -17,6 +17,7 @@ from sentence_transformers import SentenceTransformer
 from nlp_tasks import analyze_sentiment, summarize_text, extract_keywords
 from embedding_similarity import calculate_similarity
 import numpy as np
+import torch
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -293,7 +294,6 @@ def embed_code():
     - model: Model used for embedding
     """
     try:
-        import torch
         
         data = request.get_json()
         if not data or 'code' not in data:
@@ -346,7 +346,6 @@ def embed_code_batch():
     - model: Model used for embedding
     """
     try:
-        import torch
         
         data = request.get_json()
         if not data or 'codes' not in data:
@@ -367,17 +366,18 @@ def embed_code_batch():
         # Get CodeBERT model and tokenizer
         model, tokenizer = get_codebert_model()
 
-        embeddings = []
-        for code in codes:
-            # Tokenize the code
-            inputs = tokenizer(code, return_tensors='pt', truncation=True, max_length=512, padding=True)
-
-            # Generate embeddings
-            with torch.no_grad():
-                outputs = model(**inputs)
-                # Use [CLS] token embedding as code representation
-                embedding = outputs.last_hidden_state[:, 0, :].squeeze().numpy()
-                embeddings.append(embedding.tolist())
+        # Batched tokenization and model inference for efficiency
+        inputs = tokenizer(
+            codes,
+            return_tensors='pt',
+            truncation=True,
+            max_length=512,
+            padding=True
+        )
+        with torch.no_grad():
+            outputs = model(**inputs)
+            # Use [CLS] token embedding as code representation for each code snippet
+            embeddings = outputs.last_hidden_state[:, 0, :].cpu().numpy().tolist()
 
         return jsonify({
             'status': 'success',
@@ -473,7 +473,6 @@ def compare_code_similarity():
     - model: Model used for embeddings
     """
     try:
-        import torch
         
         data = request.get_json()
         if not data or 'code1' not in data or 'code2' not in data:

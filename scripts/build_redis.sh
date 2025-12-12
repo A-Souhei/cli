@@ -1,6 +1,8 @@
 #!/bin/bash
 # Build Redis API service with BuildKit for optimal caching
 
+set -e  # Exit on first error
+
 echo "🚀 Building Redis API service with BuildKit cache optimization..."
 echo ""
 echo "This build uses:"
