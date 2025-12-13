@@ -1,0 +1,84 @@
+# Data Engineer MCP Tool Definitions
+# This file defines tool metadata including categories for dynamic tool routing
+
+categories:
+  data_generation:
+    description: "Tools for generating synthetic or fake data"
+    tools:
+      - generate_fake_data
+      - generate_fake_data_ddpm
+
+  code_analysis:
+    description: "Tools for analyzing code structure and patterns"
+    tools:
+      - generate_ast
+      - compare_code_similarity
+      - compare_ast_similarity
+
+  data_engineering:
+    description: "All data engineering tools"
+    tools:
+      - generate_fake_data
+      - generate_fake_data_ddpm
+      - generate_ast
+      - compare_code_similarity
+      - compare_ast_similarity
+
+# Tool metadata with additional information
+tools:
+  generate_fake_data:
+    requires_llm_generation: false
+    requires_file: true
+    generates_file: true
+    uses_ml_model: true
+    description: "Generate synthetic data quickly from real data using WGAN (optimized for speed)"
+    languages:
+      - csv
+      - json
+      - parquet
+      - r
+
+  generate_fake_data_ddpm:
+    requires_llm_generation: false
+    requires_file: true
+    generates_file: true
+    uses_ml_model: true
+    description: "Generate high-quality synthetic data from real data using DDPM (optimized for quality)"
+    languages:
+      - csv
+      - json
+      - parquet
+      - r
+
+  generate_ast:
+    requires_llm_generation: false
+    requires_file: true
+    languages:
+      - python
+      - r
+    description: "Generate Abstract Syntax Tree from Python code"
+    
+  compare_code_similarity:
+    requires_llm_generation: false
+    requires_file: true
+    uses_external_service: true
+    external_service: "transformer"
+    description: "Compare code similarity using CodeBERT embeddings"
+    languages:
+      - python
+      - javascript
+      - java
+      - go
+      - ruby
+      - r
+
+  compare_ast_similarity:
+    requires_llm_generation: false
+    requires_file: true
+    uses_external_service: true
+    external_service: "transformer"
+    description: "Compare code similarity using AST-based CodeBERT embeddings"
+    languages:
+      - python
+      - r
+    uses_ast: true
