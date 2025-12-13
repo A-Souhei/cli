@@ -4,22 +4,52 @@ A Model Context Protocol (MCP) server that provides advanced data engineering an
 
 ## Features
 
-### 1. Synthetic Data Generation (`generate_fake_data`)
-Generate synthetic data from real data files using WGAN (Wasserstein GAN) via ydata-synthetic.
+### 1. Fast Synthetic Data Generation (`generate_fake_data`)
+Generate synthetic data quickly from real data files using WGAN (Wasserstein GAN) via ydata-synthetic.
 
 **Capabilities:**
 - Load data from CSV, JSON, or Parquet files
+- Fast generation optimized for quick iterations (10 epochs)
 - Generate statistically similar synthetic data
 - Preserve data distributions and relationships
 - Configurable number of samples
 - Privacy-preserving data generation
+- Minimum 10 rows required (100+ rows recommended)
 
 **Use Cases:**
-- Testing with realistic data without exposing sensitive information
-- Augmenting training datasets
-- Creating demo datasets
+- Rapid prototyping and testing with realistic data
+- Quick data augmentation for development
+- Creating demo datasets without long wait times
+- Testing data pipelines with synthetic samples
 
-### 2. Abstract Syntax Tree Generation (`generate_ast`)
+**Speed vs Quality Trade-off:**
+- WGAN is optimized for speed, processing in seconds to a few minutes
+- For production-grade quality with better statistical fidelity, use `generate_fake_data_ddpm`
+
+### 2. High-Quality Synthetic Data Generation (`generate_fake_data_ddpm`)
+Generate production-grade synthetic data using DDPM (Denoising Diffusion Probabilistic Models) via ydata-synthetic.
+
+**Capabilities:**
+- Load data from CSV, JSON, or Parquet files
+- Superior statistical fidelity (300+ epochs by default)
+- Better preservation of complex relationships and distributions
+- Configurable training epochs (minimum 100, default 300)
+- Production-grade synthetic data quality
+- Privacy-preserving data generation
+- Minimum 50 rows required for meaningful results
+
+**Use Cases:**
+- Production synthetic datasets requiring high accuracy
+- Data sharing while maintaining statistical properties
+- Generating training data for machine learning models
+- Creating realistic test datasets for critical systems
+
+**Speed vs Quality Trade-off:**
+- DDPM provides superior quality but takes significantly longer (several minutes)
+- For fast iteration during development, use `generate_fake_data` (WGAN)
+- Processing time scales with dataset size and epochs (expect 2-10 minutes typical)
+
+### 3. Abstract Syntax Tree Generation (`generate_ast`)
 Generate and analyze Abstract Syntax Trees (AST) from Python code files.
 
 **Capabilities:**
@@ -35,7 +65,7 @@ Generate and analyze Abstract Syntax Trees (AST) from Python code files.
 - Understanding code structure
 - Code generation validation
 
-### 3. Code Similarity Analysis (`compare_code_similarity`)
+### 4. Code Similarity Analysis (`compare_code_similarity`)
 Compare code similarity using CodeBERT embeddings from the transformer service.
 
 **Capabilities:**
@@ -51,7 +81,7 @@ Compare code similarity using CodeBERT embeddings from the transformer service.
 - Code review and refactoring
 - Plagiarism detection
 
-### 4. AST-Based Code Similarity (`compare_ast_similarity`)
+### 5. AST-Based Code Similarity (`compare_ast_similarity`)
 Compare code similarity using Abstract Syntax Tree representations with CodeBERT embeddings.
 
 **Capabilities:**
@@ -89,7 +119,7 @@ The data-engineer MCP is automatically started by the AI CLI when needed. You ca
 
 ## Dependencies
 
-- **ydata-synthetic**: WGAN-based synthetic data generation
+- **ydata-synthetic**: WGAN and DDPM-based synthetic data generation
 - **pandas**: Data manipulation and file I/O
 - **numpy**: Numerical operations
 - **requests**: HTTP client for transformer service
@@ -102,14 +132,26 @@ The data-engineer MCP is automatically started by the AI CLI when needed. You ca
 
 ## Example Workflows
 
-### Generate Synthetic Data
+### Generate Synthetic Data (Fast - WGAN)
 ```python
-# User prompt: "Generate 1000 fake samples from @data.csv"
+# User prompt: "Generate 1000 fake samples from @data.csv quickly"
 # Tool: generate_fake_data
 {
     "file_path": "data.csv",
     "num_samples": 1000,
     "output_path": "synthetic_data.csv"
+}
+```
+
+### Generate Synthetic Data (High Quality - DDPM)
+```python
+# User prompt: "Generate 500 high-quality synthetic samples from @data.csv using DDPM"
+# Tool: generate_fake_data_ddpm
+{
+    "file_path": "data.csv",
+    "num_samples": 500,
+    "epochs": 300,
+    "output_path": "synthetic_data_high_quality.csv"
 }
 ```
 
@@ -173,10 +215,13 @@ pytest tests/test_data_engineer_mcp.py -v
 
 ## Limitations
 
-- Synthetic data generation requires sufficient real data (minimum 10 samples required, 100+ recommended for best quality)
+- Synthetic data generation requires sufficient real data:
+  - WGAN: minimum 10 samples (100+ recommended for best quality)
+  - DDPM: minimum 50 samples for meaningful results
 - AST generation only supports Python code
 - Code similarity requires transformer service to be running
-- WGAN training can be computationally expensive for large datasets
+- DDPM training is computationally intensive (several minutes depending on data size and epochs)
+- WGAN is faster but may not capture complex relationships as well as DDPM
 
 ## Contributing
 

@@ -6,6 +6,7 @@ categories:
     description: "Tools for generating synthetic or fake data"
     tools:
       - generate_fake_data
+      - generate_fake_data_ddpm
 
   code_analysis:
     description: "Tools for analyzing code structure and patterns"
@@ -18,6 +19,7 @@ categories:
     description: "All data engineering tools"
     tools:
       - generate_fake_data
+      - generate_fake_data_ddpm
       - generate_ast
       - compare_code_similarity
       - compare_ast_similarity
@@ -29,16 +31,31 @@ tools:
     requires_file: true
     generates_file: true
     uses_ml_model: true
-    description: "Generate synthetic data from real data using DDPM"
+    description: "Generate synthetic data quickly from real data using WGAN (optimized for speed)"
     languages:
       - csv
       - json
       - parquet
+      - r
+
+  generate_fake_data_ddpm:
+    requires_llm_generation: false
+    requires_file: true
+    generates_file: true
+    uses_ml_model: true
+    description: "Generate high-quality synthetic data from real data using DDPM (optimized for quality)"
+    languages:
+      - csv
+      - json
+      - parquet
+      - r
 
   generate_ast:
     requires_llm_generation: false
     requires_file: true
-    language: python
+    languages:
+      - python
+      - r
     description: "Generate Abstract Syntax Tree from Python code"
     
   compare_code_similarity:
@@ -53,6 +70,7 @@ tools:
       - java
       - go
       - ruby
+      - r
 
   compare_ast_similarity:
     requires_llm_generation: false
@@ -62,4 +80,5 @@ tools:
     description: "Compare code similarity using AST-based CodeBERT embeddings"
     languages:
       - python
+      - r
     uses_ast: true

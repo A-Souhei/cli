@@ -251,8 +251,9 @@ if __name__ == '__main__':
         tools = tools_response["result"]["tools"]
         tool_names = [tool["name"] for tool in tools]
         
-        # Check that all four expected tools are present
+        # Check that all five expected tools are present
         assert "generate_fake_data" in tool_names
+        assert "generate_fake_data_ddpm" in tool_names
         assert "generate_ast" in tool_names
         assert "compare_code_similarity" in tool_names
         assert "compare_ast_similarity" in tool_names
@@ -518,6 +519,122 @@ def broken_function(
         # May fail on file not exist or ydata-synthetic not installed
         message_lower = result_data["message"].lower()
         assert "not exist" in message_lower or "ydata-synthetic not installed" in message_lower
+
+    @pytest.mark.asyncio
+    async def test_generate_fake_data_ddpm(self, server_path, sample_csv_file):
+        """Test high-quality synthetic data generation using DDPM."""
+        # This test requires ydata-synthetic to be installed
+        # It will be slower than WGAN due to more training epochs
+        
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0.0"}
+                }
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "generate_fake_data_ddpm",
+                    "arguments": {
+                        "file_path": sample_csv_file,
+                        "num_samples": 5,
+                        "epochs": 100  # Reduced for faster testing
+                    }
+                }
+            }
+        ]
+
+        responses = await communicate_with_mcp(server_path, requests, timeout=120.0)  # Longer timeout for DDPM
+
+        assert len(responses) == 2
+        tool_response = responses[1]
+        
+        content = tool_response["result"]["content"]
+        result_text = content[0]["text"]
+        result_data = json.loads(result_text)
+        
+        # Check if ydata-synthetic is installed
+        if "ydata-synthetic not installed" in result_data.get("message", ""):
+            pytest.skip("ydata-synthetic not installed")
+        
+        # Verify synthetic data was generated with DDPM
+        if result_data["status"] == "success":
+            assert "num_samples" in result_data
+            assert "data_preview" in result_data
+            assert "model_type" in result_data
+            assert result_data["model_type"] == "ddpm"
+            assert result_data["num_samples"] == 5
+            assert len(result_data["data_preview"]) <= 5
+            assert result_data["epochs_trained"] >= 100
+
+    @pytest.mark.asyncio
+    async def test_generate_fake_data_ddpm_insufficient_data(self, server_path):
+        """Test DDPM with insufficient data (should fail with clear message)."""
+        # Create a minimal CSV with less than 50 rows (DDPM minimum)
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+            f.write("age,salary\n")
+            f.write("25,50000\n")
+            f.write("30,60000\n")
+            f.write("35,70000\n")
+            temp_path = f.name
+        
+        try:
+            requests = [
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "clientInfo": {"name": "test", "version": "1.0.0"}
+                    }
+                },
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "generate_fake_data_ddpm",
+                        "arguments": {
+                            "file_path": temp_path,
+                            "num_samples": 5
+                        }
+                    }
+                }
+            ]
+
+            responses = await communicate_with_mcp(server_path, requests, timeout=15.0)
+
+            assert len(responses) == 2
+            tool_response = responses[1]
+            
+            content = tool_response["result"]["content"]
+            result_text = content[0]["text"]
+            result_data = json.loads(result_text)
+            
+            # Check if ydata-synthetic is installed
+            if "ydata-synthetic not installed" in result_data.get("message", ""):
+                pytest.skip("ydata-synthetic not installed")
+            
+            # Should return an error about insufficient data
+            assert result_data["status"] == "error"
+            message = result_data["message"]
+            assert "too small" in message.lower() or "minimum" in message.lower()
+            assert "50" in message  # Should mention the minimum requirement
+        finally:
+            try:
+                os.unlink(temp_path)
+            except Exception:
+                pass
 
     @pytest.mark.asyncio
     async def test_compare_code_similarity_with_snippets(self, server_path):

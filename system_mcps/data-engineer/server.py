@@ -2,11 +2,12 @@
 """
 Data Engineer MCP Server - A Model Context Protocol server for data engineering tasks.
 
-This MCP server provides tools for:
-1. Synthetic data generation using WGAN (ydata-synthetic)
-2. Abstract Syntax Tree (AST) generation from Python code
-3. Code similarity analysis using CodeBERT embeddings
-4. AST-based code similarity comparison for structural analysis
+This MCP server provides 5 tools for:
+1. Synthetic data generation using WGAN - fast generation with good quality
+2. Synthetic data generation using DDPM - high-quality generation (slower but more accurate)
+3. Abstract Syntax Tree (AST) generation from Python code
+4. Code similarity analysis using CodeBERT embeddings
+5. AST-based code similarity comparison for structural analysis
 """
 
 import os
@@ -314,6 +315,146 @@ def generate_synthetic_data(file_path: str, num_samples: int, working_dir: str) 
         return {
             "status": "error",
             "message": f"Failed to generate synthetic data: {str(e)}"
+        }
+
+
+def generate_synthetic_data_ddpm(file_path: str, num_samples: int, working_dir: str, epochs: int = 300) -> Dict[str, Any]:
+    """
+    Generate high-quality synthetic data using DDPM (Denoising Diffusion Probabilistic Models).
+    
+    This function uses DDPM for superior quality synthetic data generation. DDPM produces
+    more accurate statistical distributions and better preserves complex relationships in
+    the data, but requires significantly more training time than WGAN.
+
+    Args:
+        file_path: Path to the input data file (CSV, JSON, or Parquet)
+        num_samples: Number of synthetic samples to generate
+        working_dir: Working directory for file operations
+        epochs: Number of training epochs (default: 300 for high quality, minimum 100 recommended)
+
+    Returns:
+        Dict with status and synthetic data or error message
+    """
+    try:
+        # Import ydata-synthetic
+        from ydata_synthetic.synthesizers import ModelParameters
+        from ydata_synthetic.synthesizers.regular import RegularSynthesizer
+        import pandas as pd
+
+        debug_print(f"[DDPM] Loading data from {file_path}")
+
+        # Determine full path
+        if not os.path.isabs(file_path):
+            file_path = os.path.join(working_dir, file_path)
+
+        path = Path(file_path).resolve()
+
+        # Validate file is within working directory
+        try:
+            path.relative_to(Path(working_dir).resolve())
+        except ValueError:
+            return {
+                "status": "error",
+                "message": f"File is outside working directory: {file_path}"
+            }
+
+        if not path.exists():
+            return {
+                "status": "error",
+                "message": f"File does not exist: {file_path}"
+            }
+
+        # Load data based on file extension
+        file_ext = path.suffix.lower()
+        if file_ext == '.csv':
+            data = pd.read_csv(path)
+        elif file_ext == '.json':
+            data = pd.read_json(path)
+        elif file_ext in ['.parquet', '.pq']:
+            data = pd.read_parquet(path)
+        else:
+            return {
+                "status": "error",
+                "message": f"Unsupported file format: {file_ext}. Supported: .csv, .json, .parquet"
+            }
+
+        debug_print(f"[DDPM] Loaded data with shape: {data.shape}")
+
+        # Validate data size - DDPM needs more data for good results
+        min_samples_ddpm = 50  # DDPM works better with more samples
+        if len(data) < min_samples_ddpm:
+            return {
+                "status": "error",
+                "message": f"Dataset too small ({len(data)} rows). DDPM requires minimum {min_samples_ddpm} rows for quality results. For smaller datasets, use generate_fake_data (WGAN) instead."
+            }
+
+        # Prepare data for synthesis
+        numeric_cols = data.select_dtypes(include=['int64', 'float64']).columns.tolist()
+        categorical_cols = data.select_dtypes(include=['object', 'category']).columns.tolist()
+
+        debug_print(f"[DDPM] Numeric columns: {numeric_cols}, Categorical columns: {categorical_cols}")
+
+        if not numeric_cols and not categorical_cols:
+            return {
+                "status": "error",
+                "message": "No suitable columns found for synthesis. Need numeric or categorical columns."
+            }
+
+        # Configure model parameters for DDPM (more intensive training)
+        model_params = ModelParameters(
+            batch_size=min(64, len(data)),  # Larger batch for DDPM
+            epochs=max(epochs, 100),  # Ensure minimum quality
+            lr=0.0001,  # Lower learning rate for DDPM
+            betas=(0.9, 0.999)
+        )
+
+        debug_print(f"[DDPM] Initializing synthesizer with {model_params.epochs} epochs (this may take several minutes)...")
+
+        # Initialize synthesizer with DDPM model
+        synthesizer = RegularSynthesizer(
+            modelname='ddpm',  # DDPM for high-quality synthesis
+            model_parameters=model_params
+        )
+
+        debug_print("[DDPM] Training model... This will take longer than WGAN but produces higher quality results")
+
+        # Fit the synthesizer on the data
+        synthesizer.fit(
+            data=data, 
+            train_arguments={"epochs": model_params.epochs}, 
+            num_cols=numeric_cols, 
+            cat_cols=categorical_cols
+        )
+
+        debug_print(f"[DDPM] Generating {num_samples} high-quality synthetic samples...")
+
+        # Generate synthetic data
+        synthetic_data = synthesizer.sample(num_samples)
+
+        debug_print(f"[DDPM] Successfully generated synthetic data with shape: {synthetic_data.shape}")
+
+        return {
+            "status": "success",
+            "message": f"Generated {len(synthetic_data)} high-quality synthetic samples using DDPM",
+            "model_type": "ddpm",
+            "epochs_trained": model_params.epochs,
+            "num_samples": len(synthetic_data),
+            "num_columns": len(synthetic_data.columns),
+            "columns": synthetic_data.columns.tolist(),
+            "data_preview": synthetic_data.head(5).to_dict(orient='records'),
+            "data_full": synthetic_data.to_dict(orient='records')
+        }
+
+    except ImportError as e:
+        return {
+            "status": "error",
+            "message": f"ydata-synthetic not installed: {str(e)}. Install with: pip install ydata-synthetic"
+        }
+    except Exception as e:
+        debug_print(f"[DDPM] Error in generate_synthetic_data_ddpm: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Failed to generate synthetic data with DDPM: {str(e)}"
         }
 
 
@@ -707,13 +848,12 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="generate_fake_data",
             description=(
-                "Generate synthetic/fake data from a real dataset using DDPM (Denoising Diffusion "
-                "Probabilistic Models) via ydata-synthetic. This tool takes a data file (CSV, JSON, "
-                "or Parquet) and generates statistically similar synthetic data that preserves the "
-                "distributions and relationships in the original data. The synthetic data can be used "
-                "for testing, augmentation, or privacy-preserving demonstrations. Requires at least "
-                "10 rows of real data. The generated data will have the same columns and similar "
-                "statistical properties as the input data."
+                "Generate synthetic/fake data quickly using WGAN (Wasserstein GAN) via ydata-synthetic. "
+                "This tool takes a data file (CSV, JSON, or Parquet) and rapidly generates synthetic data "
+                "with good statistical similarity to the original. WGAN is optimized for speed, making it "
+                "ideal for quick iterations, testing, and prototyping. Requires minimum 10 rows of real data. "
+                "For production-grade quality with better statistical fidelity, use generate_fake_data_ddpm instead. "
+                "The generated data will have the same columns and similar statistical properties as the input."
             ),
             inputSchema={
                 "type": "object",
@@ -725,6 +865,44 @@ async def list_tools() -> list[Tool]:
                     "num_samples": {
                         "type": "integer",
                         "description": "Number of synthetic samples to generate"
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "description": "Optional path to save the synthetic data (CSV format)"
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Optional working directory. Defaults to current directory."
+                    }
+                },
+                "required": ["file_path", "num_samples"]
+            }
+        ),
+        Tool(
+            name="generate_fake_data_ddpm",
+            description=(
+                "Generate high-quality synthetic data using DDPM (Denoising Diffusion Probabilistic Models) "
+                "via ydata-synthetic. DDPM produces superior statistical fidelity and better preserves complex "
+                "relationships and distributions in the data compared to WGAN. Use this when data quality is "
+                "paramount and you can afford longer processing time (several minutes depending on data size). "
+                "Requires minimum 50 rows for meaningful results. The training process is computationally intensive "
+                "but produces production-grade synthetic data. Supports CSV, JSON, and Parquet formats. "
+                "For faster generation with acceptable quality, use generate_fake_data (WGAN) instead."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the input data file (CSV, JSON, or Parquet format)"
+                    },
+                    "num_samples": {
+                        "type": "integer",
+                        "description": "Number of high-quality synthetic samples to generate"
+                    },
+                    "epochs": {
+                        "type": "integer",
+                        "description": "Number of training epochs (default: 300, minimum: 100). Higher values improve quality but increase processing time."
                     },
                     "output_path": {
                         "type": "string",
@@ -888,6 +1066,56 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
         # Generate synthetic data
         result = generate_synthetic_data(file_path, num_samples, working_dir)
+
+        # Optionally save to output file
+        if result.get("status") == "success" and output_path:
+            try:
+                import pandas as pd
+                df = pd.DataFrame(result["data_full"])
+                
+                # Write file safely
+                csv_content = df.to_csv(index=False)
+                success, message = write_file_safe(output_path, csv_content, working_dir)
+                
+                if success:
+                    result["output_file"] = output_path
+                    result["message"] += f" and saved to {output_path}"
+                else:
+                    result["warning"] = f"Generated data successfully but failed to save: {message}"
+            except Exception as e:
+                result["warning"] = f"Generated data successfully but failed to save: {str(e)}"
+
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "generate_fake_data_ddpm":
+        file_path = arguments.get("file_path", "")
+        num_samples = arguments.get("num_samples", 100)
+        output_path = arguments.get("output_path")
+        working_dir = arguments.get("working_dir", os.getcwd())
+        epochs = arguments.get("epochs", 300)
+
+        if not file_path:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": "Missing file_path parameter"
+            }, indent=2))]
+
+        if num_samples < 1:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": "num_samples must be at least 1"
+            }, indent=2))]
+
+        # Validate working directory
+        is_valid, error_msg = validate_working_dir(working_dir)
+        if not is_valid:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": error_msg
+            }, indent=2))]
+
+        # Generate high-quality synthetic data with DDPM
+        result = generate_synthetic_data_ddpm(file_path, num_samples, working_dir, epochs)
 
         # Optionally save to output file
         if result.get("status") == "success" and output_path:
