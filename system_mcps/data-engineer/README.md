@@ -5,7 +5,7 @@ A Model Context Protocol (MCP) server that provides advanced data engineering an
 ## Features
 
 ### 1. Synthetic Data Generation (`generate_fake_data`)
-Generate synthetic data from real data files using DDPM (Denoising Diffusion Probabilistic Models) via ydata-synthetic.
+Generate synthetic data from real data files using WGAN (Wasserstein GAN) via ydata-synthetic.
 
 **Capabilities:**
 - Load data from CSV, JSON, or Parquet files
@@ -89,7 +89,7 @@ The data-engineer MCP is automatically started by the AI CLI when needed. You ca
 
 ## Dependencies
 
-- **ydata-synthetic**: DDPM-based synthetic data generation
+- **ydata-synthetic**: WGAN-based synthetic data generation
 - **pandas**: Data manipulation and file I/O
 - **numpy**: Numerical operations
 - **requests**: HTTP client for transformer service
@@ -169,14 +169,14 @@ pytest tests/test_data_engineer_mcp.py -v
 - Input validation on all file paths
 - Sensitive directory access is blocked
 - .llmignore filtering is applied to prevent exposure of secrets
-- DDPM models are loaded securely from ydata-synthetic
+- WGAN models are loaded securely from ydata-synthetic
 
 ## Limitations
 
-- Synthetic data generation requires sufficient real data (minimum 100 samples recommended)
+- Synthetic data generation requires sufficient real data (minimum 10 samples required, 100+ recommended for best quality)
 - AST generation only supports Python code
 - Code similarity requires transformer service to be running
-- DDPM training can be computationally expensive for large datasets
+- WGAN training can be computationally expensive for large datasets
 
 ## Contributing
 

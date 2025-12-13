@@ -92,7 +92,8 @@ class TestDataEngineerMCP:
         # Cleanup
         try:
             os.unlink(temp_path)
-        except:
+        except Exception:
+            # Ignore cleanup errors; file may not exist or be locked
             pass
 
     @pytest.fixture
@@ -138,7 +139,8 @@ if __name__ == '__main__':
         # Cleanup
         try:
             os.unlink(temp_path)
-        except:
+        except Exception:
+            # Ignore cleanup errors; file may not exist or be locked
             pass
 
     @pytest.fixture
@@ -184,7 +186,8 @@ if __name__ == '__main__':
         # Cleanup
         try:
             os.unlink(temp_path)
-        except:
+        except Exception:
+            # Ignore cleanup errors; file may not exist or be locked
             pass
 
     def test_server_exists(self, server_path):
@@ -745,7 +748,8 @@ def sum(x, y):
         finally:
             try:
                 os.unlink(js_file)
-            except:
+            except Exception:
+                # Ignore cleanup errors; file may not exist or already be deleted
                 pass
 
     @pytest.mark.asyncio

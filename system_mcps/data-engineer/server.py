@@ -3,9 +3,10 @@
 Data Engineer MCP Server - A Model Context Protocol server for data engineering tasks.
 
 This MCP server provides tools for:
-1. Synthetic data generation using DDPM (ydata-synthetic)
+1. Synthetic data generation using WGAN (ydata-synthetic)
 2. Abstract Syntax Tree (AST) generation from Python code
 3. Code similarity analysis using CodeBERT embeddings
+4. AST-based code similarity comparison for structural analysis
 """
 
 import os
@@ -15,7 +16,7 @@ import ast as python_ast
 import requests
 import yaml
 from pathlib import Path
-from typing import Any, Optional, Dict, List
+from typing import Any, Dict
 
 # Constants
 DEBUG_MODE = os.getenv('MCP_DEBUG', 'false').lower() == 'true'
@@ -277,7 +278,7 @@ def generate_synthetic_data(file_path: str, num_samples: int, working_dir: str) 
 
         # Initialize synthesizer with regular (non-conditional) model
         synthesizer = RegularSynthesizer(
-            modelname='wgan',  # Faster than DDPM for small datasets
+            modelname='wgan',  # Using WGAN (Wasserstein GAN) for faster training on small datasets
             model_parameters=model_params
         )
 
@@ -365,19 +366,20 @@ def generate_ast_from_code(code_or_file: str, working_dir: str, is_file: bool = 
             }
         }
 
-        # Walk the AST and collect statistics
-        # Track parent nodes to avoid O(n²) complexity
-        class_nodes = set()
+        # Walk the AST and collect statistics in O(n) time
+        # Build parent-child relationships during single pass
+        method_nodes = set()
         
-        # First pass: collect all class nodes
+        # Single pass: collect all nodes and build parent relationships
         for node in python_ast.walk(tree):
             ast_info["statistics"]["total_nodes"] += 1
+            
             if isinstance(node, python_ast.ClassDef):
-                class_nodes.add(node)
+                # Collect methods for this class
+                for item in node.body:
+                    if isinstance(item, python_ast.FunctionDef):
+                        method_nodes.add(item)
                 
-        # Second pass: collect statistics with parent awareness
-        for node in python_ast.walk(tree):
-            if isinstance(node, python_ast.ClassDef):
                 ast_info["statistics"]["classes"].append({
                     "name": node.name,
                     "lineno": node.lineno,
@@ -387,14 +389,8 @@ def generate_ast_from_code(code_or_file: str, working_dir: str, is_file: bool = 
 
             elif isinstance(node, python_ast.FunctionDef):
                 # Only add top-level functions (not methods)
-                # Check if function is directly in any class body
-                is_method = False
-                for class_node in class_nodes:
-                    if node in class_node.body:
-                        is_method = True
-                        break
-                
-                if not is_method:
+                # Check if this function was marked as a method
+                if node not in method_nodes:
                     ast_info["statistics"]["functions"].append({
                         "name": node.name,
                         "lineno": node.lineno,
@@ -564,11 +560,12 @@ def compare_code_files_similarity(file_path1: str, file_path2: str, working_dir:
 
 def compare_ast_similarity(file_path1: str, file_path2: str, working_dir: str, metric: str = "cosine") -> Dict[str, Any]:
     """
-    Compare similarity between two Python code files using AST-based CodeBERT embeddings.
+    Compare similarity between two Python code files using AST-normalized code with CodeBERT.
     
-    This function first generates AST representations from both files, then converts
-    the AST to a normalized string representation, and finally uses CodeBERT to
-    compute semantic similarity between the AST structures.
+    This function parses both files into ASTs, then uses ast.unparse() to convert them
+    back to normalized Python code (consistent formatting, no comments). This normalized
+    code is then compared using CodeBERT embeddings, focusing on code structure and logic
+    rather than variable names or formatting choices.
 
     Args:
         file_path1: Path to first Python code file
@@ -599,20 +596,43 @@ def compare_ast_similarity(file_path1: str, file_path2: str, working_dir: str, m
 
         debug_print(f"Generated ASTs successfully")
 
-        # Extract AST dumps (normalized string representations)
-        ast_str1 = ast_result1["ast_dump"]
-        ast_str2 = ast_result2["ast_dump"]
+        # Convert AST back to normalized Python code using ast.unparse()
+        # This produces valid Python code from the AST, which CodeBERT can process properly
+        # The unparsed code is normalized (consistent formatting) which helps focus on structure
+        try:
+            # Parse original code to get AST
+            success1, code1 = read_file_safe(file_path1, working_dir)
+            success2, code2 = read_file_safe(file_path2, working_dir)
+            
+            if not success1 or not success2:
+                return {
+                    "status": "error",
+                    "message": "Failed to read source files for AST unparsing"
+                }
+            
+            tree1 = python_ast.parse(code1)
+            tree2 = python_ast.parse(code2)
+            
+            # Unparse AST to normalized code
+            normalized_code1 = python_ast.unparse(tree1)
+            normalized_code2 = python_ast.unparse(tree2)
+            
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Failed to normalize code from AST: {str(e)}"
+            }
 
-        # Call transformer service to compare AST strings using CodeBERT
+        # Call transformer service to compare normalized code using CodeBERT
         transformer_url = get_transformer_url()
         debug_print(f"Calling transformer service for AST similarity at {transformer_url}")
 
         response = requests.post(
             f"{transformer_url}/code/similarity",
             json={
-                "code1": ast_str1,
-                "code2": ast_str2,
-                "language1": "python",  # AST is Python-like structure
+                "code1": normalized_code1,
+                "code2": normalized_code2,
+                "language1": "python",
                 "language2": "python",
                 "metric": metric
             },
@@ -653,10 +673,10 @@ def compare_ast_similarity(file_path1: str, file_path2: str, working_dir: str, m
         
         # Add note about what AST similarity means
         result['note'] = (
-            "This comparison uses Abstract Syntax Tree (AST) representations instead of raw code. "
-            "AST-based similarity focuses on code structure and logic rather than naming conventions "
-            "or formatting, making it better for detecting structurally similar code with different "
-            "variable names or styles."
+            "This comparison uses AST-normalized code (parsed and unparsed for consistent formatting). "
+            "The normalized code is then compared using CodeBERT, which focuses on code structure and "
+            "logic patterns rather than specific variable names or formatting choices. This approach is "
+            "effective for detecting structurally similar code with different naming conventions or styles."
         )
 
         return result
