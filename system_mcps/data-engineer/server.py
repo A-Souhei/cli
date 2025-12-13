@@ -17,8 +17,11 @@ import yaml
 from pathlib import Path
 from typing import Any, Optional, Dict, List
 
-# Debug mode (set via environment variable)
+# Constants
 DEBUG_MODE = os.getenv('MCP_DEBUG', 'false').lower() == 'true'
+MIN_DATASET_SIZE_FOR_SYNTHESIS = 10  # Minimum rows required for synthetic data generation
+DEFAULT_SYNTHESIS_EPOCHS = 10  # Default training epochs for faster MCP processing
+SYNTHESIS_BATCH_SIZE_MAX = 32  # Maximum batch size for synthesis training
 
 
 def debug_print(message: str, **kwargs):
@@ -243,10 +246,10 @@ def generate_synthetic_data(file_path: str, num_samples: int, working_dir: str) 
         debug_print(f"Loaded data with shape: {data.shape}")
 
         # Validate data size
-        if len(data) < 10:
+        if len(data) < MIN_DATASET_SIZE_FOR_SYNTHESIS:
             return {
                 "status": "error",
-                "message": f"Dataset too small ({len(data)} rows). Minimum 10 rows required for synthetic data generation."
+                "message": f"Dataset too small ({len(data)} rows). Minimum {MIN_DATASET_SIZE_FOR_SYNTHESIS} rows required for synthetic data generation."
             }
 
         # Prepare data for synthesis
@@ -264,8 +267,8 @@ def generate_synthetic_data(file_path: str, num_samples: int, working_dir: str) 
 
         # Configure model parameters (lightweight for MCP context)
         model_params = ModelParameters(
-            batch_size=min(32, len(data)),
-            epochs=10,  # Reduced for faster processing
+            batch_size=min(SYNTHESIS_BATCH_SIZE_MAX, len(data)),
+            epochs=DEFAULT_SYNTHESIS_EPOCHS,
             lr=0.001,
             betas=(0.5, 0.9)
         )
@@ -281,7 +284,7 @@ def generate_synthetic_data(file_path: str, num_samples: int, working_dir: str) 
         debug_print("Fitting synthesizer...")
 
         # Fit the synthesizer on the data
-        synthesizer.fit(data=data, train_arguments={"epochs": 10}, num_cols=numeric_cols, cat_cols=categorical_cols)
+        synthesizer.fit(data=data, train_arguments={"epochs": DEFAULT_SYNTHESIS_EPOCHS}, num_cols=numeric_cols, cat_cols=categorical_cols)
 
         debug_print(f"Generating {num_samples} synthetic samples...")
 
@@ -363,9 +366,17 @@ def generate_ast_from_code(code_or_file: str, working_dir: str, is_file: bool = 
         }
 
         # Walk the AST and collect statistics
+        # Track parent nodes to avoid O(n²) complexity
+        class_nodes = set()
+        
+        # First pass: collect all class nodes
         for node in python_ast.walk(tree):
             ast_info["statistics"]["total_nodes"] += 1
-
+            if isinstance(node, python_ast.ClassDef):
+                class_nodes.add(node)
+                
+        # Second pass: collect statistics with parent awareness
+        for node in python_ast.walk(tree):
             if isinstance(node, python_ast.ClassDef):
                 ast_info["statistics"]["classes"].append({
                     "name": node.name,
@@ -376,7 +387,14 @@ def generate_ast_from_code(code_or_file: str, working_dir: str, is_file: bool = 
 
             elif isinstance(node, python_ast.FunctionDef):
                 # Only add top-level functions (not methods)
-                if not any(isinstance(parent, python_ast.ClassDef) for parent in python_ast.walk(tree) if node in python_ast.walk(parent)):
+                # Check if function is directly in any class body
+                is_method = False
+                for class_node in class_nodes:
+                    if node in class_node.body:
+                        is_method = True
+                        break
+                
+                if not is_method:
                     ast_info["statistics"]["functions"].append({
                         "name": node.name,
                         "lineno": node.lineno,

@@ -248,10 +248,11 @@ if __name__ == '__main__':
         tools = tools_response["result"]["tools"]
         tool_names = [tool["name"] for tool in tools]
         
-        # Check that all three expected tools are present
+        # Check that all four expected tools are present
         assert "generate_fake_data" in tool_names
         assert "generate_ast" in tool_names
         assert "compare_code_similarity" in tool_names
+        assert "compare_ast_similarity" in tool_names
         
         # Check tool descriptions
         for tool in tools:
