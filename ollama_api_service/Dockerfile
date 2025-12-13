@@ -19,11 +19,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # Copy requirements first for better caching
 COPY ollama_api_service/requirements.txt .
 
-# Install Python dependencies with cache mount
-# The shared cache allows reuse from other containers (transformer, redis-api, etc.)
-# NOTE: Do NOT use --no-cache-dir with mount cache - it defeats the purpose!
-RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
-    pip install -r requirements.txt
+# Install Python dependencies from pre-downloaded packages (bind mount)
+RUN --mount=type=bind,source=packages,target=/packages \
+    pip install --find-links=/packages -r requirements.txt
 
 # Copy the API service code (context is CLI root directory)
 COPY ollama_api_service/ /app/ollama_api_service/

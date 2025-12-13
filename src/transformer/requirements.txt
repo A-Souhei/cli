@@ -7,3 +7,5 @@ torch==2.1.2
 sentence-transformers==2.7.0
 keybert==0.8.5
 sentry-sdk==1.40.6
+# CodeBERT for code understanding and embeddings
+# Using microsoft/codebert-base which is the latest maintained version

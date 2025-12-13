@@ -213,6 +213,9 @@ ai-cli
 # Secrets (API keys)
 secrets.yaml
 
+# Python packages wheelhouse
+packages/
+
 # UI build artifacts
 node_modules/
 .next/

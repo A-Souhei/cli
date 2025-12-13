@@ -186,6 +186,80 @@ Content-Type: application/json
 
 Returns corrected text.
 
+### Code Embeddings (CodeBERT)
+
+```bash
+POST /code/embed
+Content-Type: application/json
+
+{
+  "code": "def hello_world():\n    print('Hello, World!')",
+  "language": "python"  # optional
+}
+```
+
+Returns a 768-dimensional embedding vector for the code snippet using Microsoft's CodeBERT model.
+
+**Response:**
+```json
+{
+  "status": "success",
+  "code": "def hello_world():\n    print('Hello, World!')",
+  "language": "python",
+  "embedding": [0.123, -0.456, ...],  # 768 dimensions
+  "dimension": 768,
+  "model": "microsoft/codebert-base"
+}
+```
+
+### Batch Code Embeddings
+
+```bash
+POST /code/embed/batch
+Content-Type: application/json
+
+{
+  "codes": [
+    "def hello(): pass",
+    "function hello() { }",
+    "public void hello() { }"
+  ],
+  "languages": ["python", "javascript", "java"]  # optional
+}
+```
+
+Returns embeddings for multiple code snippets in a single request.
+
+### Code Similarity
+
+```bash
+POST /code/similarity
+Content-Type: application/json
+
+{
+  "code1": "def add(a, b): return a + b",
+  "code2": "function add(a, b) { return a + b; }",
+  "language1": "python",  # optional
+  "language2": "javascript",  # optional
+  "metric": "cosine"  # options: cosine, euclidean, dot_product
+}
+```
+
+Compares semantic similarity between two code snippets using CodeBERT embeddings.
+
+**Response:**
+```json
+{
+  "status": "success",
+  "code1": "def add(a, b): return a + b",
+  "code2": "function add(a, b) { return a + b; }",
+  "metric": "cosine",
+  "similarity": 0.87,
+  "interpretation": "Very similar",
+  "model": "microsoft/codebert-base"
+}
+```
+
 ## Models Used
 
 ### Sentence Transformers
@@ -198,6 +272,16 @@ Returns corrected text.
 - **Purpose**: Keyword extraction with semantic understanding
 - **Backed by**: Sentence Transformers
 - **Features**: Max Sum Similarity for diverse keywords
+
+### CodeBERT (NEW)
+- **Model**: `microsoft/codebert-base`
+- **Purpose**: Code understanding and semantic code embeddings
+- **Size**: ~500MB
+- **Features**: 
+  - Pre-trained on 6 programming languages (Python, Java, JavaScript, PHP, Ruby, Go)
+  - Understands code semantics across different languages
+  - 768-dimensional embeddings
+  - Useful for code search, clone detection, and code similarity analysis
 
 ## Configuration
 

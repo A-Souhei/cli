@@ -3,9 +3,9 @@ FROM python:3.10-slim
 # Create app directory
 WORKDIR /app
 
-# Install Python dependencies with cache mount
-RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
-    pip install \
+# Install Python dependencies from pre-downloaded packages (bind mount)
+RUN --mount=type=bind,source=packages,target=/packages \
+    pip install --find-links=/packages \
     Flask==2.3.2 \
     redis==5.0.1 \
     requests==2.31.0 \
