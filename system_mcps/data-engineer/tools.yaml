@@ -1,0 +1,65 @@
+# Data Engineer MCP Tool Definitions
+# This file defines tool metadata including categories for dynamic tool routing
+
+categories:
+  data_generation:
+    description: "Tools for generating synthetic or fake data"
+    tools:
+      - generate_fake_data
+
+  code_analysis:
+    description: "Tools for analyzing code structure and patterns"
+    tools:
+      - generate_ast
+      - compare_code_similarity
+      - compare_ast_similarity
+
+  data_engineering:
+    description: "All data engineering tools"
+    tools:
+      - generate_fake_data
+      - generate_ast
+      - compare_code_similarity
+      - compare_ast_similarity
+
+# Tool metadata with additional information
+tools:
+  generate_fake_data:
+    requires_llm_generation: false
+    requires_file: true
+    generates_file: true
+    uses_ml_model: true
+    description: "Generate synthetic data from real data using DDPM"
+    languages:
+      - csv
+      - json
+      - parquet
+
+  generate_ast:
+    requires_llm_generation: false
+    requires_file: true
+    language: python
+    description: "Generate Abstract Syntax Tree from Python code"
+    
+  compare_code_similarity:
+    requires_llm_generation: false
+    requires_file: true
+    uses_external_service: true
+    external_service: "transformer"
+    description: "Compare code similarity using CodeBERT embeddings"
+    languages:
+      - python
+      - javascript
+      - java
+      - go
+      - ruby
+
+  compare_ast_similarity:
+    requires_llm_generation: false
+    requires_file: true
+    uses_external_service: true
+    external_service: "transformer"
+    description: "Compare code similarity using AST-based CodeBERT embeddings"
+    languages:
+      - python
+    uses_ast: true
