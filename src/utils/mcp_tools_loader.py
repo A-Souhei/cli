@@ -94,6 +94,21 @@ def get_meta_tools(system_mcps_dir: Path) -> List[str]:
     return meta_tools
 
 
+def get_code_generation_tools(system_mcps_dir: Path) -> List[str]:
+    """
+    Load all tools from the 'code_generation' category across all MCP servers.
+    
+    Code generation tools require LLM to generate code before execution.
+    
+    Args:
+        system_mcps_dir: Path to the system_mcps directory
+        
+    Returns:
+        List of code generation tool names
+    """
+    return get_tool_category('code_generation', system_mcps_dir)
+
+
 def get_tool_category(category_name: str, system_mcps_dir: Path) -> List[str]:
     """
     Load all tools from a specific category across all MCP servers.

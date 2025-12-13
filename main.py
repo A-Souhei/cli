@@ -83,6 +83,7 @@ from src.utils.mcp_discovery import (
 from src.utils.mcp_tools_loader import (
     get_valid_coding_tools,
     get_meta_tools,
+    get_code_generation_tools,
 )
 
 # Import banner functionality from separate module
@@ -1298,7 +1299,8 @@ def main(verbose=False, auto_session=False):
                                         console.print(f"  🔧 [cyan]Matched tool:[/cyan] {tool_name} [dim](similarity: {similarity:.2f})[/dim]")
 
                                         # Step 2: For code generation tools, use LLM to generate code first
-                                        code_generation_tools = ['write_python_code', 'edit_python_code', 'write_r_code', 'edit_r_code', 'run_python_code', 'run_r_code']
+                                        # Load code generation tools dynamically from tools.yaml files
+                                        code_generation_tools = get_code_generation_tools(system_mcps_dir)
 
                                         if tool_name in code_generation_tools:
                                             # Check if there's a file path with @ prefix

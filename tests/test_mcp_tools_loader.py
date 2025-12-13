@@ -9,6 +9,7 @@ import shutil
 from src.utils.mcp_tools_loader import (
     get_valid_coding_tools,
     get_meta_tools,
+    get_code_generation_tools,
     get_tool_category,
     get_tools_requiring_file_path,
 )
@@ -93,6 +94,30 @@ class TestMCPToolsLoader:
         assert 'retrieve_all_tools' in tools
         assert 'roll_the_dice' in tools
         assert len(tools) == 2
+
+    def test_get_code_generation_tools(self, temp_system_mcps):
+        """Test loading code generation tools from multiple MCPs."""
+        from src.utils.mcp_tools_loader import get_code_generation_tools
+        
+        # Add code_generation category to test fixture
+        coder_dir = temp_system_mcps / "coder"
+        coder_tools_yaml = coder_dir / "tools.yaml"
+        
+        with open(coder_tools_yaml) as f:
+            data = yaml.safe_load(f)
+        
+        # Add code_generation category
+        data['categories']['code_generation'] = {
+            'tools': ['write_python_code']
+        }
+        
+        with open(coder_tools_yaml, 'w') as f:
+            yaml.dump(data, f)
+        
+        tools = get_code_generation_tools(temp_system_mcps)
+        
+        assert 'write_python_code' in tools
+        assert len(tools) >= 1
 
     def test_get_tool_category(self, temp_system_mcps):
         """Test loading tools from a specific category."""
@@ -257,6 +282,12 @@ class TestRealSystemMCPs:
         assert len(meta) > 0, "Should have at least some meta tools"
         assert 'retrieve_all_tools' in meta
         
+        # Test code_generation tools
+        code_gen = get_code_generation_tools(system_mcps_dir)
+        assert len(code_gen) > 0, "Should have at least some code generation tools"
+        assert 'write_python_code' in code_gen
+        assert 'edit_python_code' in code_gen
+        
         # Test file_path tools
         file_path_tools = get_tools_requiring_file_path(system_mcps_dir)
         assert len(file_path_tools) > 0, "Should have tools requiring file_path"
@@ -267,5 +298,7 @@ class TestRealSystemMCPs:
         
         print(f"\n✓ Loaded {len(valid_coding)} valid coding tools")
         print(f"✓ Loaded {len(meta)} meta tools")
+        print(f"✓ Loaded {len(code_gen)} code generation tools")
         print(f"✓ Loaded {len(file_path_tools)} tools requiring file_path")
+        print(f"  Code generation tools: {code_gen}")
         print(f"  File path tools: {file_path_tools}")
