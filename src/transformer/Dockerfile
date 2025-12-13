@@ -46,30 +46,23 @@ RUN --mount=type=bind,source=packages,target=/packages \
       sentry-sdk==1.40.6 \
       "protobuf>=3.20.0"
 
-# Create cache directory for huggingface / transformers models (use stable id)
-# Using cache mount (below) lets model files persist across builds without bloating the image.
+# Create cache directory for huggingface / transformers models
+# Models will be downloaded directly into the image for runtime use
 RUN mkdir -p /root/.cache/huggingface
 
-# OPTION A (recommended): Pre-download models into a BuildKit cache (not baked into image)
-# This will store models in BuildKit 'hf-cache' and not enlarge the final image.
-# The downloaded model files are available to subsequent RUN steps during the build, and
-# to containers if you mount a volume at runtime.
-RUN --mount=type=cache,target=/root/.cache/huggingface,id=hf-cache,sharing=locked \
-    python3 -c "from sentence_transformers import SentenceTransformer; \
-        print('Downloading sentence-transformers model to hf-cache...'); \
-        model = SentenceTransformer('paraphrase-mpnet-base-v2'); \
-        print('Model downloaded')"
+# Pre-download sentence-transformers model to avoid first-run delay
+# This model (paraphrase-mpnet-base-v2) is ~420MB and produces 768-dimensional embeddings
+RUN python3 -c "from sentence_transformers import SentenceTransformer; \
+    print('Downloading sentence-transformers model...'); \
+    model = SentenceTransformer('paraphrase-mpnet-base-v2'); \
+    print('Model downloaded successfully')"
 
-RUN --mount=type=cache,target=/root/.cache/huggingface,id=hf-cache,sharing=locked \
-    python3 -c "from transformers import AutoTokenizer, AutoModel; \
-        print('Downloading CodeBERT to hf-cache...'); \
-        tokenizer = AutoTokenizer.from_pretrained('microsoft/codebert-base'); \
-        model = AutoModel.from_pretrained('microsoft/codebert-base'); \
-        print('CodeBERT downloaded')"
-
-# OPTION B (if you explicitly want the models baked into the final image)
-# Uncomment the two RUN lines above and remove the '--mount=type=cache,...' or
-# run a dedicated step that downloads models without cache mounts. Note: image size will grow by ~1GB+.
+# Pre-download CodeBERT model (~500MB) for code embeddings
+RUN python3 -c "from transformers import AutoTokenizer, AutoModel; \
+    print('Downloading CodeBERT model...'); \
+    tokenizer = AutoTokenizer.from_pretrained('microsoft/codebert-base'); \
+    model = AutoModel.from_pretrained('microsoft/codebert-base'); \
+    print('CodeBERT model downloaded successfully')"
 
 # Copy application code after all heavy installs so code changes don't invalidate earlier layers
 COPY src/transformer/ .

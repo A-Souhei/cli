@@ -127,7 +127,8 @@ services:
       - app
     ports:
       - "8080:8080"
-    network_mode: host
+    networks:
+      - vuhitra-network
     healthcheck:
       test: ["CMD", "curl", "-s", "-f", "http://localhost:8080/simple/"]
       interval: 30s
@@ -139,10 +140,7 @@ services:
   transformer:
     build:
       context: .
-      dockerfile: src/transformer/Dockerfile.pypi
-      network: host
-      args:
-        - PYPI_SERVER_URL=http://172.17.0.1:8080/simple/
+      dockerfile: src/transformer/Dockerfile
     image: vuhitra-transformer:latest
     container_name: vuhitra-transformer
     profiles:
