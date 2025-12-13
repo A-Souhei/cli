@@ -25,6 +25,14 @@ except ImportError:
     EMBEDDING_CLIENT_AVAILABLE = False
     print("Warning: EmbeddingClient not available, will use direct transformer calls")
 
+# Import shared MCP tools loader
+try:
+    from shared_mcp_tools_loader import get_file_path_tools_cached
+    MCP_TOOLS_LOADER_AVAILABLE = True
+except ImportError:
+    MCP_TOOLS_LOADER_AVAILABLE = False
+    print("Warning: MCP tools loader not available, will use hardcoded tool lists")
+
 
 # Configure Sentry
 configure_sentry(service_name="postgres-flask")
@@ -958,10 +966,17 @@ def retrieve_tools_recursive():
                             if context_references:
                                 # Check if tool needs file_path and doesn't have it
                                 if 'file_path' not in extracted or not extracted.get('file_path'):
-                                    # Tools that need file_path
-                                    file_path_tools = ['write_python_code', 'edit_python_code', 'write_r_code',
-                                                      'edit_r_code', 'run_python_code', 'run_r_code',
-                                                      'verify_file_modifications', 'add_file_context']
+                                    # Load tools that need file_path dynamically from tools.yaml files
+                                    if MCP_TOOLS_LOADER_AVAILABLE:
+                                        file_path_tools = get_file_path_tools_cached()
+                                    else:
+                                        # Fallback to hardcoded list if loader not available
+                                        file_path_tools = ['write_python_code', 'edit_python_code', 'write_r_code',
+                                                          'edit_r_code', 'run_python_code', 'run_r_code',
+                                                          'verify_file_modifications', 'add_file_context',
+                                                          'generate_fake_data', 'generate_fake_data_ddpm',
+                                                          'generate_ast', 'compare_code_similarity', 'compare_ast_similarity']
+                                    
                                     if tool.tool_name in file_path_tools:
                                         # Find first file reference (ends with .py, .r, .R)
                                         for ref in context_references:

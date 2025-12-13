@@ -15,6 +15,15 @@ categories:
       - compare_code_similarity
       - compare_ast_similarity
 
+  valid_coding:
+    description: "All data-engineer tools that can be used in /code command"
+    tools:
+      - generate_fake_data
+      - generate_fake_data_ddpm
+      - generate_ast
+      - compare_code_similarity
+      - compare_ast_similarity
+
   data_engineering:
     description: "All data engineering tools"
     tools:
@@ -29,6 +38,7 @@ tools:
   generate_fake_data:
     requires_llm_generation: false
     requires_file: true
+    requires_file_path: true
     generates_file: true
     uses_ml_model: true
     description: "Generate synthetic data quickly from real data using WGAN (optimized for speed)"
@@ -41,6 +51,7 @@ tools:
   generate_fake_data_ddpm:
     requires_llm_generation: false
     requires_file: true
+    requires_file_path: true
     generates_file: true
     uses_ml_model: true
     description: "Generate high-quality synthetic data from real data using DDPM (optimized for quality)"
@@ -53,6 +64,7 @@ tools:
   generate_ast:
     requires_llm_generation: false
     requires_file: true
+    requires_file_path: true
     languages:
       - python
       - r
@@ -61,6 +73,7 @@ tools:
   compare_code_similarity:
     requires_llm_generation: false
     requires_file: true
+    requires_file_path: true
     uses_external_service: true
     external_service: "transformer"
     description: "Compare code similarity using CodeBERT embeddings"
@@ -75,6 +88,7 @@ tools:
   compare_ast_similarity:
     requires_llm_generation: false
     requires_file: true
+    requires_file_path: true
     uses_external_service: true
     external_service: "transformer"
     description: "Compare code similarity using AST-based CodeBERT embeddings"
