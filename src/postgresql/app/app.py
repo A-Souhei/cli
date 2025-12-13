@@ -968,7 +968,7 @@ def retrieve_tools_recursive():
                                 if 'file_path' not in extracted or not extracted.get('file_path'):
                                     # Load tools that need file_path dynamically from tools.yaml files
                                     if not MCP_TOOLS_LOADER_AVAILABLE:
-                                        print("ERROR: MCP tools loader not available - cannot determine file_path requirements")
+                                        app.logger.error("MCP tools loader not available - cannot determine file_path requirements")
                                         file_path_tools = []
                                     else:
                                         file_path_tools = get_file_path_tools_cached()
