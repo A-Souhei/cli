@@ -1974,12 +1974,25 @@ Output format:
                                     console.print("\n[dim]Skipping verification run[/dim]\n")
                     elif target_file:
                         # Write code to target file
-                        run_async(handle_code_file_writing(mcp_client, full_response, target_file))
+                        run_async(handle_code_file_writing(
+                            mcp_client, 
+                            full_response, 
+                            target_file,
+                            get_user_working_dir,
+                            console,
+                            debug_print
+                        ))
                     else:
                         # Execute code (with user confirmation)
-                        exec_result = run_async(handle_code_execution(mcp_client, full_response))
+                        exec_result = run_async(handle_code_execution(
+                            mcp_client, 
+                            full_response,
+                            InteractiveSelector,
+                            console,
+                            debug_print
+                        ))
                         if exec_result:
-                            display_execution_result(exec_result, console=console)
+                            display_execution_result(exec_result, console=console, debug_print_func=debug_print)
                 except Exception as e:
                     debug_print(f"Error during code handling: {e}", icon="❌")
 
