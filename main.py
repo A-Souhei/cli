@@ -1691,6 +1691,18 @@ Output format:
                 if not user_input:
                     continue
 
+                # Detect data engineering tasks and suggest using /code mode
+                data_engineering_keywords = [
+                    'generate fake data', 'synthetic data', 'wgan', 'ddpm',
+                    'generate data', 'fake data', 'mock data', 'test data generation',
+                    'ast analysis', 'code similarity', 'compare code'
+                ]
+                user_input_lower = user_input.lower()
+                if any(keyword in user_input_lower for keyword in data_engineering_keywords):
+                    console.print("\n[yellow]💡 Tip: For data engineering tasks, use [bold]/code[/bold] command for better results:[/yellow]")
+                    console.print(f"[dim]   /code {user_input[:60]}{'...' if len(user_input) > 60 else ''}[/dim]")
+                    console.print("[dim]   This will use specialized MCP tools instead of generating code from scratch.[/dim]\n")
+
                 # Process @ prefixed file/directory paths
                 at_context = extract_at_context(user_input, get_user_working_dir())
                 
