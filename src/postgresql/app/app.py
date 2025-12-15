@@ -27,7 +27,7 @@ except ImportError:
 
 # Import shared MCP tools loader
 try:
-    from shared_mcp_tools_loader import get_file_path_tools_cached
+    from shared_mcp_tools_loader import get_file_path_tools_cached, get_all_tools_metadata_cached
     MCP_TOOLS_LOADER_AVAILABLE = True
 except ImportError:
     MCP_TOOLS_LOADER_AVAILABLE = False
@@ -1295,31 +1295,70 @@ def code_command_simple():
         ollama_url = data.get('ollama_url')  # Optional custom Ollama URL
         provider = data.get('provider', 'ollama')  # 'ollama' or 'anthropic'
 
-        # Step 1: Get all MCP tools from database
-        tools = MCPTool.query.all()
+        # Step 1: Get all MCP tools from database (for descriptions)
+        db_tools = MCPTool.query.all()
+        db_tool_descriptions = {tool.tool_name: tool.description for tool in db_tools}
 
-        if not tools:
-            return jsonify({
-                'status': 'error',
-                'message': 'No MCP tools found in database. Please initialize tools first.'
-            }), 404
+        # Step 1.5: Load tools metadata from tools.yaml files if available
+        tools_yaml_metadata = {}
+        if MCP_TOOLS_LOADER_AVAILABLE:
+            try:
+                tools_yaml_metadata = get_all_tools_metadata_cached()
+                print(f"[code-command-simple] Loaded {len(tools_yaml_metadata)} tools from tools.yaml files")
+            except Exception as e:
+                print(f"[code-command-simple] Warning: Failed to load tools.yaml metadata: {e}")
 
-        # Step 1.5: Filter out meta tools that shouldn't be used in /code steps
-        meta_tool_names = {'spin_the_roulette', 'retrieve_all_tools', 'roll_the_dice', 'execute_plan'}
-        usable_tools = [tool for tool in tools if tool.tool_name not in meta_tool_names]
+        # Step 1.6: Filter out meta tools using tools.yaml categories
+        meta_tool_names = set()
+        for tool_name, tool_data in tools_yaml_metadata.items():
+            if 'meta' in tool_data.get('categories', []):
+                meta_tool_names.add(tool_name)
         
-        # Step 1.6: Build dynamic tool list from database
+        # Fallback meta tools if tools.yaml not available
+        if not meta_tool_names:
+            meta_tool_names = {'spin_the_roulette', 'retrieve_all_tools', 'roll_the_dice', 'execute_plan'}
+        
+        print(f"[code-command-simple] Excluded meta tools: {meta_tool_names}")
+        
+        # Step 1.7: Build dynamic tool list from tools.yaml + database
         tools_list = []
-        for idx, tool in enumerate(usable_tools, start=1):
+        usable_tool_names = set()
+        
+        # Combine tools from both sources
+        all_tool_names = set(tools_yaml_metadata.keys()) | set(db_tool_descriptions.keys())
+        
+        for tool_name in sorted(all_tool_names):
+            # Skip meta tools
+            if tool_name in meta_tool_names:
+                continue
+                
+            usable_tool_names.add(tool_name)
+            
+            # Prefer description from tools.yaml, fallback to database
+            if tool_name in tools_yaml_metadata:
+                yaml_desc = tools_yaml_metadata[tool_name].get('description', '')
+                db_desc = db_tool_descriptions.get(tool_name, '')
+                # Use tools.yaml description if available, otherwise use database
+                desc = yaml_desc if yaml_desc else db_desc
+            else:
+                desc = db_tool_descriptions.get(tool_name, 'No description available')
+            
             # Extract a concise description (first sentence or up to 150 chars)
-            desc = tool.description.split('.')[0].strip()
-            if len(desc) > 150:
-                desc = desc[:147] + "..."
-            tools_list.append(f"{idx}. {tool.tool_name} - {desc}")
+            desc_short = desc.split('.')[0].strip() if desc else 'No description'
+            if len(desc_short) > 150:
+                desc_short = desc_short[:147] + "..."
+            
+            tools_list.append(f"{len(tools_list) + 1}. {tool_name} - {desc_short}")
         
         tools_text = "\n".join(tools_list)
         
-        print(f"[code-command-simple] Loaded {len(usable_tools)} usable tools from database (excluded {len(tools) - len(usable_tools)} meta tools)")
+        if not usable_tool_names:
+            return jsonify({
+                'status': 'error',
+                'message': 'No usable MCP tools found. Please initialize tools first.'
+            }), 404
+        
+        print(f"[code-command-simple] Loaded {len(usable_tool_names)} usable tools (excluded {len(meta_tool_names)} meta tools)")
 
         # Step 2: Create prompt for LLM to split the user's request
         # Extract any file paths mentioned with @ prefix for context
