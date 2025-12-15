@@ -4,6 +4,7 @@ This module can be used by both the main CLI and Docker services (like PostgreSQ
 """
 
 import yaml
+import threading
 from pathlib import Path
 from typing import List
 
@@ -56,11 +57,15 @@ def get_tools_requiring_file_path(system_mcps_dir: str) -> List[str]:
 
 # Cache for file_path_tools to avoid repeated file I/O
 _file_path_tools_cache = None
+_cache_lock = threading.Lock()
 
 
 def get_file_path_tools_cached(system_mcps_dir: str = "/app/system_mcps") -> List[str]:
     """
     Get tools requiring file_path with caching for performance.
+    
+    Thread-safe implementation using a lock to prevent race conditions
+    in Flask applications with multiple workers or threads.
     
     Args:
         system_mcps_dir: Path to system_mcps directory
@@ -70,8 +75,12 @@ def get_file_path_tools_cached(system_mcps_dir: str = "/app/system_mcps") -> Lis
     """
     global _file_path_tools_cache
     
+    # Double-checked locking pattern for thread-safe lazy initialization
     if _file_path_tools_cache is None:
-        _file_path_tools_cache = get_tools_requiring_file_path(system_mcps_dir)
-        print(f"Loaded {len(_file_path_tools_cache)} tools requiring file_path: {_file_path_tools_cache}")
+        with _cache_lock:
+            # Check again inside the lock to prevent race condition
+            if _file_path_tools_cache is None:
+                _file_path_tools_cache = get_tools_requiring_file_path(system_mcps_dir)
+                print(f"Loaded {len(_file_path_tools_cache)} tools requiring file_path: {_file_path_tools_cache}")
     
     return _file_path_tools_cache

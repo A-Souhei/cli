@@ -1,4 +1,9 @@
-"""Utility for loading MCP tool categories from tools.yaml files."""
+"""Utility for loading MCP tool categories from tools.yaml files.
+
+This module is designed for the CLI application and uses Path objects.
+For Docker services, see shared_mcp_tools_loader.py which uses string paths
+for better compatibility with container environments.
+"""
 
 import yaml
 from pathlib import Path
