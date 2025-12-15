@@ -27,7 +27,7 @@ except ImportError:
 
 # Import shared MCP tools loader
 try:
-    from shared_mcp_tools_loader import get_file_path_tools_cached
+    from shared_mcp_tools_loader import get_file_path_tools_cached, get_all_tools_metadata_cached
     MCP_TOOLS_LOADER_AVAILABLE = True
 except ImportError:
     MCP_TOOLS_LOADER_AVAILABLE = False
@@ -1295,18 +1295,74 @@ def code_command_simple():
         ollama_url = data.get('ollama_url')  # Optional custom Ollama URL
         provider = data.get('provider', 'ollama')  # 'ollama' or 'anthropic'
 
-        # Step 1: Get all MCP tools from database
-        tools = MCPTool.query.all()
+        # Step 1: Get all MCP tools from database (for descriptions)
+        db_tools = MCPTool.query.all()
+        db_tool_descriptions = {tool.tool_name: tool.description for tool in db_tools}
 
-        if not tools:
+        # Step 1.5: Load tools metadata from tools.yaml files if available
+        tools_yaml_metadata = {}
+        if MCP_TOOLS_LOADER_AVAILABLE:
+            try:
+                tools_yaml_metadata = get_all_tools_metadata_cached()
+                print(f"[code-command-simple] Loaded {len(tools_yaml_metadata)} tools from tools.yaml files")
+            except Exception as e:
+                print(f"[code-command-simple] Warning: Failed to load tools.yaml metadata: {e}")
+
+        # Step 1.6: Filter out meta tools using tools.yaml categories
+        meta_tool_names = set()
+        for tool_name, tool_data in tools_yaml_metadata.items():
+            if 'meta' in tool_data.get('categories', []):
+                meta_tool_names.add(tool_name)
+        
+        # Fallback meta tools if tools.yaml not available
+        if not meta_tool_names:
+            meta_tool_names = {'spin_the_roulette', 'retrieve_all_tools', 'roll_the_dice', 'execute_plan'}
+        
+        print(f"[code-command-simple] Excluded meta tools: {meta_tool_names}")
+        
+        # Step 1.7: Build dynamic tool list from tools.yaml + database
+        tools_list = []
+        usable_tool_names = set()
+        
+        # Combine tools from both sources
+        all_tool_names = set(tools_yaml_metadata.keys()) | set(db_tool_descriptions.keys())
+        
+        for tool_name in sorted(all_tool_names):
+            # Skip meta tools
+            if tool_name in meta_tool_names:
+                continue
+                
+            usable_tool_names.add(tool_name)
+            
+            # Prefer description from tools.yaml, fallback to database
+            if tool_name in tools_yaml_metadata:
+                yaml_desc = tools_yaml_metadata[tool_name].get('description', '')
+                db_desc = db_tool_descriptions.get(tool_name, '')
+                # Use tools.yaml description if available, otherwise use database
+                desc = yaml_desc if yaml_desc else db_desc
+            else:
+                desc = db_tool_descriptions.get(tool_name, 'No description available')
+            
+            # Extract a concise description (first sentence or up to 150 chars)
+            desc_short = desc.split('.')[0].strip() if desc else 'No description'
+            if len(desc_short) > 150:
+                desc_short = desc_short[:147] + "..."
+            
+            tools_list.append(f"{len(tools_list) + 1}. {tool_name} - {desc_short}")
+        
+        tools_text = "\n".join(tools_list)
+        
+        if not usable_tool_names:
             return jsonify({
                 'status': 'error',
-                'message': 'No MCP tools found in database. Please initialize tools first.'
+                'message': 'No usable MCP tools found. Please initialize tools first.'
             }), 404
+        
+        print(f"[code-command-simple] Loaded {len(usable_tool_names)} usable tools (excluded {len(meta_tool_names)} meta tools)")
 
         # Step 2: Create prompt for LLM to split the user's request
         # Extract any file paths mentioned with @ prefix for context
-        mentioned_files = re.findall(r'@([\w\-./]+(?:\.py|\.r|\.R)?)', text)
+        mentioned_files = re.findall(r'@([\w\-./]+(?:\.py|\.r|\.R|\.csv|\.json|\.parquet)?)', text)
         file_context = ""
         if mentioned_files:
             file_context = f"\nFiles mentioned by user: {', '.join(mentioned_files)}"
@@ -1317,34 +1373,27 @@ USER REQUEST: {text}
 {file_context}
 
 AVAILABLE TOOLS (use ONLY these):
-1. add_file_context - Load a file into context to read its contents (use FIRST to understand existing code)
-2. edit_python_code - Modify an EXISTING Python file (requires the file to exist)
-3. write_python_code - Create a NEW Python file (only for new files)
-4. run_python_code - Execute Python code directly (for testing/validation)
-5. run_r_code - Execute R code directly (for testing/validation)
-6. write_r_code - Create a NEW R file (only for new files)
-7. edit_r_code - Modify an EXISTING R file (requires the file to exist)
-8. add_directory_context - Load the contents of a directory into context (to understand project structure)
-9. verify_file_modifications - Check that a file was modified as expected (for validation)
+{tools_text}
 
 CRITICAL RULES:
 1. Each step must be a plain English sentence describing ONE action
 2. ALWAYS start by loading relevant files with add_file_context before editing them
 3. Use EXACT file paths from the user's request (paths starting with @)
-4. If the user mentions a class/function name, infer the likely file path:
-   - UserService → services/user_service.py
-   - ProductService → services/product_service.py  
-   - helpers → utils/helpers.py
-   - Models → models/*.py
+4. Choose the RIGHT tool for the task:
+   - For generating synthetic/fake data from existing data: use generate_fake_data or generate_fake_data_ctgan
+   - For code analysis (AST, similarity): use generate_ast, compare_code_similarity, or compare_ast_similarity
+   - For creating new code files: use write_python_code or write_r_code
+   - For modifying existing code: use edit_python_code or edit_r_code
+   - For executing code: use run_python_code or run_r_code
+   - For loading files into context: use add_file_context
 5. NEVER use function-call syntax like "tool_name(args)"
-6. NEVER reference tools that don't exist (no read_python_code, no read_file)
-
-STEP PATTERN FOR EDITING EXISTING CODE:
-1. "Load @path/to/file.py into context using add_file_context" (to read current code)
-2. "Load any dependency files into context using add_file_context" (if importing from other files)
-3. "Edit @path/to/file.py to [describe changes] using edit_python_code"
+6. NEVER reference tools that don't exist in the list above
 
 EXAMPLES:
+User: "Generate fake data from @users.csv and save to @fake_users.csv"
+Steps:
+["Generate synthetic data from users.csv with 100 samples and save to fake_users.csv using generate_fake_data"]
+
 User: "Add validation to UserService.create_user using validate_email from utils/helpers.py"
 Steps:
 ["Load services/user_service.py into context using add_file_context",
@@ -1354,6 +1403,10 @@ Steps:
 User: "Create a new calculator module"
 Steps:
 ["Write a new Python file calculator.py with basic calculator functions using write_python_code"]
+
+User: "Compare similarity between @file1.py and @file2.py"
+Steps:
+["Compare code similarity between file1.py and file2.py using compare_code_similarity"]
 
 Return ONLY a JSON array of step strings. No explanation, just the array:
 ["step 1", "step 2", "step 3"]"""

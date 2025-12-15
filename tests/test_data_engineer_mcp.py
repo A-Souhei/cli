@@ -253,7 +253,7 @@ if __name__ == '__main__':
         
         # Check that all five expected tools are present
         assert "generate_fake_data" in tool_names
-        assert "generate_fake_data_ddpm" in tool_names
+        assert "generate_fake_data_ctgan" in tool_names
         assert "generate_ast" in tool_names
         assert "compare_code_similarity" in tool_names
         assert "compare_ast_similarity" in tool_names
@@ -521,7 +521,7 @@ def broken_function(
         assert "not exist" in message_lower or "ydata-synthetic not installed" in message_lower
 
     @pytest.mark.asyncio
-    async def test_generate_fake_data_ddpm(self, server_path, sample_csv_file):
+    async def test_generate_fake_data_ctgan(self, server_path, sample_csv_file):
         """Test high-quality synthetic data generation using DDPM."""
         # This test requires ydata-synthetic to be installed
         # It will be slower than WGAN due to more training epochs
@@ -542,7 +542,7 @@ def broken_function(
                 "id": 2,
                 "method": "tools/call",
                 "params": {
-                    "name": "generate_fake_data_ddpm",
+                    "name": "generate_fake_data_ctgan",
                     "arguments": {
                         "file_path": sample_csv_file,
                         "num_samples": 5,
@@ -576,7 +576,7 @@ def broken_function(
             assert result_data["epochs_trained"] >= 100
 
     @pytest.mark.asyncio
-    async def test_generate_fake_data_ddpm_insufficient_data(self, server_path):
+    async def test_generate_fake_data_ctgan_insufficient_data(self, server_path):
         """Test DDPM with insufficient data (should fail with clear message)."""
         # Create a minimal CSV with less than 50 rows (DDPM minimum)
         with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
@@ -603,7 +603,7 @@ def broken_function(
                     "id": 2,
                     "method": "tools/call",
                     "params": {
-                        "name": "generate_fake_data_ddpm",
+                        "name": "generate_fake_data_ctgan",
                         "arguments": {
                             "file_path": temp_path,
                             "num_samples": 5

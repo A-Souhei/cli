@@ -1,5 +1,6 @@
 """Working directory command handlers for AI CLI."""
 import os
+from pathlib import Path
 
 
 def handle_wd_show(console, get_user_working_dir):
@@ -27,7 +28,11 @@ def handle_wd_change(console, user_input_normalized, get_user_working_dir, set_u
     if set_user_working_dir(new_path):
         console.print(f"\n✓ [green]Working directory changed to:[/green] [cyan]{get_user_working_dir()}[/cyan]")
         # Update file completer with new working directory
-        combined_completer = CombinedCompleter(working_dir=get_user_working_dir())
+        system_mcps_dir = Path(__file__).parent.parent.parent.parent / "system_mcps"
+        combined_completer = CombinedCompleter(
+            working_dir=get_user_working_dir(),
+            system_mcps_dir=system_mcps_dir
+        )
         console.print("[dim]File completion paths updated[/dim]\n")
         return combined_completer  # Return updated completer
     else:

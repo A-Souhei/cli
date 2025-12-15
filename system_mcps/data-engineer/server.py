@@ -190,23 +190,22 @@ def write_file_safe(file_path: str, content: str, working_dir: str) -> tuple[boo
         return False, f"Error writing file: {str(e)}"
 
 
-def generate_synthetic_data(file_path: str, num_samples: int, working_dir: str) -> Dict[str, Any]:
+def generate_synthetic_data(file_path: str, num_samples: int, working_dir: str, num_rows: int = None) -> Dict[str, Any]:
     """
-    Generate synthetic data from a real dataset using ydata-synthetic DDPM.
+    Generate synthetic data from a real dataset using WGAN via transformer service.
 
     Args:
         file_path: Path to the input data file (CSV, JSON, or Parquet)
         num_samples: Number of synthetic samples to generate
         working_dir: Working directory for file operations
+        num_rows: Number of rows from original data to use for training (optional, uses all rows if not specified)
 
     Returns:
         Dict with status and synthetic data or error message
     """
     try:
-        # Import ydata-synthetic
-        from ydata_synthetic.synthesizers import ModelParameters
-        from ydata_synthetic.synthesizers.regular import RegularSynthesizer
         import pandas as pd
+        import requests
 
         debug_print(f"Loading data from {file_path}")
 
@@ -254,61 +253,55 @@ def generate_synthetic_data(file_path: str, num_samples: int, working_dir: str) 
                 "message": f"Dataset too small ({len(data)} rows). Minimum {MIN_DATASET_SIZE_FOR_SYNTHESIS} rows required for synthetic data generation."
             }
 
-        # Prepare data for synthesis
-        # Only use numeric and categorical columns
-        numeric_cols = data.select_dtypes(include=['int64', 'float64']).columns.tolist()
-        categorical_cols = data.select_dtypes(include=['object', 'category']).columns.tolist()
+        # Call transformer service for synthetic data generation
+        transformer_url = os.getenv('TRANSFORMER_API_URL', 'http://localhost:16050')
+        debug_print(f"Calling transformer service at {transformer_url}/synthetic/generate")
+        
+        # Build request payload
+        request_payload = {
+            "data": data.to_dict(orient='records'),
+            "num_samples": num_samples,
+            "model": "wgan",
+            "epochs": DEFAULT_SYNTHESIS_EPOCHS
+        }
+        
+        # Add num_rows if specified
+        if num_rows is not None:
+            request_payload["num_rows"] = num_rows
+            debug_print(f"Using {num_rows} rows from original dataset for training")
 
-        debug_print(f"Numeric columns: {numeric_cols}, Categorical columns: {categorical_cols}")
+        response = requests.post(
+            f"{transformer_url}/synthetic/generate",
+            json=request_payload,
+            timeout=300  # 5 minutes timeout for training
+        )
 
-        if not numeric_cols and not categorical_cols:
+        if response.status_code != 200:
             return {
                 "status": "error",
-                "message": "No suitable columns found for synthesis. Need numeric or categorical columns."
+                "message": f"Transformer service error: {response.text}"
             }
 
-        # Configure model parameters (lightweight for MCP context)
-        model_params = ModelParameters(
-            batch_size=min(SYNTHESIS_BATCH_SIZE_MAX, len(data)),
-            epochs=DEFAULT_SYNTHESIS_EPOCHS,
-            lr=0.001,
-            betas=(0.5, 0.9)
-        )
+        result = response.json()
+        if result.get('status') != 'success':
+            return result
 
-        debug_print("Initializing synthesizer...")
-
-        # Initialize synthesizer with regular (non-conditional) model
-        synthesizer = RegularSynthesizer(
-            modelname='wgan',  # Using WGAN (Wasserstein GAN) for faster training on small datasets
-            model_parameters=model_params
-        )
-
-        debug_print("Fitting synthesizer...")
-
-        # Fit the synthesizer on the data
-        synthesizer.fit(data=data, train_arguments={"epochs": DEFAULT_SYNTHESIS_EPOCHS}, num_cols=numeric_cols, cat_cols=categorical_cols)
-
-        debug_print(f"Generating {num_samples} synthetic samples...")
-
-        # Generate synthetic data
-        synthetic_data = synthesizer.sample(num_samples)
-
-        debug_print(f"Generated synthetic data with shape: {synthetic_data.shape}")
+        debug_print(f"Generated {len(result['synthetic_data'])} synthetic samples")
 
         return {
             "status": "success",
-            "message": f"Generated {len(synthetic_data)} synthetic samples",
-            "num_samples": len(synthetic_data),
-            "num_columns": len(synthetic_data.columns),
-            "columns": synthetic_data.columns.tolist(),
-            "data_preview": synthetic_data.head(5).to_dict(orient='records'),
-            "data_full": synthetic_data.to_dict(orient='records')
+            "message": f"Generated {len(result['synthetic_data'])} synthetic samples using WGAN",
+            "num_samples": result['num_samples'],
+            "num_columns": result['num_columns'],
+            "columns": result['columns'],
+            "data_preview": result['synthetic_data'][:5],
+            "data_full": result['synthetic_data']
         }
 
-    except ImportError as e:
+    except requests.RequestException as e:
         return {
             "status": "error",
-            "message": f"ydata-synthetic not installed: {str(e)}. Install with: pip install ydata-synthetic"
+            "message": f"Failed to connect to transformer service: {str(e)}"
         }
     except Exception as e:
         debug_print(f"Error in generate_synthetic_data: {str(e)}")
@@ -318,30 +311,29 @@ def generate_synthetic_data(file_path: str, num_samples: int, working_dir: str) 
         }
 
 
-def generate_synthetic_data_ddpm(file_path: str, num_samples: int, working_dir: str, epochs: int = 300) -> Dict[str, Any]:
+def generate_synthetic_data_ctgan(file_path: str, num_samples: int, working_dir: str, epochs: int = 300, num_rows: int = None) -> Dict[str, Any]:
     """
-    Generate high-quality synthetic data using DDPM (Denoising Diffusion Probabilistic Models).
+    Generate high-quality synthetic data using CTGAN via transformer service.
     
-    This function uses DDPM for superior quality synthetic data generation. DDPM produces
-    more accurate statistical distributions and better preserves complex relationships in
-    the data, but requires significantly more training time than WGAN.
+    This function uses CTGAN (Conditional Tabular GAN) for superior quality synthetic data generation.
+    CTGAN is specifically designed for tabular data and produces more accurate statistical distributions
+    and better preserves complex relationships in the data, but requires more training time than WGAN.
 
     Args:
         file_path: Path to the input data file (CSV, JSON, or Parquet)
         num_samples: Number of synthetic samples to generate
         working_dir: Working directory for file operations
         epochs: Number of training epochs (default: 300 for high quality, minimum 100 recommended)
+        num_rows: Number of rows from original data to use for training (optional, uses all rows if not specified)
 
     Returns:
         Dict with status and synthetic data or error message
     """
     try:
-        # Import ydata-synthetic
-        from ydata_synthetic.synthesizers import ModelParameters
-        from ydata_synthetic.synthesizers.regular import RegularSynthesizer
         import pandas as pd
+        import requests
 
-        debug_print(f"[DDPM] Loading data from {file_path}")
+        debug_print(f"[CTGAN] Loading data from {file_path}")
 
         # Determine full path
         if not os.path.isabs(file_path):
@@ -378,83 +370,74 @@ def generate_synthetic_data_ddpm(file_path: str, num_samples: int, working_dir: 
                 "message": f"Unsupported file format: {file_ext}. Supported: .csv, .json, .parquet"
             }
 
-        debug_print(f"[DDPM] Loaded data with shape: {data.shape}")
+        debug_print(f"[CTGAN] Loaded data with shape: {data.shape}")
 
-        # Validate data size - DDPM needs more data for good results
-        min_samples_ddpm = 50  # DDPM works better with more samples
-        if len(data) < min_samples_ddpm:
+        # Validate data size - CTGAN needs more data for good results
+        min_samples_ctgan = 50  # CTGAN works better with more samples
+        if len(data) < min_samples_ctgan:
             return {
                 "status": "error",
-                "message": f"Dataset too small ({len(data)} rows). DDPM requires minimum {min_samples_ddpm} rows for quality results. For smaller datasets, use generate_fake_data (WGAN) instead."
+                "message": f"Dataset too small ({len(data)} rows). CTGAN requires minimum {min_samples_ctgan} rows for quality results. For smaller datasets, use generate_fake_data (WGAN) instead."
             }
 
-        # Prepare data for synthesis
-        numeric_cols = data.select_dtypes(include=['int64', 'float64']).columns.tolist()
-        categorical_cols = data.select_dtypes(include=['object', 'category']).columns.tolist()
+        # Call transformer service for synthetic data generation
+        transformer_url = os.getenv('TRANSFORMER_API_URL', 'http://localhost:16050')
+        debug_print(f"[CTGAN] Calling transformer service at {transformer_url}/synthetic/generate")
+        debug_print(f"[CTGAN] Training with {epochs} epochs (this may take several minutes)...")
+        
+        # Build request payload
+        request_payload = {
+            "data": data.to_dict(orient='records'),
+            "num_samples": num_samples,
+            "model": "ctgan",
+            "epochs": max(epochs, 100)
+        }
+        
+        # Add num_rows if specified
+        if num_rows is not None:
+            request_payload["num_rows"] = num_rows
+            debug_print(f"[CTGAN] Using {num_rows} rows from original dataset for training")
 
-        debug_print(f"[DDPM] Numeric columns: {numeric_cols}, Categorical columns: {categorical_cols}")
+        response = requests.post(
+            f"{transformer_url}/synthetic/generate",
+            json=request_payload,
+            timeout=600  # 10 minutes timeout for CTGAN training
+        )
 
-        if not numeric_cols and not categorical_cols:
+        if response.status_code != 200:
             return {
                 "status": "error",
-                "message": "No suitable columns found for synthesis. Need numeric or categorical columns."
+                "message": f"Transformer service error: {response.text}"
             }
 
-        # Configure model parameters for DDPM (more intensive training)
-        model_params = ModelParameters(
-            batch_size=min(64, len(data)),  # Larger batch for DDPM
-            epochs=max(epochs, 100),  # Ensure minimum quality
-            lr=0.0001,  # Lower learning rate for DDPM
-            betas=(0.9, 0.999)
-        )
+        result = response.json()
+        if result.get('status') != 'success':
+            return result
 
-        debug_print(f"[DDPM] Initializing synthesizer with {model_params.epochs} epochs (this may take several minutes)...")
-
-        # Initialize synthesizer with DDPM model
-        synthesizer = RegularSynthesizer(
-            modelname='ddpm',  # DDPM for high-quality synthesis
-            model_parameters=model_params
-        )
-
-        debug_print("[DDPM] Training model... This will take longer than WGAN but produces higher quality results")
-
-        # Fit the synthesizer on the data
-        synthesizer.fit(
-            data=data, 
-            train_arguments={"epochs": model_params.epochs}, 
-            num_cols=numeric_cols, 
-            cat_cols=categorical_cols
-        )
-
-        debug_print(f"[DDPM] Generating {num_samples} high-quality synthetic samples...")
-
-        # Generate synthetic data
-        synthetic_data = synthesizer.sample(num_samples)
-
-        debug_print(f"[DDPM] Successfully generated synthetic data with shape: {synthetic_data.shape}")
+        debug_print(f"[CTGAN] Successfully generated {len(result['synthetic_data'])} synthetic samples")
 
         return {
             "status": "success",
-            "message": f"Generated {len(synthetic_data)} high-quality synthetic samples using DDPM",
-            "model_type": "ddpm",
-            "epochs_trained": model_params.epochs,
-            "num_samples": len(synthetic_data),
-            "num_columns": len(synthetic_data.columns),
-            "columns": synthetic_data.columns.tolist(),
-            "data_preview": synthetic_data.head(5).to_dict(orient='records'),
-            "data_full": synthetic_data.to_dict(orient='records')
+            "message": f"Generated {len(result['synthetic_data'])} high-quality synthetic samples using CTGAN",
+            "model_type": "ctgan",
+            "epochs_trained": result.get('epochs', epochs),
+            "num_samples": result['num_samples'],
+            "num_columns": result['num_columns'],
+            "columns": result['columns'],
+            "data_preview": result['synthetic_data'][:5],
+            "data_full": result['synthetic_data']
         }
 
-    except ImportError as e:
+    except requests.RequestException as e:
         return {
             "status": "error",
-            "message": f"ydata-synthetic not installed: {str(e)}. Install with: pip install ydata-synthetic"
+            "message": f"Failed to connect to transformer service: {str(e)}"
         }
     except Exception as e:
-        debug_print(f"[DDPM] Error in generate_synthetic_data_ddpm: {str(e)}")
+        debug_print(f"[CTGAN] Error in generate_synthetic_data_ctgan: {str(e)}")
         return {
             "status": "error",
-            "message": f"Failed to generate synthetic data with DDPM: {str(e)}"
+            "message": f"Failed to generate synthetic data with CTGAN: {str(e)}"
         }
 
 
@@ -644,12 +627,26 @@ def compare_code_files_similarity(file_path1: str, file_path2: str, working_dir:
         language1 = language_map.get(ext1, '')
         language2 = language_map.get(ext2, '')
 
-        # Call transformer service /code/similarity endpoint
+        # Estimate token count using CodeBERT's max token limit as reference
+        # CodeBERT uses 512 tokens max, so we chunk if approaching that limit
+        CODEBERT_MAX_TOKENS = 512
+        CHUNK_THRESHOLD = 400  # Start chunking before hitting the limit
+        
+        # Rough estimation: code typically has 1 token per ~4 characters
+        # This gives us approximately: estimated_tokens ≈ chars / 4 ≈ chars * (CODEBERT_MAX_TOKENS / 2048)
+        estimated_tokens1 = len(content1) * CODEBERT_MAX_TOKENS // 2048  # Roughly chars / 4
+        estimated_tokens2 = len(content2) * CODEBERT_MAX_TOKENS // 2048
+        
+        # Use chunked comparison if either file is large (>400 tokens)
+        use_chunked = estimated_tokens1 > CHUNK_THRESHOLD or estimated_tokens2 > CHUNK_THRESHOLD
+        
+        # Call transformer service
         transformer_url = get_transformer_url()
-        debug_print(f"Calling transformer service at {transformer_url}")
+        debug_print(f"Calling transformer service at {transformer_url} (chunked={use_chunked})")
 
+        endpoint = "/code/similarity/chunked" if use_chunked else "/code/similarity"
         response = requests.post(
-            f"{transformer_url}/code/similarity",
+            f"{transformer_url}{endpoint}",
             json={
                 "code1": content1,
                 "code2": content2,
@@ -657,7 +654,7 @@ def compare_code_files_similarity(file_path1: str, file_path2: str, working_dir:
                 "language2": language2,
                 "metric": metric
             },
-            timeout=60
+            timeout=120  # Longer timeout for chunked comparison
         )
 
         if response.status_code != 200:
@@ -677,6 +674,7 @@ def compare_code_files_similarity(file_path1: str, file_path2: str, working_dir:
         result['file2'] = file_path2
         result['file1_size'] = len(content1)
         result['file2_size'] = len(content2)
+        result['comparison_method'] = 'chunked' if use_chunked else 'direct'
 
         return result
 
@@ -764,12 +762,26 @@ def compare_ast_similarity(file_path1: str, file_path2: str, working_dir: str, m
                 "message": f"Failed to normalize code from AST: {str(e)}"
             }
 
+        # Estimate token count using CodeBERT's max token limit as reference
+        # CodeBERT uses 512 tokens max, so we chunk if approaching that limit
+        CODEBERT_MAX_TOKENS = 512
+        CHUNK_THRESHOLD = 400  # Start chunking before hitting the limit
+        
+        # Rough estimation: code typically has 1 token per ~4 characters
+        # This gives us approximately: estimated_tokens ≈ chars / 4 ≈ chars * (CODEBERT_MAX_TOKENS / 2048)
+        estimated_tokens1 = len(normalized_code1) * CODEBERT_MAX_TOKENS // 2048  # Roughly chars / 4
+        estimated_tokens2 = len(normalized_code2) * CODEBERT_MAX_TOKENS // 2048
+        
+        # Use chunked comparison if either normalized file is large (>400 tokens)
+        use_chunked = estimated_tokens1 > CHUNK_THRESHOLD or estimated_tokens2 > CHUNK_THRESHOLD
+        
         # Call transformer service to compare normalized code using CodeBERT
         transformer_url = get_transformer_url()
-        debug_print(f"Calling transformer service for AST similarity at {transformer_url}")
+        debug_print(f"Calling transformer service for AST similarity at {transformer_url} (chunked={use_chunked})")
 
+        endpoint = "/code/similarity/chunked" if use_chunked else "/code/similarity"
         response = requests.post(
-            f"{transformer_url}/code/similarity",
+            f"{transformer_url}{endpoint}",
             json={
                 "code1": normalized_code1,
                 "code2": normalized_code2,
@@ -777,7 +789,7 @@ def compare_ast_similarity(file_path1: str, file_path2: str, working_dir: str, m
                 "language2": "python",
                 "metric": metric
             },
-            timeout=60
+            timeout=120  # Longer timeout for chunked comparison
         )
 
         if response.status_code != 200:
@@ -791,6 +803,9 @@ def compare_ast_similarity(file_path1: str, file_path2: str, working_dir: str, m
 
         if result.get('status') == 'error':
             return result
+        
+        # Mark comparison method
+        result['comparison_method'] = 'chunked' if use_chunked else 'direct'
 
         # Enhance result with AST-specific information
         result['comparison_type'] = 'ast_based'
@@ -808,16 +823,55 @@ def compare_ast_similarity(file_path1: str, file_path2: str, working_dir: str, m
             'total_nodes_diff': abs(ast_result1['summary']['total_nodes'] - ast_result2['summary']['total_nodes'])
         }
 
-        # Enhanced interpretation considering AST structure
+        # Calculate structural difference penalty
+        # Penalize differences in class count, function count, and method signatures
+        structural_diff = result['structural_similarity']
+        
+        # Calculate a penalty factor based on structural differences
+        # Each difference type contributes to lowering the final similarity
+        penalty = 0.0
+        
+        # Count total methods in each file from class statistics
+        method_count1 = sum(len(cls.get('methods', [])) for cls in ast_result1['statistics']['classes'])
+        method_count2 = sum(len(cls.get('methods', [])) for cls in ast_result2['statistics']['classes'])
+        method_diff = abs(method_count1 - method_count2)
+        max_methods = max(method_count1, method_count2, 1)
+        
+        # Method count differences (most important for similar class patterns)
+        if method_diff > 0:
+            penalty += (method_diff / max_methods) * 0.15  # Up to 15% penalty
+        
+        # Total node differences (indicates overall complexity difference)
+        node_diff_ratio = structural_diff['total_nodes_diff'] / max(
+            ast_result1['summary']['total_nodes'],
+            ast_result2['summary']['total_nodes'],
+            1
+        )
+        penalty += node_diff_ratio * 0.10  # Up to 10% penalty based on size difference
+        
+        # Apply penalty to similarity score
+        base_similarity = result.get('similarity', 0.0)
+        adjusted_similarity = max(0.0, base_similarity - penalty)
+        
+        result['original_similarity'] = base_similarity
+        result['structural_penalty'] = penalty
+        result['method_count_diff'] = method_diff
+        result['similarity'] = adjusted_similarity
+        
+        # Enhanced interpretation considering AST structure and penalties
         original_interpretation = result.get('interpretation', '')
-        result['interpretation'] = f"AST-based: {original_interpretation}"
+        if penalty > 0.05:  # Significant penalty
+            result['interpretation'] = f"AST-based: {original_interpretation} (adjusted for structural differences)"
+        else:
+            result['interpretation'] = f"AST-based: {original_interpretation}"
         
         # Add note about what AST similarity means
         result['note'] = (
             "This comparison uses AST-normalized code (parsed and unparsed for consistent formatting). "
             "The normalized code is then compared using CodeBERT, which focuses on code structure and "
-            "logic patterns rather than specific variable names or formatting choices. This approach is "
-            "effective for detecting structurally similar code with different naming conventions or styles."
+            "logic patterns rather than specific variable names or formatting choices. "
+            f"A structural penalty of {penalty:.2%} was applied based on differences in methods, "
+            "classes, and overall complexity."
         )
 
         return result
@@ -852,7 +906,7 @@ async def list_tools() -> list[Tool]:
                 "This tool takes a data file (CSV, JSON, or Parquet) and rapidly generates synthetic data "
                 "with good statistical similarity to the original. WGAN is optimized for speed, making it "
                 "ideal for quick iterations, testing, and prototyping. Requires minimum 10 rows of real data. "
-                "For production-grade quality with better statistical fidelity, use generate_fake_data_ddpm instead. "
+                "For production-grade quality with better statistical fidelity, use generate_fake_data_ctgan instead. "
                 "The generated data will have the same columns and similar statistical properties as the input."
             ),
             inputSchema={
@@ -879,7 +933,7 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="generate_fake_data_ddpm",
+            name="generate_fake_data_ctgan",
             description=(
                 "Generate high-quality synthetic data using DDPM (Denoising Diffusion Probabilistic Models) "
                 "via ydata-synthetic. DDPM produces superior statistical fidelity and better preserves complex "
@@ -1041,6 +1095,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
     if name == "generate_fake_data":
         file_path = arguments.get("file_path", "")
         num_samples = arguments.get("num_samples", 100)
+        num_rows = arguments.get("num_rows")  # Optional
         output_path = arguments.get("output_path")
         working_dir = arguments.get("working_dir", os.getcwd())
 
@@ -1065,7 +1120,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             }, indent=2))]
 
         # Generate synthetic data
-        result = generate_synthetic_data(file_path, num_samples, working_dir)
+        result = generate_synthetic_data(file_path, num_samples, working_dir, num_rows)
 
         # Optionally save to output file
         if result.get("status") == "success" and output_path:
@@ -1087,9 +1142,10 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
-    elif name == "generate_fake_data_ddpm":
+    elif name == "generate_fake_data_ctgan":
         file_path = arguments.get("file_path", "")
         num_samples = arguments.get("num_samples", 100)
+        num_rows = arguments.get("num_rows")  # Optional
         output_path = arguments.get("output_path")
         working_dir = arguments.get("working_dir", os.getcwd())
         epochs = arguments.get("epochs", 300)
@@ -1114,8 +1170,8 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 "message": error_msg
             }, indent=2))]
 
-        # Generate high-quality synthetic data with DDPM
-        result = generate_synthetic_data_ddpm(file_path, num_samples, working_dir, epochs)
+        # Generate high-quality synthetic data with CTGAN
+        result = generate_synthetic_data_ctgan(file_path, num_samples, working_dir, epochs, num_rows)
 
         # Optionally save to output file
         if result.get("status") == "success" and output_path:

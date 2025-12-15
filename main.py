@@ -369,6 +369,228 @@ def main(verbose=False, auto_session=False):
                 # Add blank line for spacing after input
                 console.print()
 
+                # Handle $ prefix for direct MCP tool execution
+                # e.g., "$ generate fake data from @users.csv" shows MCP/tool dropdown
+                if user_input.startswith('$') and len(user_input) > 1:
+                    tool_prompt = user_input[1:].strip()
+                    
+                    try:
+                        console.print("\n[cyan]🔧 Direct MCP Tool Execution Mode[/cyan]")
+                        console.print("[dim]Select MCP server and tool to execute...[/dim]\n")
+                        
+                        # Get list of available MCPs
+                        system_mcps_dir = Path(__file__).parent / "system_mcps"
+                        mcp_list = []
+                        if system_mcps_dir.exists():
+                            for item in system_mcps_dir.iterdir():
+                                if item.is_dir() and (item / "server.py").exists():
+                                    mcp_list.append(item.name)
+                        
+                        if not mcp_list:
+                            console.print("[red]❌ No MCP servers found[/red]\n")
+                            continue
+                        
+                        # Show MCP dropdown
+                        mcp_selector = InteractiveSelector(
+                            title="📦 Select MCP Server:",
+                            choices=sorted(mcp_list),
+                            current=sorted(mcp_list)[0]
+                        )
+                        selected_mcp = mcp_selector.show()
+                        
+                        if not selected_mcp:
+                            console.print("[yellow]Cancelled[/yellow]\n")
+                            continue
+                        
+                        console.print(f"[green]✓ Selected MCP:[/green] {selected_mcp}\n")
+                        
+                        # Get tools from selected MCP using MCP client
+                        tool_list = []
+                        try:
+                            # Use MCP client to get tools directly
+                            tools = run_async(mcp_client.get_tools(selected_mcp))
+                            
+                            if tools:
+                                # Extract tool names from the tool objects
+                                for tool in tools:
+                                    tool_name = tool.get('name')
+                                    if tool_name:
+                                        tool_list.append(tool_name)
+                            
+                            # If MCP client didn't return tools, try loading from tools.yaml as fallback
+                            if not tool_list:
+                                tools_yaml_path = system_mcps_dir / selected_mcp / "tools.yaml"
+                                if tools_yaml_path.exists():
+                                    import yaml
+                                    with open(tools_yaml_path, 'r') as f:
+                                        tools_data = yaml.safe_load(f)
+                                        # Get all unique tools from all categories
+                                        categories = tools_data.get('categories', {})
+                                        for category_name, category_data in categories.items():
+                                            tools_in_cat = category_data.get('tools', [])
+                                            for tool_name in tools_in_cat:
+                                                if tool_name not in tool_list:
+                                                    # Exclude meta tools
+                                                    if category_name != 'meta':
+                                                        tool_list.append(tool_name)
+                        except Exception as e:
+                            debug_print(f"Error loading tools: {e}", icon="⚠️")
+                        
+                        if not tool_list:
+                            console.print("[red]❌ No tools found in selected MCP[/red]\n")
+                            continue
+                        
+                        # Show tool dropdown
+                        tool_selector = InteractiveSelector(
+                            title=f"🔧 Select Tool from {selected_mcp}:",
+                            choices=sorted(tool_list),
+                            current=sorted(tool_list)[0]
+                        )
+                        selected_tool = tool_selector.show()
+                        
+                        if not selected_tool:
+                            console.print("[yellow]Cancelled[/yellow]\n")
+                            continue
+                        
+                        console.print(f"[green]✓ Selected Tool:[/green] {selected_tool}\n")
+                        
+                        # Get coder model for parameter extraction
+                        coder_model = model_registry.get_active_model('coder')
+                        if not coder_model:
+                            console.print("[yellow]⚠️  No coder model configured. Using general model for parameter extraction.[/yellow]")
+                            coder_client = ollama_client
+                        else:
+                            coder_provider = getattr(coder_model, 'provider', 'ollama')
+                            if coder_provider == 'anthropic':
+                                from src.llm_client.factory import LLMClientFactory
+                                try:
+                                    coder_client = LLMClientFactory.create_client(coder_model, secrets_manager)
+                                except Exception as e:
+                                    console.print(f"[red]Failed to create Anthropic client: {e}[/red]")
+                                    coder_client = ollama_client
+                            else:
+                                from src.ollama_client import OllamaClient
+                                coder_client = OllamaClient(
+                                    host=coder_model.url,
+                                    model=coder_model.model_name,
+                                    timeout=coder_model.timeout
+                                )
+                        
+                        # Use LLM to extract parameters from the prompt
+                        console.print(f"[cyan]🤖 Extracting parameters from prompt using coder model...[/cyan]")
+                        
+                        # Build tool-specific parameter guidance
+                        param_guidance = ""
+                        if selected_tool in ['generate_fake_data', 'generate_fake_data_ctgan']:
+                            param_guidance = """
+CRITICAL for data generation tools:
+- file_path: Input file to read data from (e.g., "users.csv", "@users.csv")
+- output_path: Output file to save generated data (e.g., "fake_users.csv", "@fake_users.csv")
+  * If user says "save to", "save in", "save it in", "output to", "write to" - extract the filename as output_path
+  * If output_path is not explicitly mentioned, generate one based on input file (e.g., "users.csv" -> "fake_users.csv")
+- num_samples: Number of records to generate (default: 100 if not specified)
+- epochs: (CTGAN only) Training epochs for quality (default: 300)
+
+Example: For "generate 100 fake records from users.csv and save to fake_users.csv"
+{{"file_path": "users.csv", "num_samples": 100, "output_path": "fake_users.csv"}}"""
+                        else:
+                            param_guidance = """
+Extract any relevant parameters such as:
+- file_path or file_path1/file_path2: Input file paths (look for @file.ext patterns or file names)
+- output_path: Output file path if mentioned (look for "save to", "save in", "output to", "write to")
+- num_samples: Number of samples/records if mentioned
+- Any other relevant parameters based on the tool"""
+                        
+                        # Get tool schema/parameters
+                        param_extraction_prompt = f"""Extract parameters for the MCP tool '{selected_tool}' from this user request:
+
+User Request: {tool_prompt}
+{param_guidance}
+
+Respond with ONLY a JSON object containing the parameters, no explanation.
+Example: {{"file_path": "users.csv", "num_samples": 100, "output_path": "fake_users.csv"}}"""
+
+                        # Call LLM for parameter extraction
+                        if hasattr(coder_client, 'chat'):
+                            response = coder_client.chat(
+                                messages=[{"role": "user", "content": param_extraction_prompt}],
+                                stream=False,
+                                temperature=0.1
+                            )
+                            llm_response = response.get('message', {}).get('content', '{}')
+                        else:
+                            llm_response = '{}'
+                        
+                        # Parse JSON from response
+                        try:
+                            # Extract JSON from response (in case LLM added explanation)
+                            json_match = re.search(r'\{.*\}', llm_response, re.DOTALL)
+                            if json_match:
+                                params = json.loads(json_match.group(0))
+                            else:
+                                params = {}
+                        except Exception as e:
+                            debug_print(f"Failed to parse parameters: {e}", icon="⚠️")
+                            params = {}
+                        
+                        # Add working_dir if not present
+                        if 'working_dir' not in params:
+                            params['working_dir'] = get_user_working_dir()
+                        
+                        # Strip @ prefix from all file path parameters
+                        for key in ['file_path', 'file_path1', 'file_path2', 'output_path', 'input_path']:
+                            if key in params and isinstance(params[key], str) and params[key].startswith('@'):
+                                params[key] = params[key][1:]
+                        
+                        # For data generation tools, ensure output_path is set
+                        if selected_tool in ['generate_fake_data', 'generate_fake_data_ctgan']:
+                            if 'output_path' not in params and 'file_path' in params:
+                                # Auto-generate output path based on input file
+                                input_file = params['file_path']
+                                # Generate output filename (e.g., "users.csv" -> "fake_users.csv")
+                                # Path is already imported at module level
+                                input_path = Path(input_file)
+                                output_filename = f"fake_{input_path.stem}{input_path.suffix}"
+                                params['output_path'] = output_filename
+                                console.print(f"[yellow]ℹ️  No output path specified. Auto-generated: {output_filename}[/yellow]")
+                        
+                        console.print(f"[dim]Parameters extracted: {json.dumps(params, indent=2)}[/dim]\n")
+                        
+                        # Execute the tool
+                        console.print(f"[cyan]⚡ Executing tool '{selected_tool}' on MCP '{selected_mcp}'...[/cyan]\n")
+                        
+                        try:
+                            result = run_async(mcp_client.call_tool(selected_mcp, selected_tool, params))
+                            
+                            # Display result
+                            console.print("[green]✓ Tool execution completed[/green]\n")
+                            console.print("[bold]Result:[/bold]")
+                            
+                            # Try to parse and pretty-print JSON result
+                            try:
+                                result_data = json.loads(result)
+                                console.print(json.dumps(result_data, indent=2))
+                            except (json.JSONDecodeError, ValueError, TypeError):
+                                console.print(result)
+                            
+                            console.print()
+                            
+                        except Exception as e:
+                            console.print(f"[red]❌ Tool execution failed: {e}[/red]\n")
+                            if verbose:
+                                import traceback
+                                console.print(f"[dim]{traceback.format_exc()}[/dim]")
+                        
+                    except (EOFError, KeyboardInterrupt):
+                        console.print("\n[yellow]Cancelled[/yellow]\n")
+                    except Exception as e:
+                        console.print(f"[red]❌ Error in MCP tool execution: {e}[/red]\n")
+                        if verbose:
+                            import traceback
+                            console.print(f"[dim]{traceback.format_exc()}[/dim]")
+                    
+                    continue
+
                 # Normalize command input - support both with and without / prefix
                 user_input_normalized = user_input.lstrip('/').strip()
                 
@@ -1690,6 +1912,18 @@ Output format:
                 # Skip empty input
                 if not user_input:
                     continue
+
+                # Detect data engineering tasks and suggest using /code mode
+                data_engineering_keywords = [
+                    'generate fake data', 'synthetic data', 'wgan', 'ctgan',
+                    'generate data', 'fake data', 'mock data', 'test data generation',
+                    'ast analysis', 'code similarity', 'compare code'
+                ]
+                user_input_lower = user_input.lower()
+                if any(keyword in user_input_lower for keyword in data_engineering_keywords):
+                    console.print("\n[yellow]💡 Tip: For data engineering tasks, use [bold]/code[/bold] command for better results:[/yellow]")
+                    console.print(f"[dim]   /code {user_input[:60]}{'...' if len(user_input) > 60 else ''}[/dim]")
+                    console.print("[dim]   This will use specialized MCP tools instead of generating code from scratch.[/dim]\n")
 
                 # Process @ prefixed file/directory paths
                 at_context = extract_at_context(user_input, get_user_working_dir())

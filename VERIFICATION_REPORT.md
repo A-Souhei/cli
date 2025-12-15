@@ -132,7 +132,7 @@ Code generation tools: 6 tools
 File path tools: 13 tools
 - add_file_context, compare_ast_similarity, compare_code_similarity
 - edit_python_code, edit_r_code, generate_ast, generate_fake_data
-- generate_fake_data_ddpm, run_python_code, run_r_code
+- generate_fake_data_ctgan, run_python_code, run_r_code
 - verify_file_modifications, write_python_code, write_r_code
 ```
 

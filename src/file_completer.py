@@ -1,7 +1,8 @@
-"""File and directory completer for @ prefix and / commands in CLI."""
+"""File and directory completer for @ prefix, / commands, and $ MCP tools in CLI."""
 
 import os
 from typing import Iterable
+from pathlib import Path
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
 
@@ -80,40 +81,119 @@ class SlashCommandCompleter(Completer):
                 )
 
 
+class DollarPrefixCompleter(Completer):
+    """
+    Custom completer that provides MCP tool execution hints.
+    
+    When the user types $ at the beginning of input, this completer shows
+    a helpful hint about the MCP tool execution feature.
+    """
+    
+    def __init__(self, system_mcps_dir: Path = None):
+        """
+        Initialize the dollar prefix completer.
+        
+        Args:
+            system_mcps_dir: Directory containing MCP servers
+        """
+        self.system_mcps_dir = system_mcps_dir or Path(__file__).parent.parent.parent / "system_mcps"
+        self._mcps_cache = None
+    
+    def _get_available_mcps(self):
+        """Get list of available MCPs (cached)."""
+        if self._mcps_cache is None:
+            self._mcps_cache = []
+            if self.system_mcps_dir.exists():
+                for item in self.system_mcps_dir.iterdir():
+                    if item.is_dir() and (item / "server.py").exists():
+                        self._mcps_cache.append(item.name)
+        return self._mcps_cache
+    
+    def get_completions(self, document: Document, complete_event) -> Iterable[Completion]:
+        """
+        Get completions for $ prefix.
+        
+        Args:
+            document: The current document
+            complete_event: The completion event
+            
+        Yields:
+            Completion objects with MCP tool execution hints
+        """
+        text = document.text_before_cursor
+        
+        # Only provide completions if the text starts with $ and has minimal content
+        if not text.startswith('$'):
+            return
+        
+        # If user just typed "$" or "$ ", show helpful suggestions
+        if len(text.strip()) <= 2:
+            mcps = self._get_available_mcps()
+            mcp_count = len(mcps)
+            
+            yield Completion(
+                text='$ ',
+                start_position=-len(text),
+                display='$ <describe task>',
+                display_meta=f'Direct MCP tool execution ({mcp_count} MCPs available)'
+            )
+            
+            # Show a few example prompts
+            examples = [
+                ('$ generate fake data', 'Generate synthetic data from a file'),
+                ('$ analyze code', 'Analyze code quality and patterns'),
+                ('$ run python script', 'Execute Python code directly'),
+            ]
+            
+            for example, description in examples:
+                yield Completion(
+                    text=example,
+                    start_position=-len(text),
+                    display=example,
+                    display_meta=description
+                )
+
+
 class CombinedCompleter(Completer):
     """
-    Combined completer that handles both slash commands and @ file paths.
+    Combined completer that handles slash commands, @ file paths, and $ MCP tools.
     """
 
-    def __init__(self, working_dir: str = None):
+    def __init__(self, working_dir: str = None, system_mcps_dir: Path = None):
         """
         Initialize the combined completer.
 
         Args:
             working_dir: Working directory for file completion
+            system_mcps_dir: Directory containing MCP servers
         """
         self.working_dir = working_dir or os.getcwd()
         self.slash_completer = SlashCommandCompleter()
         self.file_completer = AtPrefixFileCompleter(working_dir)
+        self.dollar_completer = DollarPrefixCompleter(system_mcps_dir)
 
     def get_completions(self, document: Document, complete_event) -> Iterable[Completion]:
         """
-        Get completions from both slash commands and file paths.
+        Get completions from slash commands, file paths, and dollar prefix.
 
         Args:
             document: The current document
             complete_event: The completion event
 
         Yields:
-            Completion objects from both completers
+            Completion objects from all completers
         """
         text = document.text_before_cursor
 
         # If text starts with /, use slash command completer
         if text.startswith('/'):
             yield from self.slash_completer.get_completions(document, complete_event)
+        
+        # If text starts with $, use dollar prefix completer
+        elif text.startswith('$'):
+            yield from self.dollar_completer.get_completions(document, complete_event)
 
-        # If text contains @, use file completer (can work with /code @file.py)
+        # If text contains @, use file completer (can work with /code @file.py or $ command @file.py)
         if '@' in text:
             yield from self.file_completer.get_completions(document, complete_event)
 
