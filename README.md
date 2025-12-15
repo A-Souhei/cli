@@ -23,6 +23,7 @@ A minimal, modular AI command-line interface that connects to Ollama services (l
 - 🔌 **Embedding Service Abstraction** - External embedding services with automatic fallback
 - 🚀 **/code Command** - Unified interface for complex code task orchestration
 - 🔧 **/make Command** - Execute Makefile targets using natural language (`:` shortcut)
+- 💡 **$ Prefix (NEW)** - Direct MCP tool execution with interactive dropdowns
 - ⚙️ Configurable via YAML file
 - 🔄 Streaming and non-streaming response modes
 
@@ -253,6 +254,8 @@ Once the CLI starts, you can:
   - `/model check [model_id]` - Check model availability
 - **Code command:**
   - `/code <prompt>` - Execute complex coding tasks with automatic tool orchestration
+- **Direct MCP tool execution (NEW):**
+  - `$ <prompt>` - Interactive MCP tool selection with coder model parameter extraction
 - **Session commands:**
   - `/session start` - Start a context-persistent session
   - `/session end` - End the current session
@@ -460,6 +463,58 @@ The `/code` command provides a unified interface for complex code task orchestra
 **Auto-session**: If no session is active, `/code` will automatically start one for you.
 
 See [docs/CODE_COMMAND.md](docs/CODE_COMMAND.md) for detailed documentation and examples.
+
+### Direct MCP Tool Execution with $ Prefix (NEW)
+
+The `$` prefix provides interactive MCP tool selection with automatic parameter extraction using your coder model. Perfect when you know what type of task you want but want to browse available tools.
+
+**How it works:**
+1. Type `$` followed by your request
+2. Select MCP server from dropdown (arrow keys + Enter)
+3. Select tool from dropdown
+4. System extracts parameters using coder model
+5. Tool executes with results displayed
+
+**Example:**
+```
+▶ $ generate 100 fake records from @users.csv
+
+🔧 Direct MCP Tool Execution Mode
+Select MCP server and tool to execute...
+
+📦 Select MCP Server:
+  ▶ coder
+    data-engineer
+
+✓ Selected MCP: data-engineer
+
+🔧 Select Tool from data-engineer:
+    compare_ast_similarity
+    compare_code_similarity
+    generate_ast
+  ▶ generate_fake_data
+    generate_fake_data_ddpm
+
+✓ Selected Tool: generate_fake_data
+
+🤖 Extracting parameters from prompt using coder model...
+Parameters extracted: {
+  "file_path": "users.csv",
+  "num_samples": 100,
+  "working_dir": "/path/to/dir"
+}
+
+⚡ Executing tool 'generate_fake_data' on MCP 'data-engineer'...
+✓ Tool execution completed
+```
+
+**Key Features:**
+- **Interactive selection** - Browse all MCPs and tools with arrow keys
+- **Coder model enforced** - Uses coder model for accurate parameter extraction
+- **Smart parameter detection** - Extracts file paths, counts, and options from natural language
+- **Filtered tool list** - Automatically excludes meta/orchestration tools
+
+See [docs/DOLLAR_PREFIX_MCP_TOOL_EXECUTION.md](docs/DOLLAR_PREFIX_MCP_TOOL_EXECUTION.md) for complete documentation.
 
 ### Dynamic Model Management (NEW)
 
