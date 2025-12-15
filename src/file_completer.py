@@ -9,44 +9,174 @@ from prompt_toolkit.document import Document
 
 class SlashCommandCompleter(Completer):
     """
-    Custom completer that provides slash command completions.
+    Custom completer that provides hierarchical slash command completions.
 
     When the user types / at the beginning of input, this completer shows
-    available commands with their descriptions.
+    available commands with their descriptions in a nested tree structure.
     """
 
-    # Define all available slash commands with descriptions
-    COMMANDS = [
-        ('/exit', 'Exit the CLI'),
-        ('/quit', 'Exit the CLI'),
-        ('/clear', 'Clear chat history'),
-        ('/models', 'List available models'),
-        ('/switch', 'Switch to a different model'),
-        ('/mcps', 'List system MCPs'),
-        ('/mcp-tools <name>', 'List tools in an MCP'),
-        ('/session start', 'Start a context session'),
-        ('/session end', 'End the current session'),
-        ('/session info', 'View current session info'),
-        ('/repomap create', 'Create a repository map from working directory'),
-        ('/repomap load', 'Load existing .repomap file into context'),
-        ('/repomap update', 'Update existing .repomap with new files'),
-        ('/datamap create', 'Create a data map from data files'),
-        ('/datamap create --files-only', 'Create a data map from local data files only'),
-        ('/datamap create --with-pg', 'Create a data map including PostgreSQL database'),
-        ('/datamap create --with-files --with-pg', 'Create a data map from files and PostgreSQL'),
-        ('/datamap load', 'Load existing .datamap file into context'),
-        ('/datamap update', 'Update existing .datamap with new files'),
-        ('/datamap update --with-files', 'Update existing .datamap with new local files'),
-        ('/datamap update --with-pg', 'Update existing .datamap with PostgreSQL database'),
-        ('/datamap update --with-files --with-pg', 'Update existing .datamap from files and PostgreSQL'),
-        ('/ignore create', 'Create .llmignore file in working directory'),
-        ('/ignore add @file', 'Add file(s) to .llmignore'),
-        ('/code <prompt>', 'Analyze and execute code tasks (requires session)'),
-    ]
+    # Define hierarchical command structure
+    # Format: {command: (description, subcommands_dict)}
+    # Leaf commands have None as subcommands
+    COMMAND_TREE = {
+        'help': ('Show help message', None),
+        'exit': ('Exit the CLI', None),
+        'quit': ('Exit the CLI', None),
+        'clear': ('Clear chat history', None),
+        'models': ('List available models', None),
+        'switch': ('Switch to a different model', None),
+        'mcps': ('List system MCPs', None),
+        'mcp-tools': ('List tools in an MCP', {
+            '<name>': ('MCP name to query', None),
+        }),
+        'wd': ('Working directory commands', {
+            'show': ('Show current working directory', None),
+            'change': ('Change working directory', {
+                '<path>': ('Directory path', None),
+            }),
+            'cd': ('Change working directory (alias)', {
+                '<path>': ('Directory path', None),
+            }),
+        }),
+        'session': ('Session management', {
+            'start': ('Start a new context session', None),
+            'end': ('End the current session', None),
+            'info': ('View current session info', None),
+            'list': ('List all saved sessions', None),
+            'restore': ('Restore a saved session', {
+                '<id>': ('Session ID to restore', None),
+            }),
+            'delete': ('Delete a saved session', {
+                '<id>': ('Session ID to delete', None),
+            }),
+            'clear': ('Clear all saved sessions', None),
+        }),
+        'context': ('Context management', {
+            'add': ('Add to context without LLM call', {
+                '@file': ('Add file to context', None),
+                '@directory': ('Add directory to context', None),
+                'ALL': ('Add entire working directory', None),
+                'ALL_TOOLS': ('Add all MCP tools with descriptions', None),
+                'TODO_LIST': ('Generate strategic TODO list', {
+                    '<description>': ('Task description', None),
+                }),
+                'MAKE_LIST': ('Generate strategic MAKE_LIST', {
+                    '<description>': ('Task description', None),
+                }),
+            }),
+            'show': ('Display current context', None),
+            'clear': ('Clear current context', None),
+            'metrics': ('Show context size and metrics', None),
+            'load': ('Load from file', {
+                'TODO_LIST': ('Load TODO_LIST from file', {
+                    '[@path]': ('Optional file path', None),
+                }),
+                'MAKE_LIST': ('Load MAKE_LIST from file', {
+                    '[@path]': ('Optional file path', None),
+                }),
+            }),
+            'save': ('Save to file', {
+                'TODO_LIST': ('Save TODO_LIST to file', {
+                    '[@path]': ('Optional file path', None),
+                }),
+                'MAKE_LIST': ('Save MAKE_LIST to file', {
+                    '[@path]': ('Optional file path', None),
+                }),
+            }),
+        }),
+        'repomap': ('Repository mapping', {
+            'create': ('Create repository map', None),
+            'load': ('Load existing .repomap file', None),
+            'update': ('Update existing .repomap', None),
+        }),
+        'datamap': ('Data file mapping', {
+            'create': ('Create data map', {
+                '--files-only': ('Local data files only', None),
+                '--with-pg': ('Include PostgreSQL database', None),
+                '--with-files': ('Include local files', None),
+            }),
+            'load': ('Load existing .datamap file', None),
+            'update': ('Update existing .datamap', {
+                '--with-files': ('Include local files', None),
+                '--with-pg': ('Include PostgreSQL database', None),
+            }),
+        }),
+        'ignore': ('Security & ignore patterns', {
+            'create': ('Create .llmignore file', None),
+            'add': ('Add file(s) to .llmignore', {
+                '@file': ('File to add', None),
+            }),
+        }),
+        'make': ('Make commands', {
+            'map': ('Makefile mapping', {
+                'generate': ('Generate .makemap from Makefile', None),
+                'load': ('Load existing .makemap file', None),
+                'update': ('Update .makemap with new targets', None),
+            }),
+            '<prompt>': ('Execute make with natural language', None),
+        }),
+        'execute': ('Execute plans', {
+            'TODO_LIST': ('Execute TODO_LIST from context', None),
+            'MAKE_LIST': ('Execute MAKE_LIST from context', None),
+            '@path': ('Execute plan from file', None),
+        }),
+        'code': ('Analyze and execute code', {
+            '<prompt>': ('Code task description', None),
+        }),
+        'model': ('Model management', {
+            'status': ('Show all configured models', None),
+            'list': ('List all models', None),
+            'general': ('General models', {
+                'list': ('List general models', None),
+                'add': ('Add general model', {
+                    '<url>': ('Model URL', {
+                        '<model_name>': ('Model name', None),
+                    }),
+                }),
+                'use': ('Set active general model', {
+                    '<model_id>': ('Model ID', None),
+                }),
+                'remove': ('Remove general model', {
+                    '<model_id>': ('Model ID', None),
+                }),
+            }),
+            'coder': ('Coder models', {
+                'list': ('List coder models', None),
+                'add': ('Add coder model', {
+                    '<url>': ('Model URL', {
+                        '<model_name>': ('Model name', None),
+                    }),
+                }),
+                'use': ('Set active coder model', {
+                    '<model_id>': ('Model ID', None),
+                }),
+                'remove': ('Remove coder model', {
+                    '<model_id>': ('Model ID', None),
+                }),
+            }),
+            'embedding': ('Embedding services', {
+                'list': ('List embedding services', None),
+                'add': ('Add embedding service', {
+                    '<url>': ('Service URL', {
+                        '[timeout]': ('Optional timeout', None),
+                    }),
+                }),
+                'use': ('Set active embedding service', {
+                    '<model_id>': ('Model ID', None),
+                }),
+                'remove': ('Remove embedding service', {
+                    '<model_id>': ('Model ID', None),
+                }),
+            }),
+            'check': ('Check model availability', {
+                '[model_id]': ('Optional model ID', None),
+            }),
+        }),
+    }
 
     def get_completions(self, document: Document, complete_event) -> Iterable[Completion]:
         """
-        Get completions for slash commands.
+        Get completions for slash commands with nested hierarchy support.
 
         Args:
             document: The current document
@@ -61,22 +191,66 @@ class SlashCommandCompleter(Completer):
         if not text.startswith('/'):
             return
 
-        # Get the command prefix (everything after /)
-        command_prefix = text[1:].lower()
+        # Remove the leading / and split into parts
+        command_parts = text[1:].split()
+        
+        # Get the current partial command being typed
+        if text.endswith(' '):
+            # User has completed a word and is ready for next level
+            current_part = ''
+            completed_parts = command_parts
+        else:
+            # User is typing a word
+            if command_parts:
+                current_part = command_parts[-1]
+                completed_parts = command_parts[:-1]
+            else:
+                current_part = ''
+                completed_parts = []
 
-        # Find matching commands
-        for command, description in self.COMMANDS:
-            command_without_slash = command[1:]  # Remove the leading /
+        # Navigate to the current level in the command tree
+        current_tree = self.COMMAND_TREE
+        full_command_so_far = []
+        
+        for part in completed_parts:
+            # Try exact match first
+            if part in current_tree:
+                desc, subtree = current_tree[part]
+                full_command_so_far.append(part)
+                if subtree is None:
+                    # This is a leaf node, no more completions
+                    return
+                current_tree = subtree
+            else:
+                # Check if it matches a placeholder pattern like <name> or [@path]
+                found = False
+                for key in current_tree.keys():
+                    if key.startswith('<') or key.startswith('['):
+                        # This is a placeholder, move to its subtree if available
+                        desc, subtree = current_tree[key]
+                        if subtree:
+                            current_tree = subtree
+                            found = True
+                            break
+                if not found:
+                    # Can't navigate further, stop
+                    return
 
-            # Check if this command matches the prefix
-            if command_without_slash.lower().startswith(command_prefix):
-                # Calculate how much to replace (from the / to cursor)
+        # Now generate completions from the current tree level
+        for cmd, (description, subtree) in current_tree.items():
+            # Check if this command matches the current partial input
+            if cmd.lower().startswith(current_part.lower()):
+                # Build the full command text with spaces
+                full_cmd_parts = full_command_so_far + [cmd]
+                full_command = '/' + ' '.join(full_cmd_parts)
+                
+                # Calculate start position (replace from / to cursor)
                 start_position = -len(text)
-
+                
                 yield Completion(
-                    text=command,
+                    text=full_command,
                     start_position=start_position,
-                    display=command,
+                    display=full_command,
                     display_meta=description
                 )
 
