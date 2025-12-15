@@ -559,6 +559,128 @@ def _interpret_similarity(score: float, metric: str) -> str:
     return 'Unknown'
 
 
+@app.route('/synthetic/generate', methods=['POST'])
+def generate_synthetic_data():
+    """
+    Generate synthetic data using WGAN (fast) or DDPM (high quality).
+    
+    Request Body (JSON):
+    - data: List of dictionaries representing the dataset
+    - num_samples: Number of synthetic samples to generate (default: 100)
+    - model: Model type - 'wgan' for fast or 'ddpm' for high quality (default: 'wgan')
+    - epochs: Training epochs (default: 300 for wgan, 500 for ddpm)
+    
+    Returns:
+    - synthetic_data: List of generated synthetic records
+    - num_samples: Number of samples generated
+    - model_used: Model type used for generation
+    """
+    try:
+        data = request.get_json()
+        if not data or 'data' not in data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing data in request body'
+            }), 400
+        
+        import pandas as pd
+        from ydata_synthetic.synthesizers import ModelParameters
+        from ydata_synthetic.synthesizers.regular import RegularSynthesizer
+        from ydata_synthetic.synthesizers.base import TrainParameters
+        
+        # Parse parameters
+        input_data = data['data']
+        num_samples = data.get('num_samples', 100)
+        model_type = data.get('model', 'wgan')
+        epochs = data.get('epochs', 300 if model_type == 'wgan' else 500)
+        
+        # Validate model type
+        if model_type not in ['wgan', 'ddpm']:
+            return jsonify({
+                'status': 'error',
+                'message': 'Invalid model type. Must be "wgan" or "ddpm"'
+            }), 400
+        
+        # Convert to DataFrame
+        df = pd.DataFrame(input_data)
+        
+        # Validate minimum data size
+        if len(df) < 10:
+            return jsonify({
+                'status': 'error',
+                'message': f'Dataset too small ({len(df)} rows). Minimum 10 rows required.'
+            }), 400
+        
+        # Identify numeric and categorical columns
+        numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+        categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+        
+        if not numeric_cols and not categorical_cols:
+            return jsonify({
+                'status': 'error',
+                'message': 'No suitable columns found. Need numeric or categorical columns.'
+            }), 400
+        
+        # Configure model parameters (epochs is passed to fit(), not ModelParameters)
+        batch_size = min(500, len(df))
+        
+        # Different parameters for WGAN vs DDPM
+        if model_type == 'wgan':
+            model_params = ModelParameters(
+                batch_size=batch_size,
+                lr=0.001,
+                betas=(0.5, 0.9)
+            )
+            # WGAN requires n_critic as a separate parameter (not in ModelParameters)
+            synthesizer = RegularSynthesizer(
+                modelname=model_type,
+                model_parameters=model_params,
+                n_critic=5  # Number of critic updates per generator update
+            )
+        else:  # ddpm
+            model_params = ModelParameters(
+                batch_size=batch_size,
+                lr=0.0001,
+                betas=(0.9, 0.999)
+            )
+            # Initialize DDPM synthesizer
+            synthesizer = RegularSynthesizer(
+                modelname=model_type,
+                model_parameters=model_params
+            )
+        
+        # Create TrainParameters object
+        train_params = TrainParameters(epochs=epochs)
+        
+        synthesizer.fit(
+            data=df,
+            train_arguments=train_params,
+            num_cols=numeric_cols,
+            cat_cols=categorical_cols
+        )
+        
+        # Generate synthetic data
+        synthetic_df = synthesizer.sample(num_samples)
+        
+        return jsonify({
+            'status': 'success',
+            'synthetic_data': synthetic_df.to_dict(orient='records'),
+            'num_samples': len(synthetic_df),
+            'num_columns': len(synthetic_df.columns),
+            'columns': synthetic_df.columns.tolist(),
+            'model_used': model_type,
+            'epochs': epochs
+        }), 200
+        
+    except ImportError as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'ydata-synthetic not installed: {str(e)}'
+        }), 500
+    except Exception as e:
+        return handle_error(e)
+
+
 # Global error handler for uncaught exceptions
 @app.errorhandler(Exception)
 def handle_uncaught_exception(e):
@@ -583,6 +705,7 @@ if __name__ == '__main__':
     print("  POST /code/embed - Generate code embeddings using CodeBERT")
     print("  POST /code/embed/batch - Generate embeddings for multiple code snippets")
     print("  POST /code/similarity - Compare similarity between two code snippets")
+    print("  POST /synthetic/generate - Generate synthetic data using WGAN or DDPM")
     print()
 
     # Run the app

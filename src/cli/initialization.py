@@ -169,8 +169,14 @@ class CLIInitializer:
         # Initialize command history
         history = FileHistory(str(self.history_file)) if self.history_file else None
         
-        # Initialize combined completer for / commands and @ file paths
-        combined_completer = CombinedCompleter(working_dir=self.get_user_working_dir()) if self.get_user_working_dir else None
+        # Get system_mcps_dir path
+        system_mcps_dir = Path(__file__).parent.parent.parent / "system_mcps"
+        
+        # Initialize combined completer for / commands, @ file paths, and $ MCP tools
+        combined_completer = CombinedCompleter(
+            working_dir=self.get_user_working_dir(),
+            system_mcps_dir=system_mcps_dir
+        ) if self.get_user_working_dir else None
         
         # Return all initialized components
         return {

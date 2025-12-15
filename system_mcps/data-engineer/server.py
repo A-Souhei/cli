@@ -192,7 +192,7 @@ def write_file_safe(file_path: str, content: str, working_dir: str) -> tuple[boo
 
 def generate_synthetic_data(file_path: str, num_samples: int, working_dir: str) -> Dict[str, Any]:
     """
-    Generate synthetic data from a real dataset using ydata-synthetic DDPM.
+    Generate synthetic data from a real dataset using WGAN via transformer service.
 
     Args:
         file_path: Path to the input data file (CSV, JSON, or Parquet)
@@ -203,10 +203,8 @@ def generate_synthetic_data(file_path: str, num_samples: int, working_dir: str) 
         Dict with status and synthetic data or error message
     """
     try:
-        # Import ydata-synthetic
-        from ydata_synthetic.synthesizers import ModelParameters
-        from ydata_synthetic.synthesizers.regular import RegularSynthesizer
         import pandas as pd
+        import requests
 
         debug_print(f"Loading data from {file_path}")
 
@@ -254,61 +252,47 @@ def generate_synthetic_data(file_path: str, num_samples: int, working_dir: str) 
                 "message": f"Dataset too small ({len(data)} rows). Minimum {MIN_DATASET_SIZE_FOR_SYNTHESIS} rows required for synthetic data generation."
             }
 
-        # Prepare data for synthesis
-        # Only use numeric and categorical columns
-        numeric_cols = data.select_dtypes(include=['int64', 'float64']).columns.tolist()
-        categorical_cols = data.select_dtypes(include=['object', 'category']).columns.tolist()
+        # Call transformer service for synthetic data generation
+        transformer_url = os.getenv('TRANSFORMER_API_URL', 'http://localhost:16050')
+        debug_print(f"Calling transformer service at {transformer_url}/synthetic/generate")
 
-        debug_print(f"Numeric columns: {numeric_cols}, Categorical columns: {categorical_cols}")
+        response = requests.post(
+            f"{transformer_url}/synthetic/generate",
+            json={
+                "data": data.to_dict(orient='records'),
+                "num_samples": num_samples,
+                "model": "wgan",
+                "epochs": DEFAULT_SYNTHESIS_EPOCHS
+            },
+            timeout=300  # 5 minutes timeout for training
+        )
 
-        if not numeric_cols and not categorical_cols:
+        if response.status_code != 200:
             return {
                 "status": "error",
-                "message": "No suitable columns found for synthesis. Need numeric or categorical columns."
+                "message": f"Transformer service error: {response.text}"
             }
 
-        # Configure model parameters (lightweight for MCP context)
-        model_params = ModelParameters(
-            batch_size=min(SYNTHESIS_BATCH_SIZE_MAX, len(data)),
-            epochs=DEFAULT_SYNTHESIS_EPOCHS,
-            lr=0.001,
-            betas=(0.5, 0.9)
-        )
+        result = response.json()
+        if result.get('status') != 'success':
+            return result
 
-        debug_print("Initializing synthesizer...")
-
-        # Initialize synthesizer with regular (non-conditional) model
-        synthesizer = RegularSynthesizer(
-            modelname='wgan',  # Using WGAN (Wasserstein GAN) for faster training on small datasets
-            model_parameters=model_params
-        )
-
-        debug_print("Fitting synthesizer...")
-
-        # Fit the synthesizer on the data
-        synthesizer.fit(data=data, train_arguments={"epochs": DEFAULT_SYNTHESIS_EPOCHS}, num_cols=numeric_cols, cat_cols=categorical_cols)
-
-        debug_print(f"Generating {num_samples} synthetic samples...")
-
-        # Generate synthetic data
-        synthetic_data = synthesizer.sample(num_samples)
-
-        debug_print(f"Generated synthetic data with shape: {synthetic_data.shape}")
+        debug_print(f"Generated {len(result['synthetic_data'])} synthetic samples")
 
         return {
             "status": "success",
-            "message": f"Generated {len(synthetic_data)} synthetic samples",
-            "num_samples": len(synthetic_data),
-            "num_columns": len(synthetic_data.columns),
-            "columns": synthetic_data.columns.tolist(),
-            "data_preview": synthetic_data.head(5).to_dict(orient='records'),
-            "data_full": synthetic_data.to_dict(orient='records')
+            "message": f"Generated {len(result['synthetic_data'])} synthetic samples using WGAN",
+            "num_samples": result['num_samples'],
+            "num_columns": result['num_columns'],
+            "columns": result['columns'],
+            "data_preview": result['synthetic_data'][:5],
+            "data_full": result['synthetic_data']
         }
 
-    except ImportError as e:
+    except requests.RequestException as e:
         return {
             "status": "error",
-            "message": f"ydata-synthetic not installed: {str(e)}. Install with: pip install ydata-synthetic"
+            "message": f"Failed to connect to transformer service: {str(e)}"
         }
     except Exception as e:
         debug_print(f"Error in generate_synthetic_data: {str(e)}")
@@ -320,7 +304,7 @@ def generate_synthetic_data(file_path: str, num_samples: int, working_dir: str) 
 
 def generate_synthetic_data_ddpm(file_path: str, num_samples: int, working_dir: str, epochs: int = 300) -> Dict[str, Any]:
     """
-    Generate high-quality synthetic data using DDPM (Denoising Diffusion Probabilistic Models).
+    Generate high-quality synthetic data using DDPM via transformer service.
     
     This function uses DDPM for superior quality synthetic data generation. DDPM produces
     more accurate statistical distributions and better preserves complex relationships in
@@ -336,10 +320,8 @@ def generate_synthetic_data_ddpm(file_path: str, num_samples: int, working_dir: 
         Dict with status and synthetic data or error message
     """
     try:
-        # Import ydata-synthetic
-        from ydata_synthetic.synthesizers import ModelParameters
-        from ydata_synthetic.synthesizers.regular import RegularSynthesizer
         import pandas as pd
+        import requests
 
         debug_print(f"[DDPM] Loading data from {file_path}")
 
@@ -388,67 +370,50 @@ def generate_synthetic_data_ddpm(file_path: str, num_samples: int, working_dir: 
                 "message": f"Dataset too small ({len(data)} rows). DDPM requires minimum {min_samples_ddpm} rows for quality results. For smaller datasets, use generate_fake_data (WGAN) instead."
             }
 
-        # Prepare data for synthesis
-        numeric_cols = data.select_dtypes(include=['int64', 'float64']).columns.tolist()
-        categorical_cols = data.select_dtypes(include=['object', 'category']).columns.tolist()
+        # Call transformer service for synthetic data generation
+        transformer_url = os.getenv('TRANSFORMER_API_URL', 'http://localhost:16050')
+        debug_print(f"[DDPM] Calling transformer service at {transformer_url}/synthetic/generate")
+        debug_print(f"[DDPM] Training with {epochs} epochs (this may take several minutes)...")
 
-        debug_print(f"[DDPM] Numeric columns: {numeric_cols}, Categorical columns: {categorical_cols}")
+        response = requests.post(
+            f"{transformer_url}/synthetic/generate",
+            json={
+                "data": data.to_dict(orient='records'),
+                "num_samples": num_samples,
+                "model": "ddpm",
+                "epochs": max(epochs, 100)
+            },
+            timeout=600  # 10 minutes timeout for DDPM training
+        )
 
-        if not numeric_cols and not categorical_cols:
+        if response.status_code != 200:
             return {
                 "status": "error",
-                "message": "No suitable columns found for synthesis. Need numeric or categorical columns."
+                "message": f"Transformer service error: {response.text}"
             }
 
-        # Configure model parameters for DDPM (more intensive training)
-        model_params = ModelParameters(
-            batch_size=min(64, len(data)),  # Larger batch for DDPM
-            epochs=max(epochs, 100),  # Ensure minimum quality
-            lr=0.0001,  # Lower learning rate for DDPM
-            betas=(0.9, 0.999)
-        )
+        result = response.json()
+        if result.get('status') != 'success':
+            return result
 
-        debug_print(f"[DDPM] Initializing synthesizer with {model_params.epochs} epochs (this may take several minutes)...")
-
-        # Initialize synthesizer with DDPM model
-        synthesizer = RegularSynthesizer(
-            modelname='ddpm',  # DDPM for high-quality synthesis
-            model_parameters=model_params
-        )
-
-        debug_print("[DDPM] Training model... This will take longer than WGAN but produces higher quality results")
-
-        # Fit the synthesizer on the data
-        synthesizer.fit(
-            data=data, 
-            train_arguments={"epochs": model_params.epochs}, 
-            num_cols=numeric_cols, 
-            cat_cols=categorical_cols
-        )
-
-        debug_print(f"[DDPM] Generating {num_samples} high-quality synthetic samples...")
-
-        # Generate synthetic data
-        synthetic_data = synthesizer.sample(num_samples)
-
-        debug_print(f"[DDPM] Successfully generated synthetic data with shape: {synthetic_data.shape}")
+        debug_print(f"[DDPM] Successfully generated {len(result['synthetic_data'])} synthetic samples")
 
         return {
             "status": "success",
-            "message": f"Generated {len(synthetic_data)} high-quality synthetic samples using DDPM",
+            "message": f"Generated {len(result['synthetic_data'])} high-quality synthetic samples using DDPM",
             "model_type": "ddpm",
-            "epochs_trained": model_params.epochs,
-            "num_samples": len(synthetic_data),
-            "num_columns": len(synthetic_data.columns),
-            "columns": synthetic_data.columns.tolist(),
-            "data_preview": synthetic_data.head(5).to_dict(orient='records'),
-            "data_full": synthetic_data.to_dict(orient='records')
+            "epochs_trained": result.get('epochs', epochs),
+            "num_samples": result['num_samples'],
+            "num_columns": result['num_columns'],
+            "columns": result['columns'],
+            "data_preview": result['synthetic_data'][:5],
+            "data_full": result['synthetic_data']
         }
 
-    except ImportError as e:
+    except requests.RequestException as e:
         return {
             "status": "error",
-            "message": f"ydata-synthetic not installed: {str(e)}. Install with: pip install ydata-synthetic"
+            "message": f"Failed to connect to transformer service: {str(e)}"
         }
     except Exception as e:
         debug_print(f"[DDPM] Error in generate_synthetic_data_ddpm: {str(e)}")

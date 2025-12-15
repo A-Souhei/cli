@@ -404,34 +404,35 @@ def main(verbose=False, auto_session=False):
                         
                         console.print(f"[green]✓ Selected MCP:[/green] {selected_mcp}\n")
                         
-                        # Get tools from selected MCP
-                        tools_result = run_async(get_mcp_tools(selected_mcp, base_path=Path(__file__).parent))
-                        
-                        if not tools_result:
-                            console.print("[red]❌ Failed to load tools from MCP[/red]\n")
-                            continue
-                        
-                        # Parse tools from result (it returns a list of tool names)
-                        # We need to get the tools more directly
+                        # Get tools from selected MCP using MCP client
                         tool_list = []
                         try:
-                            # Use MCP client to list tools
-                            tools_response = run_async(mcp_client.call_tool(selected_mcp, 'list_tools', {}))
-                            # For now, load from tools.yaml as a fallback
-                            tools_yaml_path = system_mcps_dir / selected_mcp / "tools.yaml"
-                            if tools_yaml_path.exists():
-                                import yaml
-                                with open(tools_yaml_path, 'r') as f:
-                                    tools_data = yaml.safe_load(f)
-                                    # Get all unique tools from all categories
-                                    categories = tools_data.get('categories', {})
-                                    for category_name, category_data in categories.items():
-                                        tools_in_cat = category_data.get('tools', [])
-                                        for tool_name in tools_in_cat:
-                                            if tool_name not in tool_list:
-                                                # Exclude meta tools
-                                                if category_name != 'meta':
-                                                    tool_list.append(tool_name)
+                            # Use MCP client to get tools directly
+                            tools = run_async(mcp_client.get_tools(selected_mcp))
+                            
+                            if tools:
+                                # Extract tool names from the tool objects
+                                for tool in tools:
+                                    tool_name = tool.get('name')
+                                    if tool_name:
+                                        tool_list.append(tool_name)
+                            
+                            # If MCP client didn't return tools, try loading from tools.yaml as fallback
+                            if not tool_list:
+                                tools_yaml_path = system_mcps_dir / selected_mcp / "tools.yaml"
+                                if tools_yaml_path.exists():
+                                    import yaml
+                                    with open(tools_yaml_path, 'r') as f:
+                                        tools_data = yaml.safe_load(f)
+                                        # Get all unique tools from all categories
+                                        categories = tools_data.get('categories', {})
+                                        for category_name, category_data in categories.items():
+                                            tools_in_cat = category_data.get('tools', [])
+                                            for tool_name in tools_in_cat:
+                                                if tool_name not in tool_list:
+                                                    # Exclude meta tools
+                                                    if category_name != 'meta':
+                                                        tool_list.append(tool_name)
                         except Exception as e:
                             debug_print(f"Error loading tools: {e}", icon="⚠️")
                         
@@ -537,16 +538,18 @@ Example: {{"file_path": "users.csv", "num_samples": 100, "output_path": "fake_us
                         if 'working_dir' not in params:
                             params['working_dir'] = get_user_working_dir()
                         
+                        # Strip @ prefix from all file path parameters
+                        for key in ['file_path', 'file_path1', 'file_path2', 'output_path', 'input_path']:
+                            if key in params and isinstance(params[key], str) and params[key].startswith('@'):
+                                params[key] = params[key][1:]
+                        
                         # For data generation tools, ensure output_path is set
                         if selected_tool in ['generate_fake_data', 'generate_fake_data_ddpm']:
                             if 'output_path' not in params and 'file_path' in params:
                                 # Auto-generate output path based on input file
                                 input_file = params['file_path']
-                                # Remove @ prefix if present
-                                if input_file.startswith('@'):
-                                    input_file = input_file[1:]
                                 # Generate output filename (e.g., "users.csv" -> "fake_users.csv")
-                                from pathlib import Path
+                                # Path is already imported at module level
                                 input_path = Path(input_file)
                                 output_filename = f"fake_{input_path.stem}{input_path.suffix}"
                                 params['output_path'] = output_filename

@@ -1,6 +1,5 @@
 # Data Engineer MCP Requirements
 mcp>=1.0.0
-ydata-synthetic>=1.5.0  # For DDPM-based synthetic data generation
-pandas>=1.5.0  # Required by ydata-synthetic
-numpy>=1.21.0  # Required by ydata-synthetic
-requests>=2.28.0  # For calling transformer service
+pandas>=1.5.0  # For data file reading
+numpy>=1.21.0  # Data processing
+requests>=2.28.0  # For calling transformer service (synthetic data generation, code analysis)

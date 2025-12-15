@@ -23,28 +23,31 @@ COPY src/transformer/requirements-base.txt .
 COPY src/transformer/requirements.txt .
 
 # Install base requirements from pre-downloaded packages (bind mount from host)
-# Using --find-links without --no-index allows pip to resolve dependencies while preferring local packages
+# Using --no-index to force pip to only use local packages
 RUN --mount=type=bind,source=packages,target=/packages \
-    pip install --find-links=/packages -r requirements-base.txt
+    pip install --find-links=/packages --no-index -r requirements-base.txt
 
 # Install heavy dependencies (torch/transformers) from pre-downloaded packages
 # Pin versions explicitly here if you need exact reproducibility
-# Using PIP_NO_INDEX to force pip to only use local packages
+# Using --no-index to force pip to only use local packages
 RUN --mount=type=bind,source=packages,target=/packages \
-    PIP_FIND_LINKS=/packages PIP_NO_INDEX=1 \
-    pip install \
+    pip install --find-links=/packages --no-index \
       torch==2.1.2 \
       transformers==4.36.2 \
       sentence-transformers==2.7.0
 
 # Install remaining (lighter) dependencies from pre-downloaded packages
+# NOTE: ydata-synthetic requires tensorflow==2.15.* (~475MB) which significantly increases image size
+# Consider moving synthetic data generation to a separate service if image size is a concern
 RUN --mount=type=bind,source=packages,target=/packages \
-    pip install --find-links=/packages \
+    pip install --find-links=/packages --no-index \
       flask==2.3.3 \
       flask-cors==4.0.0 \
       keybert==0.8.5 \
       sentry-sdk==1.40.6 \
-      "protobuf>=3.20.0"
+      "protobuf>=3.20.0" \
+      "ydata-synthetic==1.4.0" \
+      "pandas>=1.5.0"
 
 # Create cache directory for huggingface / transformers models
 # Models will be downloaded directly into the image for runtime use
