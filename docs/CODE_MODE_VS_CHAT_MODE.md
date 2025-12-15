@@ -63,7 +63,7 @@ System:
 
 ### Data-Engineer Tools
 - `generate_fake_data` - Fast synthetic data with WGAN
-- `generate_fake_data_ddpm` - High-quality synthetic data with DDPM
+- `generate_fake_data_ctgan` - High-quality synthetic data with DDPM
 - `generate_ast` - Generate Abstract Syntax Tree
 - `compare_code_similarity` - Compare code using CodeBERT
 - `compare_ast_similarity` - Compare code using AST analysis

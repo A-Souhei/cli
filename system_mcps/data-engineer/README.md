@@ -24,10 +24,10 @@ Generate synthetic data quickly from real data files using WGAN (Wasserstein GAN
 
 **Speed vs Quality Trade-off:**
 - WGAN is optimized for speed, processing in seconds to a few minutes
-- For production-grade quality with better statistical fidelity, use `generate_fake_data_ddpm`
+- For production-grade quality with better statistical fidelity, use `generate_fake_data_ctgan`
 
-### 2. High-Quality Synthetic Data Generation (`generate_fake_data_ddpm`)
-Generate production-grade synthetic data using DDPM (Denoising Diffusion Probabilistic Models) via ydata-synthetic.
+### 2. High-Quality Synthetic Data Generation (`generate_fake_data_ctgan`)
+Generate production-grade synthetic data using CTGAN (Denoising Diffusion Probabilistic Models) via ydata-synthetic.
 
 **Capabilities:**
 - Load data from CSV, JSON, or Parquet files
@@ -45,7 +45,7 @@ Generate production-grade synthetic data using DDPM (Denoising Diffusion Probabi
 - Creating realistic test datasets for critical systems
 
 **Speed vs Quality Trade-off:**
-- DDPM provides superior quality but takes significantly longer (several minutes)
+- CTGAN provides superior quality but takes significantly longer (several minutes)
 - For fast iteration during development, use `generate_fake_data` (WGAN)
 - Processing time scales with dataset size and epochs (expect 2-10 minutes typical)
 
@@ -119,7 +119,7 @@ The data-engineer MCP is automatically started by the AI CLI when needed. You ca
 
 ## Dependencies
 
-- **ydata-synthetic**: WGAN and DDPM-based synthetic data generation
+- **ydata-synthetic**: WGAN and CTGAN-based synthetic data generation
 - **pandas**: Data manipulation and file I/O
 - **numpy**: Numerical operations
 - **requests**: HTTP client for transformer service
@@ -143,10 +143,10 @@ The data-engineer MCP is automatically started by the AI CLI when needed. You ca
 }
 ```
 
-### Generate Synthetic Data (High Quality - DDPM)
+### Generate Synthetic Data (High Quality - CTGAN)
 ```python
-# User prompt: "Generate 500 high-quality synthetic samples from @data.csv using DDPM"
-# Tool: generate_fake_data_ddpm
+# User prompt: "Generate 500 high-quality synthetic samples from @data.csv using CTGAN"
+# Tool: generate_fake_data_ctgan
 {
     "file_path": "data.csv",
     "num_samples": 500,
@@ -217,11 +217,11 @@ pytest tests/test_data_engineer_mcp.py -v
 
 - Synthetic data generation requires sufficient real data:
   - WGAN: minimum 10 samples (100+ recommended for best quality)
-  - DDPM: minimum 50 samples for meaningful results
+  - CTGAN: minimum 50 samples for meaningful results
 - AST generation only supports Python code
 - Code similarity requires transformer service to be running
-- DDPM training is computationally intensive (several minutes depending on data size and epochs)
-- WGAN is faster but may not capture complex relationships as well as DDPM
+- CTGAN training is computationally intensive (several minutes depending on data size and epochs)
+- WGAN is faster but may not capture complex relationships as well as CTGAN
 
 ## Contributing
 

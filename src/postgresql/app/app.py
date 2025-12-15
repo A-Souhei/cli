@@ -1380,7 +1380,7 @@ CRITICAL RULES:
 2. ALWAYS start by loading relevant files with add_file_context before editing them
 3. Use EXACT file paths from the user's request (paths starting with @)
 4. Choose the RIGHT tool for the task:
-   - For generating synthetic/fake data from existing data: use generate_fake_data or generate_fake_data_ddpm
+   - For generating synthetic/fake data from existing data: use generate_fake_data or generate_fake_data_ctgan
    - For code analysis (AST, similarity): use generate_ast, compare_code_similarity, or compare_ast_similarity
    - For creating new code files: use write_python_code or write_r_code
    - For modifying existing code: use edit_python_code or edit_r_code

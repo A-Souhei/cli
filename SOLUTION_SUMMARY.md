@@ -5,7 +5,7 @@ When users requested to "generate fake data using WGAN", the `/code mode` would 
 
 ## Root Cause
 The `code-command-simple` endpoint had a **hardcoded list** of only 9 coder tools, completely ignoring:
-- All data-engineer tools (generate_fake_data, generate_fake_data_ddpm, etc.)
+- All data-engineer tools (generate_fake_data, generate_fake_data_ctgan, etc.)
 - The database of available tools
 - The tools.yaml metadata files
 

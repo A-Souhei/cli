@@ -481,7 +481,7 @@ def main(verbose=False, auto_session=False):
                         
                         # Build tool-specific parameter guidance
                         param_guidance = ""
-                        if selected_tool in ['generate_fake_data', 'generate_fake_data_ddpm']:
+                        if selected_tool in ['generate_fake_data', 'generate_fake_data_ctgan']:
                             param_guidance = """
 CRITICAL for data generation tools:
 - file_path: Input file to read data from (e.g., "users.csv", "@users.csv")
@@ -489,7 +489,7 @@ CRITICAL for data generation tools:
   * If user says "save to", "save in", "save it in", "output to", "write to" - extract the filename as output_path
   * If output_path is not explicitly mentioned, generate one based on input file (e.g., "users.csv" -> "fake_users.csv")
 - num_samples: Number of records to generate (default: 100 if not specified)
-- epochs: (DDPM only) Training epochs for quality (default: 300)
+- epochs: (CTGAN only) Training epochs for quality (default: 300)
 
 Example: For "generate 100 fake records from users.csv and save to fake_users.csv"
 {{"file_path": "users.csv", "num_samples": 100, "output_path": "fake_users.csv"}}"""
@@ -522,7 +522,6 @@ Example: {{"file_path": "users.csv", "num_samples": 100, "output_path": "fake_us
                             llm_response = '{}'
                         
                         # Parse JSON from response
-                        import json
                         try:
                             # Extract JSON from response (in case LLM added explanation)
                             json_match = re.search(r'\{.*\}', llm_response, re.DOTALL)
@@ -544,7 +543,7 @@ Example: {{"file_path": "users.csv", "num_samples": 100, "output_path": "fake_us
                                 params[key] = params[key][1:]
                         
                         # For data generation tools, ensure output_path is set
-                        if selected_tool in ['generate_fake_data', 'generate_fake_data_ddpm']:
+                        if selected_tool in ['generate_fake_data', 'generate_fake_data_ctgan']:
                             if 'output_path' not in params and 'file_path' in params:
                                 # Auto-generate output path based on input file
                                 input_file = params['file_path']
@@ -571,7 +570,7 @@ Example: {{"file_path": "users.csv", "num_samples": 100, "output_path": "fake_us
                             try:
                                 result_data = json.loads(result)
                                 console.print(json.dumps(result_data, indent=2))
-                            except:
+                            except (json.JSONDecodeError, ValueError, TypeError):
                                 console.print(result)
                             
                             console.print()
@@ -1916,7 +1915,7 @@ Output format:
 
                 # Detect data engineering tasks and suggest using /code mode
                 data_engineering_keywords = [
-                    'generate fake data', 'synthetic data', 'wgan', 'ddpm',
+                    'generate fake data', 'synthetic data', 'wgan', 'ctgan',
                     'generate data', 'fake data', 'mock data', 'test data generation',
                     'ast analysis', 'code similarity', 'compare code'
                 ]

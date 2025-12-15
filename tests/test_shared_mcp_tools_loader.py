@@ -8,7 +8,6 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src' / 'utils'))
 
 from shared_mcp_tools_loader import (
-    get_tools_requiring_file_path,
     get_all_tools_metadata,
     get_all_tools_metadata_cached
 )
@@ -42,7 +41,7 @@ class TestToolsMetadataLoader:
             assert 'metadata' in tools_metadata[tool_name]
         
         # Check for data-engineer tools
-        data_engineer_tools = ['generate_fake_data', 'generate_fake_data_ddpm', 
+        data_engineer_tools = ['generate_fake_data', 'generate_fake_data_ctgan', 
                                'generate_ast', 'compare_code_similarity']
         for tool_name in data_engineer_tools:
             assert tool_name in tools_metadata, f"Should find {tool_name}"
@@ -113,7 +112,7 @@ class TestToolsMetadataLoader:
         tools_metadata = get_all_tools_metadata(str(system_mcps_dir))
         
         # Check that data-engineer tools have descriptions
-        data_tools = ['generate_fake_data', 'generate_fake_data_ddpm']
+        data_tools = ['generate_fake_data', 'generate_fake_data_ctgan']
         for tool_name in data_tools:
             if tool_name in tools_metadata:
                 tool_data = tools_metadata[tool_name]

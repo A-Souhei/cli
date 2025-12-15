@@ -54,7 +54,7 @@ User Request: "Generate fake data from @users.csv using WGAN"
 │  │   │                                               │ │
 │  │   └─ data-engineer/tools.yaml                    │ │
 │  │       • generate_fake_data ← FOUND!              │ │
-│  │       • generate_fake_data_ddpm                  │ │
+│  │       • generate_fake_data_ctgan                  │ │
 │  │       • generate_ast                             │ │
 │  │       • compare_code_similarity                  │ │
 │  │       • compare_ast_similarity                   │ │

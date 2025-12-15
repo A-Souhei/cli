@@ -211,7 +211,7 @@ $ run @test_script.py
 
 ### data-engineer MCP
 - `generate_fake_data` - WGAN-based synthetic data (fast)
-- `generate_fake_data_ddpm` - DDPM-based synthetic data (high quality)
+- `generate_fake_data_ctgan` - DDPM-based synthetic data (high quality)
 - `generate_ast` - Generate Abstract Syntax Tree
 - `compare_code_similarity` - CodeBERT-based code similarity
 - `compare_ast_similarity` - AST-based code similarity
@@ -235,7 +235,7 @@ If no coder model is configured:
 
 ### Output Path Handling (Data Generation Tools)
 
-For data generation tools (`generate_fake_data` and `generate_fake_data_ddpm`):
+For data generation tools (`generate_fake_data` and `generate_fake_data_ctgan`):
 
 **Explicit Output Path:**
 ```

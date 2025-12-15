@@ -2,7 +2,7 @@
 
 ## Problem
 
-The `/code mode` endpoint was not discovering data-engineer MCP tools like `generate_fake_data` and `generate_fake_data_ddpm`. When users requested synthetic data generation using WGAN, the LLM would write Python code from scratch instead of using the existing MCP tools.
+The `/code mode` endpoint was not discovering data-engineer MCP tools like `generate_fake_data` and `generate_fake_data_ctgan`. When users requested synthetic data generation using WGAN, the LLM would write Python code from scratch instead of using the existing MCP tools.
 
 ### Example of the Problem
 
@@ -99,7 +99,7 @@ Ran verification script showing:
 Total tools loaded: 20
 Data-engineer tools found: 5/5
   ✓ generate_fake_data
-  ✓ generate_fake_data_ddpm
+  ✓ generate_fake_data_ctgan
   ✓ generate_ast
   ✓ compare_code_similarity
   ✓ compare_ast_similarity
@@ -159,7 +159,7 @@ LLM Step: "Generate synthetic data from users.csv with 100 samples and save to f
 ```
 User: "Generate high-quality synthetic data from @products.csv using DDPM"
 
-LLM Step: "Generate high-quality synthetic data from products.csv using generate_fake_data_ddpm"
+LLM Step: "Generate high-quality synthetic data from products.csv using generate_fake_data_ctgan"
 ```
 
 ### Example 3: Code Analysis

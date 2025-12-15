@@ -493,7 +493,7 @@ Select MCP server and tool to execute...
     compare_code_similarity
     generate_ast
   ▶ generate_fake_data
-    generate_fake_data_ddpm
+    generate_fake_data_ctgan
 
 ✓ Selected Tool: generate_fake_data
 
