@@ -2,6 +2,7 @@
 
 import pytest
 import yaml
+import uuid
 from pathlib import Path
 import tempfile
 import shutil
@@ -15,7 +16,6 @@ from src.utils.mcp_tools_loader import (
 )
 from src.utils.shared_mcp_tools_loader import (
     get_tools_requiring_file_path as shared_get_tools_requiring_file_path,
-    get_file_path_tools_cached,
 )
 
 
@@ -139,7 +139,8 @@ class TestMCPToolsLoader:
 
     def test_nonexistent_directory(self):
         """Test handling of nonexistent system_mcps directory."""
-        nonexistent = Path("/tmp/nonexistent_mcps_dir_12345")
+        # Use uuid to generate guaranteed unique path
+        nonexistent = Path(tempfile.gettempdir()) / f"nonexistent_mcps_dir_{uuid.uuid4()}"
         
         assert get_valid_coding_tools(nonexistent) == []
         assert get_meta_tools(nonexistent) == []
@@ -208,7 +209,9 @@ class TestSharedMCPToolsLoader:
 
     def test_shared_nonexistent_directory(self):
         """Test shared loader with nonexistent directory."""
-        tools = shared_get_tools_requiring_file_path("/tmp/nonexistent_12345")
+        # Use uuid to generate guaranteed unique path
+        nonexistent = str(Path(tempfile.gettempdir()) / f"nonexistent_{uuid.uuid4()}")
+        tools = shared_get_tools_requiring_file_path(nonexistent)
         assert tools == []
 
 
