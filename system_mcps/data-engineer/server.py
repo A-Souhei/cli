@@ -190,7 +190,7 @@ def write_file_safe(file_path: str, content: str, working_dir: str) -> tuple[boo
         return False, f"Error writing file: {str(e)}"
 
 
-def generate_synthetic_data(file_path: str, num_samples: int, working_dir: str) -> Dict[str, Any]:
+def generate_synthetic_data(file_path: str, num_samples: int, working_dir: str, num_rows: int = None) -> Dict[str, Any]:
     """
     Generate synthetic data from a real dataset using WGAN via transformer service.
 
@@ -198,6 +198,7 @@ def generate_synthetic_data(file_path: str, num_samples: int, working_dir: str) 
         file_path: Path to the input data file (CSV, JSON, or Parquet)
         num_samples: Number of synthetic samples to generate
         working_dir: Working directory for file operations
+        num_rows: Number of rows from original data to use for training (optional, uses all rows if not specified)
 
     Returns:
         Dict with status and synthetic data or error message
@@ -255,15 +256,23 @@ def generate_synthetic_data(file_path: str, num_samples: int, working_dir: str) 
         # Call transformer service for synthetic data generation
         transformer_url = os.getenv('TRANSFORMER_API_URL', 'http://localhost:16050')
         debug_print(f"Calling transformer service at {transformer_url}/synthetic/generate")
+        
+        # Build request payload
+        request_payload = {
+            "data": data.to_dict(orient='records'),
+            "num_samples": num_samples,
+            "model": "wgan",
+            "epochs": DEFAULT_SYNTHESIS_EPOCHS
+        }
+        
+        # Add num_rows if specified
+        if num_rows is not None:
+            request_payload["num_rows"] = num_rows
+            debug_print(f"Using {num_rows} rows from original dataset for training")
 
         response = requests.post(
             f"{transformer_url}/synthetic/generate",
-            json={
-                "data": data.to_dict(orient='records'),
-                "num_samples": num_samples,
-                "model": "wgan",
-                "epochs": DEFAULT_SYNTHESIS_EPOCHS
-            },
+            json=request_payload,
             timeout=300  # 5 minutes timeout for training
         )
 
@@ -302,19 +311,20 @@ def generate_synthetic_data(file_path: str, num_samples: int, working_dir: str) 
         }
 
 
-def generate_synthetic_data_ddpm(file_path: str, num_samples: int, working_dir: str, epochs: int = 300) -> Dict[str, Any]:
+def generate_synthetic_data_ctgan(file_path: str, num_samples: int, working_dir: str, epochs: int = 300, num_rows: int = None) -> Dict[str, Any]:
     """
-    Generate high-quality synthetic data using DDPM via transformer service.
+    Generate high-quality synthetic data using CTGAN via transformer service.
     
-    This function uses DDPM for superior quality synthetic data generation. DDPM produces
-    more accurate statistical distributions and better preserves complex relationships in
-    the data, but requires significantly more training time than WGAN.
+    This function uses CTGAN (Conditional Tabular GAN) for superior quality synthetic data generation.
+    CTGAN is specifically designed for tabular data and produces more accurate statistical distributions
+    and better preserves complex relationships in the data, but requires more training time than WGAN.
 
     Args:
         file_path: Path to the input data file (CSV, JSON, or Parquet)
         num_samples: Number of synthetic samples to generate
         working_dir: Working directory for file operations
         epochs: Number of training epochs (default: 300 for high quality, minimum 100 recommended)
+        num_rows: Number of rows from original data to use for training (optional, uses all rows if not specified)
 
     Returns:
         Dict with status and synthetic data or error message
@@ -323,7 +333,7 @@ def generate_synthetic_data_ddpm(file_path: str, num_samples: int, working_dir: 
         import pandas as pd
         import requests
 
-        debug_print(f"[DDPM] Loading data from {file_path}")
+        debug_print(f"[CTGAN] Loading data from {file_path}")
 
         # Determine full path
         if not os.path.isabs(file_path):
@@ -360,30 +370,38 @@ def generate_synthetic_data_ddpm(file_path: str, num_samples: int, working_dir: 
                 "message": f"Unsupported file format: {file_ext}. Supported: .csv, .json, .parquet"
             }
 
-        debug_print(f"[DDPM] Loaded data with shape: {data.shape}")
+        debug_print(f"[CTGAN] Loaded data with shape: {data.shape}")
 
-        # Validate data size - DDPM needs more data for good results
-        min_samples_ddpm = 50  # DDPM works better with more samples
-        if len(data) < min_samples_ddpm:
+        # Validate data size - CTGAN needs more data for good results
+        min_samples_ctgan = 50  # CTGAN works better with more samples
+        if len(data) < min_samples_ctgan:
             return {
                 "status": "error",
-                "message": f"Dataset too small ({len(data)} rows). DDPM requires minimum {min_samples_ddpm} rows for quality results. For smaller datasets, use generate_fake_data (WGAN) instead."
+                "message": f"Dataset too small ({len(data)} rows). CTGAN requires minimum {min_samples_ctgan} rows for quality results. For smaller datasets, use generate_fake_data (WGAN) instead."
             }
 
         # Call transformer service for synthetic data generation
         transformer_url = os.getenv('TRANSFORMER_API_URL', 'http://localhost:16050')
-        debug_print(f"[DDPM] Calling transformer service at {transformer_url}/synthetic/generate")
-        debug_print(f"[DDPM] Training with {epochs} epochs (this may take several minutes)...")
+        debug_print(f"[CTGAN] Calling transformer service at {transformer_url}/synthetic/generate")
+        debug_print(f"[CTGAN] Training with {epochs} epochs (this may take several minutes)...")
+        
+        # Build request payload
+        request_payload = {
+            "data": data.to_dict(orient='records'),
+            "num_samples": num_samples,
+            "model": "ctgan",
+            "epochs": max(epochs, 100)
+        }
+        
+        # Add num_rows if specified
+        if num_rows is not None:
+            request_payload["num_rows"] = num_rows
+            debug_print(f"[CTGAN] Using {num_rows} rows from original dataset for training")
 
         response = requests.post(
             f"{transformer_url}/synthetic/generate",
-            json={
-                "data": data.to_dict(orient='records'),
-                "num_samples": num_samples,
-                "model": "ddpm",
-                "epochs": max(epochs, 100)
-            },
-            timeout=600  # 10 minutes timeout for DDPM training
+            json=request_payload,
+            timeout=600  # 10 minutes timeout for CTGAN training
         )
 
         if response.status_code != 200:
@@ -396,12 +414,12 @@ def generate_synthetic_data_ddpm(file_path: str, num_samples: int, working_dir: 
         if result.get('status') != 'success':
             return result
 
-        debug_print(f"[DDPM] Successfully generated {len(result['synthetic_data'])} synthetic samples")
+        debug_print(f"[CTGAN] Successfully generated {len(result['synthetic_data'])} synthetic samples")
 
         return {
             "status": "success",
-            "message": f"Generated {len(result['synthetic_data'])} high-quality synthetic samples using DDPM",
-            "model_type": "ddpm",
+            "message": f"Generated {len(result['synthetic_data'])} high-quality synthetic samples using CTGAN",
+            "model_type": "ctgan",
             "epochs_trained": result.get('epochs', epochs),
             "num_samples": result['num_samples'],
             "num_columns": result['num_columns'],
@@ -416,10 +434,10 @@ def generate_synthetic_data_ddpm(file_path: str, num_samples: int, working_dir: 
             "message": f"Failed to connect to transformer service: {str(e)}"
         }
     except Exception as e:
-        debug_print(f"[DDPM] Error in generate_synthetic_data_ddpm: {str(e)}")
+        debug_print(f"[CTGAN] Error in generate_synthetic_data_ctgan: {str(e)}")
         return {
             "status": "error",
-            "message": f"Failed to generate synthetic data with DDPM: {str(e)}"
+            "message": f"Failed to generate synthetic data with CTGAN: {str(e)}"
         }
 
 
@@ -817,7 +835,7 @@ async def list_tools() -> list[Tool]:
                 "This tool takes a data file (CSV, JSON, or Parquet) and rapidly generates synthetic data "
                 "with good statistical similarity to the original. WGAN is optimized for speed, making it "
                 "ideal for quick iterations, testing, and prototyping. Requires minimum 10 rows of real data. "
-                "For production-grade quality with better statistical fidelity, use generate_fake_data_ddpm instead. "
+                "For production-grade quality with better statistical fidelity, use generate_fake_data_ctgan instead. "
                 "The generated data will have the same columns and similar statistical properties as the input."
             ),
             inputSchema={
@@ -844,7 +862,7 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="generate_fake_data_ddpm",
+            name="generate_fake_data_ctgan",
             description=(
                 "Generate high-quality synthetic data using DDPM (Denoising Diffusion Probabilistic Models) "
                 "via ydata-synthetic. DDPM produces superior statistical fidelity and better preserves complex "
@@ -1006,6 +1024,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
     if name == "generate_fake_data":
         file_path = arguments.get("file_path", "")
         num_samples = arguments.get("num_samples", 100)
+        num_rows = arguments.get("num_rows")  # Optional
         output_path = arguments.get("output_path")
         working_dir = arguments.get("working_dir", os.getcwd())
 
@@ -1030,7 +1049,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             }, indent=2))]
 
         # Generate synthetic data
-        result = generate_synthetic_data(file_path, num_samples, working_dir)
+        result = generate_synthetic_data(file_path, num_samples, working_dir, num_rows)
 
         # Optionally save to output file
         if result.get("status") == "success" and output_path:
@@ -1052,9 +1071,10 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
-    elif name == "generate_fake_data_ddpm":
+    elif name == "generate_fake_data_ctgan":
         file_path = arguments.get("file_path", "")
         num_samples = arguments.get("num_samples", 100)
+        num_rows = arguments.get("num_rows")  # Optional
         output_path = arguments.get("output_path")
         working_dir = arguments.get("working_dir", os.getcwd())
         epochs = arguments.get("epochs", 300)
@@ -1079,8 +1099,8 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 "message": error_msg
             }, indent=2))]
 
-        # Generate high-quality synthetic data with DDPM
-        result = generate_synthetic_data_ddpm(file_path, num_samples, working_dir, epochs)
+        # Generate high-quality synthetic data with CTGAN
+        result = generate_synthetic_data_ctgan(file_path, num_samples, working_dir, epochs, num_rows)
 
         # Optionally save to output file
         if result.get("status") == "success" and output_path:

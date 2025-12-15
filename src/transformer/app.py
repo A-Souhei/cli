@@ -562,17 +562,19 @@ def _interpret_similarity(score: float, metric: str) -> str:
 @app.route('/synthetic/generate', methods=['POST'])
 def generate_synthetic_data():
     """
-    Generate synthetic data using WGAN (fast) or DDPM (high quality).
+    Generate synthetic data using WGAN (fast) or CTGAN (high quality).
     
     Request Body (JSON):
     - data: List of dictionaries representing the dataset
+    - num_rows: Number of rows from original data to use for training (optional, defaults to all rows)
     - num_samples: Number of synthetic samples to generate (default: 100)
-    - model: Model type - 'wgan' for fast or 'ddpm' for high quality (default: 'wgan')
-    - epochs: Training epochs (default: 300 for wgan, 500 for ddpm)
+    - model: Model type - 'wgan' for fast or 'ctgan' for high-quality tabular data (default: 'wgan')
+    - epochs: Training epochs (default: 300 for wgan, 500 for ctgan)
     
     Returns:
     - synthetic_data: List of generated synthetic records
     - num_samples: Number of samples generated
+    - num_rows_used: Number of rows from original data used for training
     - model_used: Model type used for generation
     """
     try:
@@ -590,19 +592,31 @@ def generate_synthetic_data():
         
         # Parse parameters
         input_data = data['data']
+        num_rows = data.get('num_rows')  # Optional: limit rows used for training
         num_samples = data.get('num_samples', 100)
         model_type = data.get('model', 'wgan')
         epochs = data.get('epochs', 300 if model_type == 'wgan' else 500)
         
         # Validate model type
-        if model_type not in ['wgan', 'ddpm']:
+        # Available models: wgan (fast), ctgan (high-quality for tabular data)
+        if model_type not in ['wgan', 'ctgan']:
             return jsonify({
                 'status': 'error',
-                'message': 'Invalid model type. Must be "wgan" or "ddpm"'
+                'message': 'Invalid model type. Must be "wgan" (fast) or "ctgan" (high-quality tabular)'
             }), 400
         
         # Convert to DataFrame
         df = pd.DataFrame(input_data)
+        
+        # Limit rows if num_rows is specified
+        original_size = len(df)
+        if num_rows is not None and num_rows > 0:
+            if num_rows > len(df):
+                return jsonify({
+                    'status': 'error',
+                    'message': f'num_rows ({num_rows}) exceeds dataset size ({len(df)} rows)'
+                }), 400
+            df = df.head(num_rows)
         
         # Validate minimum data size
         if len(df) < 10:
@@ -624,7 +638,7 @@ def generate_synthetic_data():
         # Configure model parameters (epochs is passed to fit(), not ModelParameters)
         batch_size = min(500, len(df))
         
-        # Different parameters for WGAN vs DDPM
+        # Different parameters for WGAN vs CTGAN
         if model_type == 'wgan':
             model_params = ModelParameters(
                 batch_size=batch_size,
@@ -637,13 +651,13 @@ def generate_synthetic_data():
                 model_parameters=model_params,
                 n_critic=5  # Number of critic updates per generator update
             )
-        else:  # ddpm
+        else:  # ctgan
             model_params = ModelParameters(
                 batch_size=batch_size,
-                lr=0.0001,
-                betas=(0.9, 0.999)
+                lr=0.0002,
+                betas=(0.5, 0.9)
             )
-            # Initialize DDPM synthesizer
+            # Initialize CTGAN synthesizer (Conditional Tabular GAN for high-quality tabular data)
             synthesizer = RegularSynthesizer(
                 modelname=model_type,
                 model_parameters=model_params
@@ -666,6 +680,8 @@ def generate_synthetic_data():
             'status': 'success',
             'synthetic_data': synthetic_df.to_dict(orient='records'),
             'num_samples': len(synthetic_df),
+            'num_rows_used': len(df),
+            'original_dataset_size': original_size,
             'num_columns': len(synthetic_df.columns),
             'columns': synthetic_df.columns.tolist(),
             'model_used': model_type,
@@ -705,7 +721,7 @@ if __name__ == '__main__':
     print("  POST /code/embed - Generate code embeddings using CodeBERT")
     print("  POST /code/embed/batch - Generate embeddings for multiple code snippets")
     print("  POST /code/similarity - Compare similarity between two code snippets")
-    print("  POST /synthetic/generate - Generate synthetic data using WGAN or DDPM")
+    print("  POST /synthetic/generate - Generate synthetic data using WGAN or CTGAN")
     print()
 
     # Run the app

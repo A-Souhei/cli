@@ -6,7 +6,7 @@ categories:
     description: "Tools for generating synthetic or fake data"
     tools:
       - generate_fake_data
-      - generate_fake_data_ddpm
+      - generate_fake_data_ctgan
 
   code_analysis:
     description: "Tools for analyzing code structure and patterns"
@@ -19,7 +19,7 @@ categories:
     description: "All data engineering tools"
     tools:
       - generate_fake_data
-      - generate_fake_data_ddpm
+      - generate_fake_data_ctgan
       - generate_ast
       - compare_code_similarity
       - compare_ast_similarity
@@ -38,12 +38,12 @@ tools:
       - parquet
       - r
 
-  generate_fake_data_ddpm:
+  generate_fake_data_ctgan:
     requires_llm_generation: false
     requires_file_path: true
     generates_file: true
     uses_ml_model: true
-    description: "Generate high-quality synthetic data from real data using DDPM (optimized for quality)"
+    description: "Generate high-quality synthetic data from real data using CTGAN (Conditional Tabular GAN, optimized for tabular data quality)"
     languages:
       - csv
       - json
