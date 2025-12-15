@@ -52,7 +52,8 @@ $ <your natural language description>
 ### Smart Parameter Extraction
 - Automatically detects file paths (especially `@file.ext` patterns)
 - Identifies numeric parameters (sample counts, epochs, etc.)
-- Extracts output file paths
+- Extracts output file paths from phrases like "save to", "save in", "output to"
+- **Auto-generates output paths** for data generation tools if not specified
 - Adds working directory automatically
 
 ### Filtered Tool List
@@ -61,7 +62,26 @@ $ <your natural language description>
 
 ## Examples
 
-### Example 1: Generate Fake Data
+### Example 1: Generate Fake Data (with explicit output)
+```
+$ generate 100 fake records from @users.csv and save to @fake_users.csv
+```
+
+**Flow:**
+1. Select MCP: `data-engineer`
+2. Select Tool: `generate_fake_data`
+3. Parameters extracted:
+   ```json
+   {
+     "file_path": "users.csv",
+     "num_samples": 100,
+     "output_path": "fake_users.csv",
+     "working_dir": "/path/to/working/dir"
+   }
+   ```
+4. Tool executes and saves synthetic data to fake_users.csv
+
+### Example 1b: Generate Fake Data (auto-generated output)
 ```
 $ generate 100 fake records from @users.csv
 ```
@@ -74,10 +94,12 @@ $ generate 100 fake records from @users.csv
    {
      "file_path": "users.csv",
      "num_samples": 100,
+     "output_path": "fake_users.csv",
      "working_dir": "/path/to/working/dir"
    }
    ```
-4. Tool executes and generates synthetic data
+   Note: `output_path` auto-generated as "fake_users.csv"
+4. Tool executes and saves synthetic data to auto-generated filename
 
 ### Example 2: Compare Code Similarity
 ```
@@ -210,6 +232,36 @@ If no coder model is configured:
 ### Working Directory
 - Automatically set to your current working directory
 - Can be overridden in extracted parameters
+
+### Output Path Handling (Data Generation Tools)
+
+For data generation tools (`generate_fake_data` and `generate_fake_data_ddpm`):
+
+**Explicit Output Path:**
+```
+$ generate 100 records from @users.csv and save to @fake_users.csv
+```
+System extracts: `output_path: "fake_users.csv"`
+
+**Auto-Generated Output Path:**
+```
+$ generate 100 records from @users.csv
+```
+System auto-generates: `output_path: "fake_users.csv"` (adds "fake_" prefix)
+
+**Supported Phrases for Output:**
+- "save to <filename>"
+- "save in <filename>"
+- "save it in <filename>"
+- "output to <filename>"
+- "write to <filename>"
+
+**Auto-Generation Pattern:**
+- Input: `users.csv` → Output: `fake_users.csv`
+- Input: `data.json` → Output: `fake_data.json`
+- Input: `records.parquet` → Output: `fake_records.parquet`
+
+This ensures data generation tools always save results to a file, even if the user doesn't explicitly specify an output path.
 
 ## Error Handling
 

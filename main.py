@@ -478,16 +478,33 @@ def main(verbose=False, auto_session=False):
                         # Use LLM to extract parameters from the prompt
                         console.print(f"[cyan]🤖 Extracting parameters from prompt using coder model...[/cyan]")
                         
-                        # Get tool schema/parameters (we'll use a simple approach)
+                        # Build tool-specific parameter guidance
+                        param_guidance = ""
+                        if selected_tool in ['generate_fake_data', 'generate_fake_data_ddpm']:
+                            param_guidance = """
+CRITICAL for data generation tools:
+- file_path: Input file to read data from (e.g., "users.csv", "@users.csv")
+- output_path: Output file to save generated data (e.g., "fake_users.csv", "@fake_users.csv")
+  * If user says "save to", "save in", "save it in", "output to", "write to" - extract the filename as output_path
+  * If output_path is not explicitly mentioned, generate one based on input file (e.g., "users.csv" -> "fake_users.csv")
+- num_samples: Number of records to generate (default: 100 if not specified)
+- epochs: (DDPM only) Training epochs for quality (default: 300)
+
+Example: For "generate 100 fake records from users.csv and save to fake_users.csv"
+{{"file_path": "users.csv", "num_samples": 100, "output_path": "fake_users.csv"}}"""
+                        else:
+                            param_guidance = """
+Extract any relevant parameters such as:
+- file_path or file_path1/file_path2: Input file paths (look for @file.ext patterns or file names)
+- output_path: Output file path if mentioned (look for "save to", "save in", "output to", "write to")
+- num_samples: Number of samples/records if mentioned
+- Any other relevant parameters based on the tool"""
+                        
+                        # Get tool schema/parameters
                         param_extraction_prompt = f"""Extract parameters for the MCP tool '{selected_tool}' from this user request:
 
 User Request: {tool_prompt}
-
-Analyze the request and extract any relevant parameters such as:
-- file paths (look for @file.ext patterns or file names)
-- number of samples
-- output paths
-- any other relevant parameters
+{param_guidance}
 
 Respond with ONLY a JSON object containing the parameters, no explanation.
 Example: {{"file_path": "users.csv", "num_samples": 100, "output_path": "fake_users.csv"}}"""
@@ -519,6 +536,21 @@ Example: {{"file_path": "users.csv", "num_samples": 100, "output_path": "fake_us
                         # Add working_dir if not present
                         if 'working_dir' not in params:
                             params['working_dir'] = get_user_working_dir()
+                        
+                        # For data generation tools, ensure output_path is set
+                        if selected_tool in ['generate_fake_data', 'generate_fake_data_ddpm']:
+                            if 'output_path' not in params and 'file_path' in params:
+                                # Auto-generate output path based on input file
+                                input_file = params['file_path']
+                                # Remove @ prefix if present
+                                if input_file.startswith('@'):
+                                    input_file = input_file[1:]
+                                # Generate output filename (e.g., "users.csv" -> "fake_users.csv")
+                                from pathlib import Path
+                                input_path = Path(input_file)
+                                output_filename = f"fake_{input_path.stem}{input_path.suffix}"
+                                params['output_path'] = output_filename
+                                console.print(f"[yellow]ℹ️  No output path specified. Auto-generated: {output_filename}[/yellow]")
                         
                         console.print(f"[dim]Parameters extracted: {json.dumps(params, indent=2)}[/dim]\n")
                         
