@@ -79,6 +79,13 @@ from src.utils.mcp_discovery import (
     get_mcp_tools,
 )
 
+# Import MCP tools loader for dynamic tool category loading
+from src.utils.mcp_tools_loader import (
+    get_valid_coding_tools,
+    get_meta_tools,
+    get_code_generation_tools,
+)
+
 # Import banner functionality from separate module
 from src.utils.banner import (
     print_banner,
@@ -1271,17 +1278,14 @@ def main(verbose=False, auto_session=False):
                                         mcp_name = best_match.get('mcp_name', 'coder')
                                         similarity = best_match.get('similarity', 0)
 
-                                        # Valid coding tools for /code command execution
-                                        valid_coding_tools = [
-                                            'run_python_code', 'run_r_code', 'detect_code',
-                                            'write_python_code', 'write_r_code',
-                                            'edit_python_code', 'edit_r_code',
-                                            'add_file_context', 'add_directory_context',
-                                            'verify_file_modifications'
-                                        ]
+                                        # Calculate system_mcps directory path (same logic as mcp_discovery)
+                                        system_mcps_dir = Path(__file__).parent / "system_mcps"
                                         
-                                        # Meta-tools should not be executed directly in /code steps
-                                        meta_tools = ['retrieve_all_tools', 'roll_the_dice', 'spin_the_roulette']
+                                        # Load valid coding tools dynamically from tools.yaml files
+                                        valid_coding_tools = get_valid_coding_tools(system_mcps_dir)
+                                        
+                                        # Load meta-tools dynamically (should not be executed directly in /code steps)
+                                        meta_tools = get_meta_tools(system_mcps_dir)
                                         
                                         if tool_name in meta_tools:
                                             console.print(f"  ⚠️  [yellow]Skipping meta-tool '{tool_name}' (not suitable for direct execution)[/yellow]\n")
@@ -1295,7 +1299,8 @@ def main(verbose=False, auto_session=False):
                                         console.print(f"  🔧 [cyan]Matched tool:[/cyan] {tool_name} [dim](similarity: {similarity:.2f})[/dim]")
 
                                         # Step 2: For code generation tools, use LLM to generate code first
-                                        code_generation_tools = ['write_python_code', 'edit_python_code', 'write_r_code', 'edit_r_code', 'run_python_code', 'run_r_code']
+                                        # Load code generation tools dynamically from tools.yaml files
+                                        code_generation_tools = get_code_generation_tools(system_mcps_dir)
 
                                         if tool_name in code_generation_tools:
                                             # Check if there's a file path with @ prefix

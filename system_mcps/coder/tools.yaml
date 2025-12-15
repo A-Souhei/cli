@@ -75,10 +75,12 @@ categories:
 tools:
   run_python_code:
     requires_llm_generation: false
+    requires_file_path: true
     language: python
     
   run_r_code:
     requires_llm_generation: false
+    requires_file_path: true
     language: r
     
   detect_code:
@@ -86,32 +88,38 @@ tools:
     
   write_python_code:
     requires_llm_generation: true
+    requires_file_path: true
     language: python
     creates_file: true
     
   write_r_code:
     requires_llm_generation: true
+    requires_file_path: true
     language: r
     creates_file: true
     
   edit_python_code:
     requires_llm_generation: true
+    requires_file_path: true
     language: python
     modifies_file: true
     
   edit_r_code:
     requires_llm_generation: true
+    requires_file_path: true
     language: r
     modifies_file: true
     
   add_file_context:
     requires_llm_generation: false
+    requires_file_path: true
     
   add_directory_context:
     requires_llm_generation: false
     
   verify_file_modifications:
     requires_llm_generation: false
+    requires_file_path: true
     
   retrieve_all_tools:
     requires_llm_generation: false

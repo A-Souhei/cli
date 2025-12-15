@@ -15,10 +15,14 @@ RUN --mount=type=bind,source=packages,target=/packages \
 
 # Copy shared source code
 COPY src/sentry_config.py /app/src_shared/sentry_config.py
+COPY src/utils/shared_mcp_tools_loader.py /app/src_shared/shared_mcp_tools_loader.py
 ENV PYTHONPATH="/app/src_shared:${PYTHONPATH}"
 
 # Copy Flask application
 COPY src/postgresql/app /app
+
+# Copy system_mcps for dynamic tool loading
+COPY system_mcps /app/system_mcps
 
 # Expose Flask port
 EXPOSE 5000
