@@ -967,15 +967,11 @@ def retrieve_tools_recursive():
                                 # Check if tool needs file_path and doesn't have it
                                 if 'file_path' not in extracted or not extracted.get('file_path'):
                                     # Load tools that need file_path dynamically from tools.yaml files
-                                    if MCP_TOOLS_LOADER_AVAILABLE:
-                                        file_path_tools = get_file_path_tools_cached()
+                                    if not MCP_TOOLS_LOADER_AVAILABLE:
+                                        app.logger.error("MCP tools loader not available - cannot determine file_path requirements")
+                                        file_path_tools = []
                                     else:
-                                        # Fallback to hardcoded list if loader not available
-                                        file_path_tools = ['write_python_code', 'edit_python_code', 'write_r_code',
-                                                          'edit_r_code', 'run_python_code', 'run_r_code',
-                                                          'verify_file_modifications', 'add_file_context',
-                                                          'generate_fake_data', 'generate_fake_data_ddpm',
-                                                          'generate_ast', 'compare_code_similarity', 'compare_ast_similarity']
+                                        file_path_tools = get_file_path_tools_cached()
                                     
                                     if tool.tool_name in file_path_tools:
                                         # Find first file reference (ends with .py, .r, .R)
