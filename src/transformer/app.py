@@ -61,6 +61,73 @@ def handle_error(e, status_code=500):
     }), status_code
 
 
+def chunk_code(code: str, tokenizer, max_tokens: int = 400, overlap: int = 50) -> list:
+    """
+    Split code into overlapping chunks that fit within token limit.
+    
+    Args:
+        code: Code string to chunk
+        tokenizer: Tokenizer to use for counting tokens
+        max_tokens: Maximum tokens per chunk (default 400, leaving room for special tokens)
+        overlap: Number of tokens to overlap between chunks (default 50)
+    
+    Returns:
+        List of code chunks
+    """
+    # Tokenize the entire code
+    tokens = tokenizer.encode(code, add_special_tokens=False)
+    
+    # If code fits in one chunk, return it
+    if len(tokens) <= max_tokens:
+        return [code]
+    
+    chunks = []
+    start = 0
+    
+    while start < len(tokens):
+        # Get chunk of tokens
+        end = min(start + max_tokens, len(tokens))
+        chunk_tokens = tokens[start:end]
+        
+        # Decode back to text
+        chunk_text = tokenizer.decode(chunk_tokens, skip_special_tokens=True)
+        chunks.append(chunk_text)
+        
+        # Move to next chunk with overlap
+        if end >= len(tokens):
+            break
+        start = end - overlap
+    
+    return chunks
+
+
+def embed_code_chunk(code: str, model, tokenizer) -> np.ndarray:
+    """
+    Generate embedding for a single code chunk using mean pooling.
+    
+    Args:
+        code: Code string to embed
+        model: CodeBERT model
+        tokenizer: CodeBERT tokenizer
+    
+    Returns:
+        Embedding vector as numpy array
+    """
+    inputs = tokenizer(code, return_tensors='pt', truncation=True, max_length=512, padding=True)
+    with torch.no_grad():
+        outputs = model(**inputs)
+        # Use mean pooling over all tokens (weighted by attention mask)
+        attention_mask = inputs['attention_mask']
+        token_embeddings = outputs.last_hidden_state
+        # Expand attention mask to match embedding dimensions
+        input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+        # Sum embeddings and divide by number of tokens (mean pooling)
+        sum_embeddings = torch.sum(token_embeddings * input_mask_expanded, 1)
+        sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+        embedding = (sum_embeddings / sum_mask).squeeze().numpy()
+    return embedding
+
+
 @app.route('/', methods=['GET'])
 def index():
     """Root endpoint."""
@@ -311,20 +378,37 @@ def embed_code():
         # Tokenize the code
         inputs = tokenizer(code, return_tensors='pt', truncation=True, max_length=512, padding=True)
 
+        # Check if truncation occurred
+        code_tokens = len(tokenizer.encode(code, add_special_tokens=True))
+        was_truncated = code_tokens > 512
+
         # Generate embeddings
         with torch.no_grad():
             outputs = model(**inputs)
-            # Use [CLS] token embedding as code representation
-            embedding = outputs.last_hidden_state[:, 0, :].squeeze().numpy()
+            # Use mean pooling over all tokens (weighted by attention mask)
+            attention_mask = inputs['attention_mask']
+            token_embeddings = outputs.last_hidden_state
+            # Expand attention mask to match embedding dimensions
+            input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+            # Sum embeddings and divide by number of tokens (mean pooling)
+            sum_embeddings = torch.sum(token_embeddings * input_mask_expanded, 1)
+            sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+            embedding = (sum_embeddings / sum_mask).squeeze().numpy()
 
-        return jsonify({
+        result = {
             'status': 'success',
             'code': code,
             'language': language,
             'embedding': embedding.tolist(),
             'dimension': len(embedding),
             'model': 'microsoft/codebert-base'
-        }), 200
+        }
+        
+        if was_truncated:
+            result['warning'] = f'Code was truncated from {code_tokens} to 512 tokens. Consider splitting large files for better embeddings.'
+            result['truncated'] = True
+        
+        return jsonify(result), 200
 
     except Exception as e:
         return handle_error(e)
@@ -374,12 +458,29 @@ def embed_code_batch():
             max_length=512,
             padding=True
         )
+        
+        # Track truncation per code snippet
+        truncation_info = []
+        for code in codes:
+            tokens = len(tokenizer.encode(code, add_special_tokens=True))
+            truncation_info.append({
+                'tokens': tokens,
+                'truncated': tokens > 512
+            })
+        
         with torch.no_grad():
             outputs = model(**inputs)
-            # Use [CLS] token embedding as code representation for each code snippet
-            embeddings = outputs.last_hidden_state[:, 0, :].cpu().numpy().tolist()
+            # Use mean pooling over all tokens for each code snippet
+            attention_mask = inputs['attention_mask']
+            token_embeddings = outputs.last_hidden_state
+            # Expand attention mask to match embedding dimensions
+            input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+            # Sum embeddings and divide by number of tokens (mean pooling) for each snippet
+            sum_embeddings = torch.sum(token_embeddings * input_mask_expanded, 1)
+            sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+            embeddings = (sum_embeddings / sum_mask).cpu().numpy().tolist()
 
-        return jsonify({
+        result = {
             'status': 'success',
             'codes': codes,
             'languages': languages,
@@ -387,7 +488,14 @@ def embed_code_batch():
             'count': len(codes),
             'dimension': len(embeddings[0]),
             'model': 'microsoft/codebert-base'
-        }), 200
+        }
+        
+        # Add truncation warnings if any code was truncated
+        if any(info['truncated'] for info in truncation_info):
+            result['truncation_info'] = truncation_info
+            result['warning'] = 'One or more code snippets were truncated to 512 tokens'
+        
+        return jsonify(result), 200
 
     except Exception as e:
         return handle_error(e)
@@ -498,13 +606,27 @@ def compare_code_similarity():
         # Get CodeBERT model and tokenizer
         model, tokenizer = get_codebert_model()
 
-        # Generate embeddings for both code snippets
+        # Check if truncation will occur
+        code1_tokens = len(tokenizer.encode(code1, add_special_tokens=True))
+        code2_tokens = len(tokenizer.encode(code2, add_special_tokens=True))
+        code1_truncated = code1_tokens > 512
+        code2_truncated = code2_tokens > 512
+
+        # Generate embeddings for both code snippets using mean pooling
         embeddings = []
         for code in [code1, code2]:
             inputs = tokenizer(code, return_tensors='pt', truncation=True, max_length=512, padding=True)
             with torch.no_grad():
                 outputs = model(**inputs)
-                embedding = outputs.last_hidden_state[:, 0, :].squeeze().numpy()
+                # Use mean pooling over all tokens (weighted by attention mask)
+                attention_mask = inputs['attention_mask']
+                token_embeddings = outputs.last_hidden_state
+                # Expand attention mask to match embedding dimensions
+                input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+                # Sum embeddings and divide by number of tokens (mean pooling)
+                sum_embeddings = torch.sum(token_embeddings * input_mask_expanded, 1)
+                sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+                embedding = (sum_embeddings / sum_mask).squeeze().numpy()
                 embeddings.append(embedding)
 
         # Convert to numpy arrays
@@ -514,7 +636,7 @@ def compare_code_similarity():
         # Calculate similarity
         similarity = calculate_similarity(vec1, vec2, metric=metric)
 
-        return jsonify({
+        result = {
             'status': 'success',
             'code1': code1,
             'code2': code2,
@@ -524,8 +646,143 @@ def compare_code_similarity():
             'similarity': float(similarity),
             'interpretation': _interpret_similarity(similarity, metric),
             'model': 'microsoft/codebert-base'
-        }), 200
+        }
+        
+        # Add truncation warnings
+        if code1_truncated or code2_truncated:
+            warnings = []
+            if code1_truncated:
+                warnings.append(f'Code1 was truncated from {code1_tokens} to 512 tokens')
+            if code2_truncated:
+                warnings.append(f'Code2 was truncated from {code2_tokens} to 512 tokens')
+            result['warnings'] = warnings
+            result['truncated'] = True
+        
+        return jsonify(result), 200
 
+    except Exception as e:
+        return handle_error(e)
+
+
+@app.route('/code/similarity/chunked', methods=['POST'])
+def compare_code_similarity_chunked():
+    """
+    Compare code similarity using chunked approach for large files.
+    
+    Splits both code snippets into overlapping chunks, compares each chunk pair,
+    and aggregates results for a more accurate similarity score on large files.
+    
+    Request Body (JSON):
+    - code1: First code snippet to compare
+    - code2: Second code snippet to compare
+    - language1: Optional programming language for code1
+    - language2: Optional programming language for code2
+    - metric: Distance metric (default: cosine). Options: cosine, euclidean, dot_product
+    - chunk_size: Max tokens per chunk (default: 400)
+    - overlap: Token overlap between chunks (default: 50)
+    
+    Returns:
+    - similarity: Aggregated similarity score
+    - chunk_similarities: Individual chunk comparison scores
+    - num_chunks1: Number of chunks for code1
+    - num_chunks2: Number of chunks for code2
+    - metric: The metric used for comparison
+    - interpretation: Human-readable interpretation
+    - model: Model used for embeddings
+    """
+    try:
+        data = request.get_json()
+        if not data or 'code1' not in data or 'code2' not in data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing code1 or code2 in request body'
+            }), 400
+        
+        code1 = data['code1']
+        code2 = data['code2']
+        language1 = data.get('language1', '')
+        language2 = data.get('language2', '')
+        metric = data.get('metric', 'cosine')
+        chunk_size = data.get('chunk_size', 400)
+        overlap = data.get('overlap', 50)
+        
+        # Validate metric
+        valid_metrics = ['cosine', 'euclidean', 'dot_product']
+        if metric not in valid_metrics:
+            return jsonify({
+                'status': 'error',
+                'message': f'Invalid metric. Must be one of: {", ".join(valid_metrics)}'
+            }), 400
+        
+        # Get CodeBERT model and tokenizer
+        model, tokenizer = get_codebert_model()
+        
+        # Chunk both code snippets
+        chunks1 = chunk_code(code1, tokenizer, max_tokens=chunk_size, overlap=overlap)
+        chunks2 = chunk_code(code2, tokenizer, max_tokens=chunk_size, overlap=overlap)
+        
+        # Generate embeddings for all chunks
+        embeddings1 = [embed_code_chunk(chunk, model, tokenizer) for chunk in chunks1]
+        embeddings2 = [embed_code_chunk(chunk, model, tokenizer) for chunk in chunks2]
+        
+        # Compare chunks using different strategies
+        chunk_similarities = []
+        
+        # Strategy 1: Compare corresponding chunks (pairs by position)
+        min_chunks = min(len(chunks1), len(chunks2))
+        for i in range(min_chunks):
+            sim = calculate_similarity(embeddings1[i], embeddings2[i], metric=metric)
+            chunk_similarities.append({
+                'chunk1_index': i,
+                'chunk2_index': i,
+                'similarity': float(sim),
+                'comparison_type': 'positional'
+            })
+        
+        # Strategy 2: Find max similarity for each chunk1 against all chunks2
+        max_similarities = []
+        for i, emb1 in enumerate(embeddings1):
+            similarities_for_chunk = []
+            for j, emb2 in enumerate(embeddings2):
+                sim = calculate_similarity(emb1, emb2, metric=metric)
+                similarities_for_chunk.append(float(sim))
+            max_sim = max(similarities_for_chunk)
+            max_similarities.append(max_sim)
+        
+        # Calculate aggregate scores
+        positional_avg = np.mean([cs['similarity'] for cs in chunk_similarities]) if chunk_similarities else 0.0
+        max_avg = np.mean(max_similarities) if max_similarities else 0.0
+        
+        # Use weighted average: favor positional but consider max similarity
+        if len(chunks1) == len(chunks2) == 1:
+            # Both fit in single chunk, use direct comparison
+            final_similarity = positional_avg
+        else:
+            # Weight positional more heavily, but account for max similarity
+            final_similarity = 0.6 * positional_avg + 0.4 * max_avg
+        
+        result = {
+            'status': 'success',
+            'similarity': float(final_similarity),
+            'positional_similarity': float(positional_avg),
+            'max_match_similarity': float(max_avg),
+            'num_chunks1': len(chunks1),
+            'num_chunks2': len(chunks2),
+            'chunk_size': chunk_size,
+            'overlap': overlap,
+            'code1_length': len(code1),
+            'code2_length': len(code2),
+            'language1': language1,
+            'language2': language2,
+            'metric': metric,
+            'interpretation': _interpret_similarity(final_similarity, metric),
+            'model': 'microsoft/codebert-base',
+            'chunk_similarities': chunk_similarities,
+            'note': f'Chunked comparison: code1 split into {len(chunks1)} chunks, code2 into {len(chunks2)} chunks'
+        }
+        
+        return jsonify(result), 200
+        
     except Exception as e:
         return handle_error(e)
 

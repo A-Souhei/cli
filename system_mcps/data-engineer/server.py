@@ -627,12 +627,26 @@ def compare_code_files_similarity(file_path1: str, file_path2: str, working_dir:
         language1 = language_map.get(ext1, '')
         language2 = language_map.get(ext2, '')
 
-        # Call transformer service /code/similarity endpoint
+        # Estimate token count using CodeBERT's max token limit as reference
+        # CodeBERT uses 512 tokens max, so we chunk if approaching that limit
+        CODEBERT_MAX_TOKENS = 512
+        CHUNK_THRESHOLD = 400  # Start chunking before hitting the limit
+        
+        # Rough estimation: code typically has 1 token per ~4 characters
+        # This gives us approximately: estimated_tokens ≈ chars / 4 ≈ chars * (CODEBERT_MAX_TOKENS / 2048)
+        estimated_tokens1 = len(content1) * CODEBERT_MAX_TOKENS // 2048  # Roughly chars / 4
+        estimated_tokens2 = len(content2) * CODEBERT_MAX_TOKENS // 2048
+        
+        # Use chunked comparison if either file is large (>400 tokens)
+        use_chunked = estimated_tokens1 > CHUNK_THRESHOLD or estimated_tokens2 > CHUNK_THRESHOLD
+        
+        # Call transformer service
         transformer_url = get_transformer_url()
-        debug_print(f"Calling transformer service at {transformer_url}")
+        debug_print(f"Calling transformer service at {transformer_url} (chunked={use_chunked})")
 
+        endpoint = "/code/similarity/chunked" if use_chunked else "/code/similarity"
         response = requests.post(
-            f"{transformer_url}/code/similarity",
+            f"{transformer_url}{endpoint}",
             json={
                 "code1": content1,
                 "code2": content2,
@@ -640,7 +654,7 @@ def compare_code_files_similarity(file_path1: str, file_path2: str, working_dir:
                 "language2": language2,
                 "metric": metric
             },
-            timeout=60
+            timeout=120  # Longer timeout for chunked comparison
         )
 
         if response.status_code != 200:
@@ -660,6 +674,7 @@ def compare_code_files_similarity(file_path1: str, file_path2: str, working_dir:
         result['file2'] = file_path2
         result['file1_size'] = len(content1)
         result['file2_size'] = len(content2)
+        result['comparison_method'] = 'chunked' if use_chunked else 'direct'
 
         return result
 
@@ -747,12 +762,26 @@ def compare_ast_similarity(file_path1: str, file_path2: str, working_dir: str, m
                 "message": f"Failed to normalize code from AST: {str(e)}"
             }
 
+        # Estimate token count using CodeBERT's max token limit as reference
+        # CodeBERT uses 512 tokens max, so we chunk if approaching that limit
+        CODEBERT_MAX_TOKENS = 512
+        CHUNK_THRESHOLD = 400  # Start chunking before hitting the limit
+        
+        # Rough estimation: code typically has 1 token per ~4 characters
+        # This gives us approximately: estimated_tokens ≈ chars / 4 ≈ chars * (CODEBERT_MAX_TOKENS / 2048)
+        estimated_tokens1 = len(normalized_code1) * CODEBERT_MAX_TOKENS // 2048  # Roughly chars / 4
+        estimated_tokens2 = len(normalized_code2) * CODEBERT_MAX_TOKENS // 2048
+        
+        # Use chunked comparison if either normalized file is large (>400 tokens)
+        use_chunked = estimated_tokens1 > CHUNK_THRESHOLD or estimated_tokens2 > CHUNK_THRESHOLD
+        
         # Call transformer service to compare normalized code using CodeBERT
         transformer_url = get_transformer_url()
-        debug_print(f"Calling transformer service for AST similarity at {transformer_url}")
+        debug_print(f"Calling transformer service for AST similarity at {transformer_url} (chunked={use_chunked})")
 
+        endpoint = "/code/similarity/chunked" if use_chunked else "/code/similarity"
         response = requests.post(
-            f"{transformer_url}/code/similarity",
+            f"{transformer_url}{endpoint}",
             json={
                 "code1": normalized_code1,
                 "code2": normalized_code2,
@@ -760,7 +789,7 @@ def compare_ast_similarity(file_path1: str, file_path2: str, working_dir: str, m
                 "language2": "python",
                 "metric": metric
             },
-            timeout=60
+            timeout=120  # Longer timeout for chunked comparison
         )
 
         if response.status_code != 200:
@@ -774,6 +803,9 @@ def compare_ast_similarity(file_path1: str, file_path2: str, working_dir: str, m
 
         if result.get('status') == 'error':
             return result
+        
+        # Mark comparison method
+        result['comparison_method'] = 'chunked' if use_chunked else 'direct'
 
         # Enhance result with AST-specific information
         result['comparison_type'] = 'ast_based'
@@ -791,16 +823,55 @@ def compare_ast_similarity(file_path1: str, file_path2: str, working_dir: str, m
             'total_nodes_diff': abs(ast_result1['summary']['total_nodes'] - ast_result2['summary']['total_nodes'])
         }
 
-        # Enhanced interpretation considering AST structure
+        # Calculate structural difference penalty
+        # Penalize differences in class count, function count, and method signatures
+        structural_diff = result['structural_similarity']
+        
+        # Calculate a penalty factor based on structural differences
+        # Each difference type contributes to lowering the final similarity
+        penalty = 0.0
+        
+        # Count total methods in each file from class statistics
+        method_count1 = sum(len(cls.get('methods', [])) for cls in ast_result1['statistics']['classes'])
+        method_count2 = sum(len(cls.get('methods', [])) for cls in ast_result2['statistics']['classes'])
+        method_diff = abs(method_count1 - method_count2)
+        max_methods = max(method_count1, method_count2, 1)
+        
+        # Method count differences (most important for similar class patterns)
+        if method_diff > 0:
+            penalty += (method_diff / max_methods) * 0.15  # Up to 15% penalty
+        
+        # Total node differences (indicates overall complexity difference)
+        node_diff_ratio = structural_diff['total_nodes_diff'] / max(
+            ast_result1['summary']['total_nodes'],
+            ast_result2['summary']['total_nodes'],
+            1
+        )
+        penalty += node_diff_ratio * 0.10  # Up to 10% penalty based on size difference
+        
+        # Apply penalty to similarity score
+        base_similarity = result.get('similarity', 0.0)
+        adjusted_similarity = max(0.0, base_similarity - penalty)
+        
+        result['original_similarity'] = base_similarity
+        result['structural_penalty'] = penalty
+        result['method_count_diff'] = method_diff
+        result['similarity'] = adjusted_similarity
+        
+        # Enhanced interpretation considering AST structure and penalties
         original_interpretation = result.get('interpretation', '')
-        result['interpretation'] = f"AST-based: {original_interpretation}"
+        if penalty > 0.05:  # Significant penalty
+            result['interpretation'] = f"AST-based: {original_interpretation} (adjusted for structural differences)"
+        else:
+            result['interpretation'] = f"AST-based: {original_interpretation}"
         
         # Add note about what AST similarity means
         result['note'] = (
             "This comparison uses AST-normalized code (parsed and unparsed for consistent formatting). "
             "The normalized code is then compared using CodeBERT, which focuses on code structure and "
-            "logic patterns rather than specific variable names or formatting choices. This approach is "
-            "effective for detecting structurally similar code with different naming conventions or styles."
+            "logic patterns rather than specific variable names or formatting choices. "
+            f"A structural penalty of {penalty:.2%} was applied based on differences in methods, "
+            "classes, and overall complexity."
         )
 
         return result
