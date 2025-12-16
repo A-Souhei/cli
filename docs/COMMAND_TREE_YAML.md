@@ -155,6 +155,19 @@ pytest tests/test_yaml_command_tree.py -v
 pytest tests/test_nested_completions.py tests/test_yaml_command_tree.py -v
 ```
 
+## Known Limitations
+
+### Flag Combinations
+
+The current tree structure handles flags as separate subcommands. For commands with multiple combinable flags (e.g., `/datamap create --with-files --with-pg`), the tree shows each flag as an exclusive path rather than allowing combinations.
+
+**Current behavior:**
+- `/datamap create ` → Shows `--files-only`, `--with-pg`, `--with-files` as separate options
+- Selecting one flag doesn't show other available flags
+
+**Workaround:**
+Users can type flags directly even if they don't appear in completions. The actual command handler supports flag combinations; this is purely a completion tree limitation.
+
 ## Fallback Behavior
 
 If the YAML file fails to load (missing, malformed, etc.), the CLI falls back to a minimal hardcoded command tree with basic commands:
@@ -173,12 +186,16 @@ This ensures the CLI remains functional even if the YAML file has issues.
 The command tree is loaded once and cached in memory for performance. To reload after changes:
 
 1. Restart the CLI application
-2. Or clear the cache programmatically (for development):
+2. Or clear the cache programmatically (for internal development/testing only):
 
 ```python
 from src.file_completer import SlashCommandCompleter
 SlashCommandCompleter._command_tree_cache = None
 ```
+
+> **Warning:**  
+> Directly modifying the `_command_tree_cache` variable is for internal development/testing only.  
+> This is not a supported or stable API and may break in future releases.
 
 ## Benefits
 

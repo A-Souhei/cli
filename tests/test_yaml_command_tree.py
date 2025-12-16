@@ -2,6 +2,7 @@
 
 import pytest
 from pathlib import Path
+from unittest.mock import patch
 from src.file_completer import SlashCommandCompleter, _load_command_tree_from_yaml
 
 
@@ -89,10 +90,10 @@ class TestYamlCommandTree:
         assert len(tree) == len(yaml_tree)
         assert set(tree.keys()) == set(yaml_tree.keys())
 
-    def test_yaml_cache_is_used(self):
+    def test_yaml_cache_is_used(self, monkeypatch):
         """Test that command tree is cached after first load."""
         # Clear cache
-        SlashCommandCompleter._command_tree_cache = None
+        monkeypatch.setattr(SlashCommandCompleter, '_command_tree_cache', None)
         
         # First load
         completer1 = SlashCommandCompleter()
@@ -105,39 +106,24 @@ class TestYamlCommandTree:
         # Should be the same object (cached)
         assert tree1 is tree2
 
-    def test_fallback_on_yaml_error(self):
+    def test_fallback_on_yaml_error(self, monkeypatch):
         """Test that fallback tree is used if YAML fails to load."""
-        # Clear cache
-        SlashCommandCompleter._command_tree_cache = None
-        
         # Try loading with invalid path
         with pytest.raises(FileNotFoundError):
             _load_command_tree_from_yaml(Path("/nonexistent/path.yaml"))
         
-        # Completer should still work with fallback
-        completer = SlashCommandCompleter()
-        # Force reload with bad path to trigger fallback
-        SlashCommandCompleter._command_tree_cache = None
-        
-        # Mock the load to raise an error
-        import src.file_completer as fc
-        original_load = fc._load_command_tree_from_yaml
-        
+        # Mock the load to raise an error and test fallback
         def mock_load_error(path=None):
             raise FileNotFoundError("Test error")
         
-        fc._load_command_tree_from_yaml = mock_load_error
-        try:
-            tree = SlashCommandCompleter._get_command_tree()
-            # Should have fallback commands
-            assert 'help' in tree
-            assert 'exit' in tree
-            assert len(tree) > 0  # Fallback should have some commands
-        finally:
-            # Restore original function
-            fc._load_command_tree_from_yaml = original_load
-            # Clear cache for other tests
-            SlashCommandCompleter._command_tree_cache = None
+        monkeypatch.setattr('src.file_completer._load_command_tree_from_yaml', mock_load_error)
+        monkeypatch.setattr(SlashCommandCompleter, '_command_tree_cache', None)
+        
+        tree = SlashCommandCompleter._get_command_tree()
+        # Should have fallback commands
+        assert 'help' in tree
+        assert 'exit' in tree
+        assert len(tree) > 0  # Fallback should have some commands
 
     def test_yaml_descriptions_are_meaningful(self):
         """Test that all commands have non-empty descriptions."""

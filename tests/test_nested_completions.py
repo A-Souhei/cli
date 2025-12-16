@@ -1,6 +1,5 @@
 """Tests for nested command completions in SlashCommandCompleter."""
 
-import pytest
 from prompt_toolkit.document import Document
 from src.file_completer import SlashCommandCompleter
 
@@ -206,3 +205,23 @@ class TestNestedCompletions:
         assert '/datamap create' in completion_texts
         assert '/datamap load' in completion_texts
         assert '/datamap update' in completion_texts
+
+    def test_placeholder_shows_in_completion(self):
+        """Test that placeholders are shown in completions."""
+        # /session restore should show <id> placeholder
+        document = Document(text='/session restore ', cursor_position=17)
+        completions = list(self.completer.get_completions(document, None))
+        
+        # Should show the placeholder
+        completion_texts = [c.text for c in completions]
+        assert any('<id>' in text for text in completion_texts)
+
+    def test_placeholder_with_subcommands(self):
+        """Test that placeholders with subcommands navigate correctly."""
+        # /model general add <url> should show <model_name> placeholder
+        document = Document(text='/model general add https://ollama.ai ', cursor_position=37)
+        completions = list(self.completer.get_completions(document, None))
+        
+        # Should show the next level placeholder
+        completion_texts = [c.text for c in completions]
+        assert any('<model_name>' in text for text in completion_texts)

@@ -2,10 +2,13 @@
 
 import os
 import yaml
+import logging
 from typing import Iterable, Dict, Any, Optional, Tuple
 from pathlib import Path
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
+
+logger = logging.getLogger(__name__)
 
 
 def _load_command_tree_from_yaml(yaml_path: Optional[Path] = None) -> Dict[str, Tuple[str, Optional[Dict]]]:
@@ -30,13 +33,20 @@ def _load_command_tree_from_yaml(yaml_path: Optional[Path] = None) -> Dict[str, 
     if not yaml_path.exists():
         raise FileNotFoundError(f"Command tree YAML file not found: {yaml_path}")
     
-    with open(yaml_path, 'r') as f:
+    with open(yaml_path, 'r', encoding='utf-8') as f:
         data = yaml.safe_load(f)
     
     def convert_yaml_to_tree(yaml_dict: Dict[str, Any]) -> Dict[str, Tuple[str, Optional[Dict]]]:
         """Recursively convert YAML structure to internal tree format."""
         tree = {}
         for cmd_name, cmd_data in yaml_dict.items():
+            # Validate structure
+            if not isinstance(cmd_data, dict):
+                raise ValueError(f"Invalid structure for command '{cmd_name}': expected dict, got {type(cmd_data).__name__}")
+            
+            if 'description' not in cmd_data:
+                raise ValueError(f"Missing 'description' for command '{cmd_name}'")
+            
             description = cmd_data.get('description', '')
             subcommands_yaml = cmd_data.get('subcommands')
             
@@ -77,10 +87,10 @@ class SlashCommandCompleter(Completer):
         if cls._command_tree_cache is None:
             try:
                 cls._command_tree_cache = _load_command_tree_from_yaml()
-            except (FileNotFoundError, yaml.YAMLError) as e:
+            except (FileNotFoundError, yaml.YAMLError, ValueError) as e:
                 # Fallback to minimal hardcoded tree if YAML fails to load
-                print(f"Warning: Failed to load command_tree.yaml: {e}")
-                print("Using minimal fallback command tree")
+                logger.warning(f"Failed to load command_tree.yaml: {e}")
+                logger.warning("Using minimal fallback command tree")
                 cls._command_tree_cache = {
                     'help': ('Show help message', None),
                     'exit': ('Exit the CLI', None),
@@ -148,12 +158,17 @@ class SlashCommandCompleter(Completer):
             else:
                 # Check if it matches a placeholder pattern like <name> or [@path]
                 found = False
-                for key in current_tree.keys():
+                for key in current_tree:
                     if key.startswith('<') or key.startswith('['):
-                        # This is a placeholder, move to its subtree if available
+                        # This is a placeholder
                         desc, subtree = current_tree[key]
                         if subtree:
+                            # Has subcommands - navigate to them
                             current_tree = subtree
+                            found = True
+                            break
+                        else:
+                            # Leaf placeholder - valid terminal position
                             found = True
                             break
                 if not found:
