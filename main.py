@@ -561,6 +561,8 @@ Example: {{"file_path": "users.csv", "num_samples": 100, "output_path": "fake_us
                         
                         async def execute_with_live_timer():
                             start_time = time.time()
+                            # Cache the base message to reduce formatting overhead
+                            base_message = f"[cyan]Calling tool '{selected_tool}' on '{selected_mcp}'... [dim]({{:.1f}}s)[/dim][/cyan]"
                             spinner = Spinner("dots", text="")
                             
                             # Create the async task
@@ -570,7 +572,7 @@ Example: {{"file_path": "users.csv", "num_samples": 100, "output_path": "fake_us
                             with Live(spinner, console=console, refresh_per_second=4) as live:
                                 while not task.done():
                                     elapsed = time.time() - start_time
-                                    spinner.update(text=f"[cyan]Calling tool '{selected_tool}' on '{selected_mcp}'... [dim]({elapsed:.1f}s)[/dim][/cyan]")
+                                    spinner.update(text=base_message.format(elapsed))
                                     await asyncio.sleep(0.25)
                             
                             # Get the result

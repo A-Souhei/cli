@@ -471,10 +471,10 @@ def generate_synthetic_data_ddpm(
     try:
         import pandas as pd
         import sys
-        from pathlib import Path as PathLib
+        from pathlib import Path
 
         # Add tabular-gmd to path
-        tabular_gmd_path = PathLib(__file__).parent / "tabular-gmd"
+        tabular_gmd_path = Path(__file__).parent / "tabular-gmd"
         if str(tabular_gmd_path) not in sys.path:
             sys.path.insert(0, str(tabular_gmd_path))
 
@@ -538,6 +538,9 @@ def generate_synthetic_data_ddpm(
             config = DiffusionConfig(num_timesteps=num_timesteps, schedule_type="cosine")
             debug_print(f"[GMD/DDPM] Using custom timesteps: {num_timesteps}")
         else:
+            # For datasets without a custom timestep setting, use an auto-optimized diffusion config for small datasets.
+            # "Small" is determined by the method (typically < 100 samples); this method adjusts diffusion parameters
+            # (e.g., reduces number of timesteps) to improve training stability and speed on limited data.
             config = DiffusionConfig.for_small_dataset(n_samples)
             debug_print(f"[GMD/DDPM] Auto-optimized config for {n_samples} samples: {config.num_timesteps} timesteps")
 
