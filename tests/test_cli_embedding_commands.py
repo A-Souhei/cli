@@ -6,6 +6,9 @@ These tests verify the CLI commands for managing embedding models work correctly
 
 import pytest
 import requests
+
+pytestmark = pytest.mark.skip(reason="Requires transformers, torch packages not in requirements-test.txt")
+
 from src.model_registry.manager import ModelRegistry
 
 
