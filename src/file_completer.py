@@ -1,10 +1,56 @@
 """File and directory completer for @ prefix, / commands, and $ MCP tools in CLI."""
 
 import os
-from typing import Iterable
+import yaml
+from typing import Iterable, Dict, Any, Optional, Tuple
 from pathlib import Path
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
+
+
+def _load_command_tree_from_yaml(yaml_path: Optional[Path] = None) -> Dict[str, Tuple[str, Optional[Dict]]]:
+    """
+    Load command tree from YAML file and convert to internal format.
+    
+    Args:
+        yaml_path: Path to command_tree.yaml file. If None, uses default location.
+        
+    Returns:
+        Dictionary in format {command: (description, subcommands_dict or None)}
+        
+    Raises:
+        FileNotFoundError: If YAML file doesn't exist
+        yaml.YAMLError: If YAML file is malformed
+    """
+    if yaml_path is None:
+        # Default to command_tree.yaml in project root
+        # file_completer.py is in src/, so parent.parent gets us to project root
+        yaml_path = Path(__file__).parent.parent / "command_tree.yaml"
+    
+    if not yaml_path.exists():
+        raise FileNotFoundError(f"Command tree YAML file not found: {yaml_path}")
+    
+    with open(yaml_path, 'r') as f:
+        data = yaml.safe_load(f)
+    
+    def convert_yaml_to_tree(yaml_dict: Dict[str, Any]) -> Dict[str, Tuple[str, Optional[Dict]]]:
+        """Recursively convert YAML structure to internal tree format."""
+        tree = {}
+        for cmd_name, cmd_data in yaml_dict.items():
+            description = cmd_data.get('description', '')
+            subcommands_yaml = cmd_data.get('subcommands')
+            
+            if subcommands_yaml is None:
+                # Leaf command
+                tree[cmd_name] = (description, None)
+            else:
+                # Has subcommands - recursively convert
+                subcommands_tree = convert_yaml_to_tree(subcommands_yaml)
+                tree[cmd_name] = (description, subcommands_tree)
+        
+        return tree
+    
+    return convert_yaml_to_tree(data.get('commands', {}))
 
 
 class SlashCommandCompleter(Completer):
@@ -13,166 +59,44 @@ class SlashCommandCompleter(Completer):
 
     When the user types / at the beginning of input, this completer shows
     available commands with their descriptions in a nested tree structure.
+    
+    Command tree is loaded from command_tree.yaml for easy maintenance.
     """
 
-    # Define hierarchical command structure
-    # Format: {command: (description, subcommands_dict)}
-    # Leaf commands have None as subcommands
-    COMMAND_TREE = {
-        'help': ('Show help message', None),
-        'exit': ('Exit the CLI', None),
-        'quit': ('Exit the CLI', None),
-        'clear': ('Clear chat history', None),
-        'models': ('List available models', None),
-        'switch': ('Switch to a different model', None),
-        'mcps': ('List system MCPs', None),
-        'mcp-tools': ('List tools in an MCP', {
-            '<name>': ('MCP name to query', None),
-        }),
-        'wd': ('Working directory commands', {
-            'show': ('Show current working directory', None),
-            'change': ('Change working directory', {
-                '<path>': ('Directory path', None),
-            }),
-            'cd': ('Change working directory (alias)', {
-                '<path>': ('Directory path', None),
-            }),
-        }),
-        'session': ('Session management', {
-            'start': ('Start a new context session', None),
-            'end': ('End the current session', None),
-            'info': ('View current session info', None),
-            'list': ('List all saved sessions', None),
-            'restore': ('Restore a saved session', {
-                '<id>': ('Session ID to restore', None),
-            }),
-            'delete': ('Delete a saved session', {
-                '<id>': ('Session ID to delete', None),
-            }),
-            'clear': ('Clear all saved sessions', None),
-        }),
-        'context': ('Context management', {
-            'add': ('Add to context without LLM call', {
-                '@file': ('Add file to context', None),
-                '@directory': ('Add directory to context', None),
-                'ALL': ('Add entire working directory', None),
-                'ALL_TOOLS': ('Add all MCP tools with descriptions', None),
-                'TODO_LIST': ('Generate strategic TODO list', {
-                    '<description>': ('Task description', None),
-                }),
-                'MAKE_LIST': ('Generate strategic MAKE_LIST', {
-                    '<description>': ('Task description', None),
-                }),
-            }),
-            'show': ('Display current context', None),
-            'clear': ('Clear current context', None),
-            'metrics': ('Show context size and metrics', None),
-            'load': ('Load from file', {
-                'TODO_LIST': ('Load TODO_LIST from file', {
-                    '[@path]': ('Optional file path', None),
-                }),
-                'MAKE_LIST': ('Load MAKE_LIST from file', {
-                    '[@path]': ('Optional file path', None),
-                }),
-            }),
-            'save': ('Save to file', {
-                'TODO_LIST': ('Save TODO_LIST to file', {
-                    '[@path]': ('Optional file path', None),
-                }),
-                'MAKE_LIST': ('Save MAKE_LIST to file', {
-                    '[@path]': ('Optional file path', None),
-                }),
-            }),
-        }),
-        'repomap': ('Repository mapping', {
-            'create': ('Create repository map', None),
-            'load': ('Load existing .repomap file', None),
-            'update': ('Update existing .repomap', None),
-        }),
-        'datamap': ('Data file mapping', {
-            'create': ('Create data map', {
-                '--files-only': ('Local data files only', None),
-                '--with-pg': ('Include PostgreSQL database', None),
-                '--with-files': ('Include local files', None),
-            }),
-            'load': ('Load existing .datamap file', None),
-            'update': ('Update existing .datamap', {
-                '--with-files': ('Include local files', None),
-                '--with-pg': ('Include PostgreSQL database', None),
-            }),
-        }),
-        'ignore': ('Security & ignore patterns', {
-            'create': ('Create .llmignore file', None),
-            'add': ('Add file(s) to .llmignore', {
-                '@file': ('File to add', None),
-            }),
-        }),
-        'make': ('Make commands', {
-            'map': ('Makefile mapping', {
-                'generate': ('Generate .makemap from Makefile', None),
-                'load': ('Load existing .makemap file', None),
-                'update': ('Update .makemap with new targets', None),
-            }),
-            '<prompt>': ('Execute make with natural language', None),
-        }),
-        'execute': ('Execute plans', {
-            'TODO_LIST': ('Execute TODO_LIST from context', None),
-            'MAKE_LIST': ('Execute MAKE_LIST from context', None),
-            '@path': ('Execute plan from file', None),
-        }),
-        'code': ('Analyze and execute code', {
-            '<prompt>': ('Code task description', None),
-        }),
-        'model': ('Model management', {
-            'status': ('Show all configured models', None),
-            'list': ('List all models', None),
-            'general': ('General models', {
-                'list': ('List general models', None),
-                'add': ('Add general model', {
-                    '<url>': ('Model URL', {
-                        '<model_name>': ('Model name', None),
-                    }),
-                }),
-                'use': ('Set active general model', {
-                    '<model_id>': ('Model ID', None),
-                }),
-                'remove': ('Remove general model', {
-                    '<model_id>': ('Model ID', None),
-                }),
-            }),
-            'coder': ('Coder models', {
-                'list': ('List coder models', None),
-                'add': ('Add coder model', {
-                    '<url>': ('Model URL', {
-                        '<model_name>': ('Model name', None),
-                    }),
-                }),
-                'use': ('Set active coder model', {
-                    '<model_id>': ('Model ID', None),
-                }),
-                'remove': ('Remove coder model', {
-                    '<model_id>': ('Model ID', None),
-                }),
-            }),
-            'embedding': ('Embedding services', {
-                'list': ('List embedding services', None),
-                'add': ('Add embedding service', {
-                    '<url>': ('Service URL', {
-                        '[timeout]': ('Optional timeout', None),
-                    }),
-                }),
-                'use': ('Set active embedding service', {
-                    '<model_id>': ('Model ID', None),
-                }),
-                'remove': ('Remove embedding service', {
-                    '<model_id>': ('Model ID', None),
-                }),
-            }),
-            'check': ('Check model availability', {
-                '[model_id]': ('Optional model ID', None),
-            }),
-        }),
-    }
+    # Class variable to cache the loaded command tree
+    _command_tree_cache: Optional[Dict[str, Tuple[str, Optional[Dict]]]] = None
+    
+    @classmethod
+    def _get_command_tree(cls) -> Dict[str, Tuple[str, Optional[Dict]]]:
+        """
+        Get the command tree, loading from YAML if not cached.
+        
+        Returns:
+            Command tree dictionary
+        """
+        if cls._command_tree_cache is None:
+            try:
+                cls._command_tree_cache = _load_command_tree_from_yaml()
+            except (FileNotFoundError, yaml.YAMLError) as e:
+                # Fallback to minimal hardcoded tree if YAML fails to load
+                print(f"Warning: Failed to load command_tree.yaml: {e}")
+                print("Using minimal fallback command tree")
+                cls._command_tree_cache = {
+                    'help': ('Show help message', None),
+                    'exit': ('Exit the CLI', None),
+                    'quit': ('Exit the CLI', None),
+                    'clear': ('Clear chat history', None),
+                    'models': ('List available models', None),
+                    'session': ('Session management', None),
+                    'context': ('Context management', None),
+                }
+        
+        return cls._command_tree_cache
+    
+    @property
+    def COMMAND_TREE(self) -> Dict[str, Tuple[str, Optional[Dict]]]:
+        """Property to access command tree (for backward compatibility)."""
+        return self._get_command_tree()
 
     def get_completions(self, document: Document, complete_event) -> Iterable[Completion]:
         """
