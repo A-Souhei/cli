@@ -607,7 +607,8 @@ def broken_function(
                         "name": "generate_fake_data_ctgan",
                         "arguments": {
                             "file_path": temp_path,
-                            "num_samples": 5
+                            "num_samples": 5,
+                            "working_dir": os.path.dirname(temp_path)
                         }
                     }
                 }
