@@ -1,0 +1,3 @@
+[submodule "system_mcps/data-engineer/tabular-gmd"]
+	path = system_mcps/data-engineer/tabular-gmd
+	url = https://github.com/A-Souhei/tabular-gmd

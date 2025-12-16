@@ -99,6 +99,32 @@ Compare code similarity using Abstract Syntax Tree representations with CodeBERT
 - Identifying functionally equivalent implementations
 - Advanced plagiarism detection that accounts for variable renaming
 
+### 6. Research-Grade Synthetic Data Generation (`generate_fake_data_with_ddpm`)
+Generate synthetic data using Gaussian Multinomial Diffusion (GMD/DDPM) via the tabular-gmd library.
+
+**Capabilities:**
+- Combines Gaussian diffusion for numerical features and Multinomial diffusion for categorical features
+- Automatic detection and handling of mixed data types
+- State-of-the-art diffusion models for tabular data
+- Configurable diffusion timesteps (auto-optimized based on dataset size)
+- Configurable training epochs (default: 10, minimum: 5)
+- Load data from CSV, JSON, or Parquet files
+- Privacy-preserving synthetic data generation
+- Minimum 10 rows required (50+ rows recommended for quality results)
+
+**Use Cases:**
+- Research and academic projects requiring state-of-the-art synthetic data
+- Complex tabular data with mixed types (numerical + categorical)
+- Privacy-preserving data sharing for research
+- Generating training data for machine learning experiments
+- Benchmarking and evaluating synthetic data generation methods
+
+**Comparison with Other Methods:**
+- **WGAN (generate_fake_data)**: Fastest but lower quality
+- **CTGAN (generate_fake_data_ctgan)**: Good quality, moderate speed
+- **GMD/DDPM (this tool)**: Research-grade quality using cutting-edge diffusion models
+- Processing time depends on epochs, timesteps, and data size (typically 1-5 minutes)
+
 ## Installation
 
 The MCP server is automatically installed as part of the AI CLI setup. Dependencies are managed separately for this MCP:
@@ -119,11 +145,21 @@ The data-engineer MCP is automatically started by the AI CLI when needed. You ca
 
 ## Dependencies
 
-- **ydata-synthetic**: WGAN and CTGAN-based synthetic data generation
+- **ydata-synthetic**: WGAN and CTGAN-based synthetic data generation (via transformer service)
+- **tabular-gmd**: GMD/DDPM-based synthetic data generation (research-grade diffusion models)
 - **pandas**: Data manipulation and file I/O
 - **numpy**: Numerical operations
 - **requests**: HTTP client for transformer service
 - **mcp**: Model Context Protocol SDK
+
+### Installing tabular-gmd
+
+The tabular-gmd library is included as a git submodule. Install it with:
+
+```bash
+cd system_mcps/data-engineer/tabular-gmd
+pip install -e .
+```
 
 ## Environment Variables
 
@@ -152,6 +188,18 @@ The data-engineer MCP is automatically started by the AI CLI when needed. You ca
     "num_samples": 500,
     "epochs": 300,
     "output_path": "synthetic_data_high_quality.csv"
+}
+```
+
+### Generate Synthetic Data (Research-Grade - GMD/DDPM)
+```python
+# User prompt: "Generate 200 synthetic samples from @data.csv using diffusion models"
+# Tool: generate_fake_data_with_ddpm
+{
+    "file_path": "data.csv",
+    "num_samples": 200,
+    "epochs": 10,
+    "output_path": "synthetic_data_ddpm.csv"
 }
 ```
 
@@ -218,10 +266,13 @@ pytest tests/test_data_engineer_mcp.py -v
 - Synthetic data generation requires sufficient real data:
   - WGAN: minimum 10 samples (100+ recommended for best quality)
   - CTGAN: minimum 50 samples for meaningful results
+  - GMD/DDPM: minimum 10 samples (50+ recommended for good quality)
 - AST generation only supports Python code
 - Code similarity requires transformer service to be running
 - CTGAN training is computationally intensive (several minutes depending on data size and epochs)
 - WGAN is faster but may not capture complex relationships as well as CTGAN
+- GMD/DDPM provides research-grade quality but training time depends on epochs and timesteps
+- GMD/DDPM requires tabular-gmd submodule to be installed
 
 ## Contributing
 

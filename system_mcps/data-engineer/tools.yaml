@@ -7,6 +7,7 @@ categories:
     tools:
       - generate_fake_data
       - generate_fake_data_ctgan
+      - generate_fake_data_with_ddpm
 
   code_analysis:
     description: "Tools for analyzing code structure and patterns"
@@ -20,6 +21,7 @@ categories:
     tools:
       - generate_fake_data
       - generate_fake_data_ctgan
+      - generate_fake_data_with_ddpm
       - generate_ast
       - compare_code_similarity
       - compare_ast_similarity
@@ -82,3 +84,17 @@ tools:
       - python
       - r
     uses_ast: true
+
+  generate_fake_data_with_ddpm:
+    requires_llm_generation: false
+    requires_file_path: true
+    generates_file: true
+    uses_ml_model: true
+    description: "Generate research-grade synthetic data using Gaussian Multinomial Diffusion (GMD/DDPM) from tabular-gmd library"
+    languages:
+      - csv
+      - json
+      - parquet
+      - r
+    uses_diffusion_model: true
+    library: "tabular-gmd"

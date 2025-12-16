@@ -2,12 +2,13 @@
 """
 Data Engineer MCP Server - A Model Context Protocol server for data engineering tasks.
 
-This MCP server provides 5 tools for:
+This MCP server provides 6 tools for:
 1. Synthetic data generation using WGAN - fast generation with good quality
-2. Synthetic data generation using DDPM - high-quality generation (slower but more accurate)
-3. Abstract Syntax Tree (AST) generation from Python code
-4. Code similarity analysis using CodeBERT embeddings
-5. AST-based code similarity comparison for structural analysis
+2. Synthetic data generation using CTGAN - high-quality generation (via transformer service)
+3. Synthetic data generation using GMD/DDPM - research-grade diffusion models (via tabular-gmd)
+4. Abstract Syntax Tree (AST) generation from Python code
+5. Code similarity analysis using CodeBERT embeddings
+6. AST-based code similarity comparison for structural analysis
 """
 
 import os
@@ -438,6 +439,208 @@ def generate_synthetic_data_ctgan(file_path: str, num_samples: int, working_dir:
         return {
             "status": "error",
             "message": f"Failed to generate synthetic data with CTGAN: {str(e)}"
+        }
+
+
+def generate_synthetic_data_ddpm(
+    file_path: str, 
+    num_samples: int, 
+    epochs: int, 
+    num_timesteps: int, 
+    output_path: str, 
+    working_dir: str
+) -> Dict[str, Any]:
+    """
+    Generate synthetic data using Gaussian Multinomial Diffusion (GMD/DDPM) via tabular-gmd library.
+    
+    This function uses the tabular-gmd library which combines Gaussian diffusion for numerical features
+    and Multinomial diffusion for categorical features. It provides research-grade synthetic data
+    generation with state-of-the-art diffusion models.
+
+    Args:
+        file_path: Path to the input data file (CSV, JSON, or Parquet)
+        num_samples: Number of synthetic samples to generate
+        epochs: Number of training epochs (minimum 5 recommended)
+        num_timesteps: Number of diffusion timesteps (optional, auto-optimized if None)
+        output_path: Path to save the output CSV (optional)
+        working_dir: Working directory for file operations
+
+    Returns:
+        Dict with status and synthetic data or error message
+    """
+    try:
+        import pandas as pd
+        import sys
+        from pathlib import Path as PathLib
+
+        # Add tabular-gmd to path
+        tabular_gmd_path = PathLib(__file__).parent / "tabular-gmd"
+        if str(tabular_gmd_path) not in sys.path:
+            sys.path.insert(0, str(tabular_gmd_path))
+
+        try:
+            from tabular_gmd import TabularGMD, DiffusionConfig
+        except ImportError as e:
+            return {
+                "status": "error",
+                "message": f"Failed to import tabular-gmd library: {str(e)}. Make sure the submodule is initialized and dependencies are installed."
+            }
+
+        debug_print(f"[GMD/DDPM] Loading data from {file_path}")
+
+        # Determine full path
+        if not os.path.isabs(file_path):
+            file_path = os.path.join(working_dir, file_path)
+
+        path = Path(file_path).resolve()
+
+        # Validate file is within working directory
+        try:
+            path.relative_to(Path(working_dir).resolve())
+        except ValueError:
+            return {
+                "status": "error",
+                "message": f"File is outside working directory: {file_path}"
+            }
+
+        if not path.exists():
+            return {
+                "status": "error",
+                "message": f"File does not exist: {file_path}"
+            }
+
+        # Load data based on file extension
+        file_ext = path.suffix.lower()
+        if file_ext == '.csv':
+            data = pd.read_csv(path)
+        elif file_ext == '.json':
+            data = pd.read_json(path)
+        elif file_ext in ['.parquet', '.pq']:
+            data = pd.read_parquet(path)
+        else:
+            return {
+                "status": "error",
+                "message": f"Unsupported file format: {file_ext}. Supported: .csv, .json, .parquet"
+            }
+
+        debug_print(f"[GMD/DDPM] Loaded data with shape: {data.shape}")
+        n_samples = len(data)
+
+        # Validate data size
+        if n_samples < 10:
+            return {
+                "status": "error",
+                "message": f"Dataset too small ({n_samples} rows). Minimum 10 rows required for diffusion models. 50+ rows recommended for good results."
+            }
+
+        # Create diffusion config based on dataset size
+        if num_timesteps:
+            config = DiffusionConfig(num_timesteps=num_timesteps, schedule_type="cosine")
+            debug_print(f"[GMD/DDPM] Using custom timesteps: {num_timesteps}")
+        else:
+            config = DiffusionConfig.for_small_dataset(n_samples)
+            debug_print(f"[GMD/DDPM] Auto-optimized config for {n_samples} samples: {config.num_timesteps} timesteps")
+
+        # Warn if dataset is small
+        if n_samples < 50:
+            warning_msg = f"Warning: Dataset has only {n_samples} samples (50+ recommended). Quality may be limited."
+            debug_print(f"[GMD/DDPM] {warning_msg}")
+
+        # Create model with auto-detection of feature types
+        debug_print(f"[GMD/DDPM] Creating TabularGMD model with auto-detection...")
+        model = TabularGMD.from_dataframe(data, config=config, auto_detect=True)
+
+        debug_print(f"[GMD/DDPM] Detected {len(model.numerical_features)} numerical features")
+        debug_print(f"[GMD/DDPM] Detected {len(model.categorical_features)} categorical features")
+
+        # Train the model
+        debug_print(f"[GMD/DDPM] Training diffusion model with {epochs} epochs...")
+        model.fit(
+            data, 
+            num_epochs=epochs, 
+            batch_size=min(32, len(data)),
+            learning_rate=0.001,
+            verbose=DEBUG_MODE
+        )
+
+        # Generate synthetic samples
+        debug_print(f"[GMD/DDPM] Generating {num_samples} synthetic samples...")
+        synthetic_data = model.sample(n_samples=num_samples, return_dataframe=True)
+
+        debug_print(f"[GMD/DDPM] Successfully generated {len(synthetic_data)} samples")
+
+        # Save to output path if specified
+        saved_path = None
+        if output_path:
+            try:
+                # Determine full output path
+                if not os.path.isabs(output_path):
+                    output_path = os.path.join(working_dir, output_path)
+                
+                output_file = Path(output_path).resolve()
+                
+                # Validate output path is within working directory
+                try:
+                    output_file.relative_to(Path(working_dir).resolve())
+                except ValueError:
+                    return {
+                        "status": "error",
+                        "message": f"Output path is outside working directory: {output_path}"
+                    }
+                
+                # Create parent directories if needed
+                output_file.parent.mkdir(parents=True, exist_ok=True)
+                
+                # Save as CSV
+                synthetic_data.to_csv(output_file, index=False)
+                saved_path = str(output_file)
+                debug_print(f"[GMD/DDPM] Saved synthetic data to {saved_path}")
+            except Exception as e:
+                debug_print(f"[GMD/DDPM] Warning: Failed to save output file: {str(e)}")
+
+        # Prepare result
+        result = {
+            "status": "success",
+            "message": f"Generated {len(synthetic_data)} synthetic samples using GMD/DDPM",
+            "model_type": "gmd_ddpm",
+            "config": {
+                "epochs": epochs,
+                "num_timesteps": config.num_timesteps,
+                "schedule_type": config.schedule_type,
+                "beta_start": config.beta_start,
+                "beta_end": config.beta_end
+            },
+            "data_info": {
+                "num_samples": len(synthetic_data),
+                "num_columns": len(synthetic_data.columns),
+                "columns": synthetic_data.columns.tolist(),
+                "numerical_features": model.numerical_features,
+                "categorical_features": model.categorical_features
+            },
+            "data_preview": synthetic_data.head(5).to_dict(orient='records'),
+            "data_full": synthetic_data.to_dict(orient='records')
+        }
+
+        if saved_path:
+            result["output_file"] = saved_path
+
+        if n_samples < 50:
+            result["warning"] = f"Dataset has only {n_samples} samples (50+ recommended). Quality may be limited."
+
+        return result
+
+    except ImportError as e:
+        return {
+            "status": "error",
+            "message": f"Missing required library: {str(e)}. Install with: pip install -e system_mcps/data-engineer/tabular-gmd"
+        }
+    except Exception as e:
+        debug_print(f"[GMD/DDPM] Error in generate_synthetic_data_ddpm: {str(e)}")
+        import traceback
+        debug_print(f"[GMD/DDPM] Traceback: {traceback.format_exc()}")
+        return {
+            "status": "error",
+            "message": f"Failed to generate synthetic data with GMD/DDPM: {str(e)}"
         }
 
 
@@ -1084,6 +1287,50 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": ["file_path1", "file_path2"]
             }
+        ),
+        Tool(
+            name="generate_fake_data_with_ddpm",
+            description=(
+                "Generate synthetic tabular data using Gaussian Multinomial Diffusion (GMD/DDPM). "
+                "This tool leverages the tabular-gmd library which combines Gaussian diffusion for "
+                "numerical features and Multinomial diffusion for categorical features. It provides "
+                "high-quality synthetic data generation with better preservation of complex relationships "
+                "and distributions compared to traditional GANs. Automatically detects and handles mixed "
+                "data types (numerical and categorical). Supports CSV, JSON, and Parquet formats. "
+                "Requires minimum 10 rows (50 recommended) for meaningful results. Training time varies "
+                "based on data size and epochs (default: 10 epochs for MCP). Use this for research-grade "
+                "synthetic data generation with state-of-the-art diffusion models."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the input data file (CSV, JSON, or Parquet format)"
+                    },
+                    "num_samples": {
+                        "type": "integer",
+                        "description": "Number of synthetic samples to generate"
+                    },
+                    "epochs": {
+                        "type": "integer",
+                        "description": "Number of training epochs (default: 10, minimum: 5). Higher values improve quality but increase processing time."
+                    },
+                    "num_timesteps": {
+                        "type": "integer",
+                        "description": "Number of diffusion timesteps (default: auto-optimized based on dataset size). For small datasets, uses 50-200; for larger datasets uses 1000."
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "description": "Optional path to save the synthetic data (CSV format)"
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Optional working directory. Defaults to current directory."
+                    }
+                },
+                "required": ["file_path", "num_samples"]
+            }
         )
     ]
 
@@ -1326,6 +1573,46 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
         # Compare AST similarity
         result = compare_ast_similarity(file_path1, file_path2, working_dir, metric)
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "generate_fake_data_with_ddpm":
+        file_path = arguments.get("file_path", "")
+        num_samples = arguments.get("num_samples", 100)
+        epochs = arguments.get("epochs", DEFAULT_SYNTHESIS_EPOCHS)
+        num_timesteps = arguments.get("num_timesteps")  # Optional
+        output_path = arguments.get("output_path")
+        working_dir = arguments.get("working_dir", os.getcwd())
+
+        if not file_path:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": "Missing file_path parameter"
+            }, indent=2))]
+
+        if num_samples < 1:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": "num_samples must be at least 1"
+            }, indent=2))]
+
+        if epochs < 5:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": "epochs must be at least 5"
+            }, indent=2))]
+
+        # Validate working directory
+        is_valid, error_msg = validate_working_dir(working_dir)
+        if not is_valid:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": error_msg
+            }, indent=2))]
+
+        # Generate synthetic data using GMD/DDPM
+        result = generate_synthetic_data_ddpm(
+            file_path, num_samples, epochs, num_timesteps, output_path, working_dir
+        )
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
     else:
