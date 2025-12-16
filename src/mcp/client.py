@@ -314,8 +314,8 @@ class MCPClient:
             process.stdin.write((json.dumps(call_request) + "\n").encode())
             await process.stdin.drain()
 
-            # Read response
-            response = await asyncio.wait_for(process.stdout.readline(), timeout=60.0)
+            # Read response with extended timeout for long-running operations (e.g., ML model training)
+            response = await asyncio.wait_for(process.stdout.readline(), timeout=600.0)
             response_data = json.loads(response.decode())
 
             if "result" in response_data and "content" in response_data["result"]:

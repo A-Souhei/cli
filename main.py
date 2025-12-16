@@ -556,14 +556,35 @@ Example: {{"file_path": "users.csv", "num_samples": 100, "output_path": "fake_us
                         
                         console.print(f"[dim]Parameters extracted: {json.dumps(params, indent=2)}[/dim]\n")
                         
-                        # Execute the tool
-                        console.print(f"[cyan]⚡ Executing tool '{selected_tool}' on MCP '{selected_mcp}'...[/cyan]\n")
+                        # Execute the tool with spinner and live timing
+                        import time
+                        
+                        async def execute_with_live_timer():
+                            start_time = time.time()
+                            # Cache the base message to reduce formatting overhead
+                            base_message = f"[cyan]Calling tool '{selected_tool}' on '{selected_mcp}'... [dim]({{:.1f}}s)[/dim][/cyan]"
+                            spinner = Spinner("dots", text="")
+                            
+                            # Create the async task
+                            task = asyncio.create_task(mcp_client.call_tool(selected_mcp, selected_tool, params))
+                            
+                            # Show live spinner with updating duration
+                            with Live(spinner, console=console, refresh_per_second=4) as live:
+                                while not task.done():
+                                    elapsed = time.time() - start_time
+                                    spinner.update(text=base_message.format(elapsed))
+                                    await asyncio.sleep(0.25)
+                            
+                            # Get the result
+                            result = await task
+                            elapsed_time = time.time() - start_time
+                            return result, elapsed_time
+                        
+                        result, elapsed_time = run_async(execute_with_live_timer())
                         
                         try:
-                            result = run_async(mcp_client.call_tool(selected_mcp, selected_tool, params))
-                            
                             # Display result
-                            console.print("[green]✓ Tool execution completed[/green]\n")
+                            console.print(f"[green]✓ Tool execution completed[/green] [dim]({elapsed_time:.2f}s)[/dim]\n")
                             console.print("[bold]Result:[/bold]")
                             
                             # Try to parse and pretty-print JSON result

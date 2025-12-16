@@ -251,9 +251,10 @@ if __name__ == '__main__':
         tools = tools_response["result"]["tools"]
         tool_names = [tool["name"] for tool in tools]
         
-        # Check that all five expected tools are present
+        # Check that all six expected tools are present
         assert "generate_fake_data" in tool_names
         assert "generate_fake_data_ctgan" in tool_names
+        assert "generate_fake_data_with_ddpm" in tool_names
         assert "generate_ast" in tool_names
         assert "compare_code_similarity" in tool_names
         assert "compare_ast_similarity" in tool_names
@@ -606,7 +607,8 @@ def broken_function(
                         "name": "generate_fake_data_ctgan",
                         "arguments": {
                             "file_path": temp_path,
-                            "num_samples": 5
+                            "num_samples": 5,
+                            "working_dir": os.path.dirname(temp_path)
                         }
                     }
                 }
@@ -902,8 +904,10 @@ def sum(x, y):
         tools = tools_response["result"]["tools"]
         tool_names = [tool["name"] for tool in tools]
         
-        # Check that all four expected tools are present
+        # Check that all six expected tools are present
         assert "generate_fake_data" in tool_names
+        assert "generate_fake_data_ctgan" in tool_names
+        assert "generate_fake_data_with_ddpm" in tool_names
         assert "generate_ast" in tool_names
         assert "compare_code_similarity" in tool_names
         assert "compare_ast_similarity" in tool_names
@@ -913,6 +917,137 @@ def sum(x, y):
         assert "AST" in ast_sim_tool["description"]
         assert "Abstract Syntax Tree" in ast_sim_tool["description"]
         assert ast_sim_tool["inputSchema"]["required"] == ["file_path1", "file_path2"]
+
+    @pytest.mark.asyncio
+    async def test_generate_fake_data_with_ddpm(self, server_path, sample_csv_file):
+        """Test synthetic data generation using GMD/DDPM."""
+        # Create output path
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+            output_path = f.name
+        
+        try:
+            requests = [
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "clientInfo": {"name": "test", "version": "1.0.0"}
+                    }
+                },
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "generate_fake_data_with_ddpm",
+                        "arguments": {
+                            "file_path": sample_csv_file,
+                            "num_samples": 5,
+                            "epochs": 5,
+                            "output_path": output_path,
+                            "working_dir": os.path.dirname(sample_csv_file)
+                        }
+                    }
+                }
+            ]
+
+            # This test requires tabular-gmd to be installed
+            # Set a longer timeout as diffusion model training takes time
+            responses = await communicate_with_mcp(server_path, requests, timeout=120.0)
+
+            assert len(responses) == 2
+            tool_response = responses[1]
+            
+            # Check result
+            assert "result" in tool_response
+            content = tool_response["result"]["content"]
+            result_text = content[0]["text"]
+            result_data = json.loads(result_text)
+            
+            # May skip if tabular-gmd not installed
+            if result_data.get("status") == "error" and "import" in result_data.get("message", "").lower():
+                pytest.skip("tabular-gmd library not installed")
+            
+            # Should succeed
+            assert result_data["status"] == "success"
+            assert "model_type" in result_data
+            assert result_data["model_type"] == "gmd_ddpm"
+            assert result_data["data_info"]["num_samples"] == 5
+            assert "numerical_features" in result_data["data_info"]
+            assert "categorical_features" in result_data["data_info"]
+            assert "data_preview" in result_data
+            assert len(result_data["data_preview"]) <= 5
+            
+            # Check config was applied
+            assert "config" in result_data
+            assert result_data["config"]["epochs"] == 5
+            
+        finally:
+            # Cleanup output file
+            try:
+                os.unlink(output_path)
+            except Exception:
+                pass
+
+    @pytest.mark.asyncio
+    async def test_generate_fake_data_with_ddpm_insufficient_data(self, server_path):
+        """Test GMD/DDPM with insufficient data (should fail with clear message)."""
+        # Create a very small CSV file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+            f.write("col1,col2\n")
+            f.write("1,2\n")
+            f.write("3,4\n")
+            small_csv = f.name
+        
+        try:
+            requests = [
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "clientInfo": {"name": "test", "version": "1.0.0"}
+                    }
+                },
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "generate_fake_data_with_ddpm",
+                        "arguments": {
+                            "file_path": small_csv,
+                            "num_samples": 5,
+                            "epochs": 5,
+                            "working_dir": os.path.dirname(small_csv)
+                        }
+                    }
+                }
+            ]
+
+            responses = await communicate_with_mcp(server_path, requests, timeout=60.0)
+
+            assert len(responses) == 2
+            tool_response = responses[1]
+            
+            content = tool_response["result"]["content"]
+            result_text = content[0]["text"]
+            result_data = json.loads(result_text)
+            
+            # Should return an error about dataset size
+            assert result_data["status"] == "error"
+            assert "small" in result_data["message"].lower() or "minimum" in result_data["message"].lower()
+            
+        finally:
+            try:
+                os.unlink(small_csv)
+            except Exception:
+                pass
 
     @pytest.mark.asyncio
     async def test_invalid_tool_name(self, server_path):
