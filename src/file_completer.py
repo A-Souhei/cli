@@ -1,52 +1,116 @@
 """File and directory completer for @ prefix, / commands, and $ MCP tools in CLI."""
 
 import os
-from typing import Iterable
+import yaml
+import logging
+from typing import Iterable, Dict, Any, Optional, Tuple
 from pathlib import Path
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
 
+logger = logging.getLogger(__name__)
+
+
+def _load_command_tree_from_yaml(yaml_path: Optional[Path] = None) -> Dict[str, Tuple[str, Optional[Dict]]]:
+    """
+    Load command tree from YAML file and convert to internal format.
+    
+    Args:
+        yaml_path: Path to command_tree.yaml file. If None, uses default location.
+        
+    Returns:
+        Dictionary in format {command: (description, subcommands_dict or None)}
+        
+    Raises:
+        FileNotFoundError: If YAML file doesn't exist
+        yaml.YAMLError: If YAML file is malformed
+    """
+    if yaml_path is None:
+        # Default to command_tree.yaml in project root
+        # file_completer.py is in src/, so parent.parent gets us to project root
+        yaml_path = Path(__file__).parent.parent / "command_tree.yaml"
+    
+    if not yaml_path.exists():
+        raise FileNotFoundError(f"Command tree YAML file not found: {yaml_path}")
+    
+    with open(yaml_path, 'r', encoding='utf-8') as f:
+        data = yaml.safe_load(f)
+    
+    def convert_yaml_to_tree(yaml_dict: Dict[str, Any]) -> Dict[str, Tuple[str, Optional[Dict]]]:
+        """Recursively convert YAML structure to internal tree format."""
+        tree = {}
+        for cmd_name, cmd_data in yaml_dict.items():
+            # Validate structure
+            if not isinstance(cmd_data, dict):
+                raise ValueError(f"Invalid structure for command '{cmd_name}': expected dict, got {type(cmd_data).__name__}")
+            
+            if 'description' not in cmd_data:
+                raise ValueError(f"Missing 'description' for command '{cmd_name}'")
+            
+            description = cmd_data.get('description', '')
+            subcommands_yaml = cmd_data.get('subcommands')
+            
+            if subcommands_yaml is None:
+                # Leaf command
+                tree[cmd_name] = (description, None)
+            else:
+                # Has subcommands - recursively convert
+                subcommands_tree = convert_yaml_to_tree(subcommands_yaml)
+                tree[cmd_name] = (description, subcommands_tree)
+        
+        return tree
+    
+    return convert_yaml_to_tree(data.get('commands', {}))
+
 
 class SlashCommandCompleter(Completer):
     """
-    Custom completer that provides slash command completions.
+    Custom completer that provides hierarchical slash command completions.
 
     When the user types / at the beginning of input, this completer shows
-    available commands with their descriptions.
+    available commands with their descriptions in a nested tree structure.
+    
+    Command tree is loaded from command_tree.yaml for easy maintenance.
     """
 
-    # Define all available slash commands with descriptions
-    COMMANDS = [
-        ('/exit', 'Exit the CLI'),
-        ('/quit', 'Exit the CLI'),
-        ('/clear', 'Clear chat history'),
-        ('/models', 'List available models'),
-        ('/switch', 'Switch to a different model'),
-        ('/mcps', 'List system MCPs'),
-        ('/mcp-tools <name>', 'List tools in an MCP'),
-        ('/session start', 'Start a context session'),
-        ('/session end', 'End the current session'),
-        ('/session info', 'View current session info'),
-        ('/repomap create', 'Create a repository map from working directory'),
-        ('/repomap load', 'Load existing .repomap file into context'),
-        ('/repomap update', 'Update existing .repomap with new files'),
-        ('/datamap create', 'Create a data map from data files'),
-        ('/datamap create --files-only', 'Create a data map from local data files only'),
-        ('/datamap create --with-pg', 'Create a data map including PostgreSQL database'),
-        ('/datamap create --with-files --with-pg', 'Create a data map from files and PostgreSQL'),
-        ('/datamap load', 'Load existing .datamap file into context'),
-        ('/datamap update', 'Update existing .datamap with new files'),
-        ('/datamap update --with-files', 'Update existing .datamap with new local files'),
-        ('/datamap update --with-pg', 'Update existing .datamap with PostgreSQL database'),
-        ('/datamap update --with-files --with-pg', 'Update existing .datamap from files and PostgreSQL'),
-        ('/ignore create', 'Create .llmignore file in working directory'),
-        ('/ignore add @file', 'Add file(s) to .llmignore'),
-        ('/code <prompt>', 'Analyze and execute code tasks (requires session)'),
-    ]
+    # Class variable to cache the loaded command tree
+    _command_tree_cache: Optional[Dict[str, Tuple[str, Optional[Dict]]]] = None
+    
+    @classmethod
+    def _get_command_tree(cls) -> Dict[str, Tuple[str, Optional[Dict]]]:
+        """
+        Get the command tree, loading from YAML if not cached.
+        
+        Returns:
+            Command tree dictionary
+        """
+        if cls._command_tree_cache is None:
+            try:
+                cls._command_tree_cache = _load_command_tree_from_yaml()
+            except (FileNotFoundError, yaml.YAMLError, ValueError) as e:
+                # Fallback to minimal hardcoded tree if YAML fails to load
+                logger.warning(f"Failed to load command_tree.yaml: {e}")
+                logger.warning("Using minimal fallback command tree")
+                cls._command_tree_cache = {
+                    'help': ('Show help message', None),
+                    'exit': ('Exit the CLI', None),
+                    'quit': ('Exit the CLI', None),
+                    'clear': ('Clear chat history', None),
+                    'models': ('List available models', None),
+                    'session': ('Session management', None),
+                    'context': ('Context management', None),
+                }
+        
+        return cls._command_tree_cache
+    
+    @property
+    def COMMAND_TREE(self) -> Dict[str, Tuple[str, Optional[Dict]]]:
+        """Property to access command tree (for backward compatibility)."""
+        return self._get_command_tree()
 
     def get_completions(self, document: Document, complete_event) -> Iterable[Completion]:
         """
-        Get completions for slash commands.
+        Get completions for slash commands with nested hierarchy support.
 
         Args:
             document: The current document
@@ -61,22 +125,71 @@ class SlashCommandCompleter(Completer):
         if not text.startswith('/'):
             return
 
-        # Get the command prefix (everything after /)
-        command_prefix = text[1:].lower()
+        # Remove the leading / and split into parts
+        command_parts = text[1:].split()
+        
+        # Get the current partial command being typed
+        if text.endswith(' '):
+            # User has completed a word and is ready for next level
+            current_part = ''
+            completed_parts = command_parts
+        else:
+            # User is typing a word
+            if command_parts:
+                current_part = command_parts[-1]
+                completed_parts = command_parts[:-1]
+            else:
+                current_part = ''
+                completed_parts = []
 
-        # Find matching commands
-        for command, description in self.COMMANDS:
-            command_without_slash = command[1:]  # Remove the leading /
+        # Navigate to the current level in the command tree
+        current_tree = self.COMMAND_TREE
+        full_command_so_far = []
+        
+        for part in completed_parts:
+            # Try exact match first
+            if part in current_tree:
+                desc, subtree = current_tree[part]
+                full_command_so_far.append(part)
+                if subtree is None:
+                    # This is a leaf node, no more completions
+                    return
+                current_tree = subtree
+            else:
+                # Check if it matches a placeholder pattern like <name> or [@path]
+                found = False
+                for key in current_tree:
+                    if key.startswith('<') or key.startswith('['):
+                        # This is a placeholder
+                        desc, subtree = current_tree[key]
+                        if subtree:
+                            # Has subcommands - navigate to them
+                            current_tree = subtree
+                            found = True
+                            break
+                        else:
+                            # Leaf placeholder - valid terminal position
+                            found = True
+                            break
+                if not found:
+                    # Can't navigate further, stop
+                    return
 
-            # Check if this command matches the prefix
-            if command_without_slash.lower().startswith(command_prefix):
-                # Calculate how much to replace (from the / to cursor)
+        # Now generate completions from the current tree level
+        for cmd, (description, subtree) in current_tree.items():
+            # Check if this command matches the current partial input
+            if cmd.lower().startswith(current_part.lower()):
+                # Build the full command text with spaces
+                full_cmd_parts = full_command_so_far + [cmd]
+                full_command = '/' + ' '.join(full_cmd_parts)
+                
+                # Calculate start position (replace from / to cursor)
                 start_position = -len(text)
-
+                
                 yield Completion(
-                    text=command,
+                    text=full_command,
                     start_position=start_position,
-                    display=command,
+                    display=full_command,
                     display_meta=description
                 )
 

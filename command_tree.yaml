@@ -1,0 +1,361 @@
+# Command Tree Configuration for Slash Command Completion
+# This file defines the hierarchical structure of CLI commands
+# Format: Each command has a description and optional subcommands
+# 
+# Structure:
+#   command_name:
+#     description: "What this command does"
+#     subcommands: null  # For leaf commands with no subcommands
+#   OR
+#   command_name:
+#     description: "What this command does"
+#     subcommands:
+#       subcommand_name:
+#         description: "What this subcommand does"
+#         subcommands: null  # Can nest further
+
+commands:
+  help:
+    description: "Show help message"
+    subcommands: null
+
+  exit:
+    description: "Exit the CLI"
+    subcommands: null
+
+  quit:
+    description: "Exit the CLI"
+    subcommands: null
+
+  clear:
+    description: "Clear chat history"
+    subcommands: null
+
+  models:
+    description: "List available models"
+    subcommands: null
+
+  switch:
+    description: "Switch to a different model"
+    subcommands: null
+
+  mcps:
+    description: "List system MCPs"
+    subcommands: null
+
+  mcp-tools:
+    description: "List tools in an MCP"
+    subcommands:
+      "<name>":
+        description: "MCP name to query"
+        subcommands: null
+
+  wd:
+    description: "Working directory commands"
+    subcommands:
+      show:
+        description: "Show current working directory"
+        subcommands: null
+      change:
+        description: "Change working directory"
+        subcommands:
+          "<path>":
+            description: "Directory path"
+            subcommands: null
+      cd:
+        description: "Change working directory (alias)"
+        subcommands:
+          "<path>":
+            description: "Directory path"
+            subcommands: null
+
+  session:
+    description: "Session management"
+    subcommands:
+      start:
+        description: "Start a new context session"
+        subcommands: null
+      end:
+        description: "End the current session"
+        subcommands: null
+      info:
+        description: "View current session info"
+        subcommands: null
+      list:
+        description: "List all saved sessions"
+        subcommands: null
+      restore:
+        description: "Restore a saved session"
+        subcommands:
+          "<id>":
+            description: "Session ID to restore"
+            subcommands: null
+      delete:
+        description: "Delete a saved session"
+        subcommands:
+          "<id>":
+            description: "Session ID to delete"
+            subcommands: null
+      clear:
+        description: "Clear all saved sessions"
+        subcommands: null
+
+  context:
+    description: "Context management"
+    subcommands:
+      add:
+        description: "Add to context without LLM call"
+        subcommands:
+          "@file":
+            description: "Add file to context"
+            subcommands: null
+          "@directory":
+            description: "Add directory to context"
+            subcommands: null
+          "ALL":
+            description: "Add entire working directory"
+            subcommands: null
+          "ALL_TOOLS":
+            description: "Add all MCP tools with descriptions"
+            subcommands: null
+          "TODO_LIST":
+            description: "Generate strategic TODO list"
+            subcommands:
+              "<description>":
+                description: "Task description"
+                subcommands: null
+          "MAKE_LIST":
+            description: "Generate strategic MAKE_LIST"
+            subcommands:
+              "<description>":
+                description: "Task description"
+                subcommands: null
+      show:
+        description: "Display current context"
+        subcommands: null
+      clear:
+        description: "Clear current context"
+        subcommands: null
+      metrics:
+        description: "Show context size and metrics"
+        subcommands: null
+      load:
+        description: "Load from file"
+        subcommands:
+          "TODO_LIST":
+            description: "Load TODO_LIST from file"
+            subcommands:
+              "[@path]":
+                description: "Optional file path"
+                subcommands: null
+          "MAKE_LIST":
+            description: "Load MAKE_LIST from file"
+            subcommands:
+              "[@path]":
+                description: "Optional file path"
+                subcommands: null
+      save:
+        description: "Save to file"
+        subcommands:
+          "TODO_LIST":
+            description: "Save TODO_LIST to file"
+            subcommands:
+              "[@path]":
+                description: "Optional file path"
+                subcommands: null
+          "MAKE_LIST":
+            description: "Save MAKE_LIST to file"
+            subcommands:
+              "[@path]":
+                description: "Optional file path"
+                subcommands: null
+
+  repomap:
+    description: "Repository mapping"
+    subcommands:
+      create:
+        description: "Create repository map"
+        subcommands: null
+      load:
+        description: "Load existing .repomap file"
+        subcommands: null
+      update:
+        description: "Update existing .repomap"
+        subcommands: null
+
+  datamap:
+    description: "Data file mapping"
+    subcommands:
+      create:
+        description: "Create data map"
+        subcommands:
+          "--files-only":
+            description: "Local data files only"
+            subcommands: null
+          "--with-pg":
+            description: "Include PostgreSQL database"
+            subcommands: null
+          "--with-files":
+            description: "Include local files"
+            subcommands: null
+      load:
+        description: "Load existing .datamap file"
+        subcommands: null
+      update:
+        description: "Update existing .datamap"
+        subcommands:
+          "--with-files":
+            description: "Include local files"
+            subcommands: null
+          "--with-pg":
+            description: "Include PostgreSQL database"
+            subcommands: null
+
+  ignore:
+    description: "Security & ignore patterns"
+    subcommands:
+      create:
+        description: "Create .llmignore file"
+        subcommands: null
+      add:
+        description: "Add file(s) to .llmignore"
+        subcommands:
+          "@file":
+            description: "File to add"
+            subcommands: null
+
+  make:
+    description: "Make commands"
+    subcommands:
+      map:
+        description: "Makefile mapping"
+        subcommands:
+          generate:
+            description: "Generate .makemap from Makefile"
+            subcommands: null
+          load:
+            description: "Load existing .makemap file"
+            subcommands: null
+          update:
+            description: "Update .makemap with new targets"
+            subcommands: null
+      "<prompt>":
+        description: "Execute make with natural language"
+        subcommands: null
+
+  execute:
+    description: "Execute plans"
+    subcommands:
+      "TODO_LIST":
+        description: "Execute TODO_LIST from context"
+        subcommands: null
+      "MAKE_LIST":
+        description: "Execute MAKE_LIST from context"
+        subcommands: null
+      "@path":
+        description: "Execute plan from file"
+        subcommands: null
+
+  code:
+    description: "Analyze and execute code"
+    subcommands:
+      "<prompt>":
+        description: "Code task description"
+        subcommands: null
+
+  model:
+    description: "Model management"
+    subcommands:
+      status:
+        description: "Show all configured models"
+        subcommands: null
+      list:
+        description: "List all models"
+        subcommands: null
+      general:
+        description: "General models"
+        subcommands:
+          list:
+            description: "List general models"
+            subcommands: null
+          add:
+            description: "Add general model"
+            subcommands:
+              "<url>":
+                description: "Model URL"
+                subcommands:
+                  "<model_name>":
+                    description: "Model name"
+                    subcommands: null
+          use:
+            description: "Set active general model"
+            subcommands:
+              "<model_id>":
+                description: "Model ID"
+                subcommands: null
+          remove:
+            description: "Remove general model"
+            subcommands:
+              "<model_id>":
+                description: "Model ID"
+                subcommands: null
+      coder:
+        description: "Coder models"
+        subcommands:
+          list:
+            description: "List coder models"
+            subcommands: null
+          add:
+            description: "Add coder model"
+            subcommands:
+              "<url>":
+                description: "Model URL"
+                subcommands:
+                  "<model_name>":
+                    description: "Model name"
+                    subcommands: null
+          use:
+            description: "Set active coder model"
+            subcommands:
+              "<model_id>":
+                description: "Model ID"
+                subcommands: null
+          remove:
+            description: "Remove coder model"
+            subcommands:
+              "<model_id>":
+                description: "Model ID"
+                subcommands: null
+      embedding:
+        description: "Embedding services"
+        subcommands:
+          list:
+            description: "List embedding services"
+            subcommands: null
+          add:
+            description: "Add embedding service"
+            subcommands:
+              "<url>":
+                description: "Service URL"
+                subcommands:
+                  "[timeout]":
+                    description: "Optional timeout"
+                    subcommands: null
+          use:
+            description: "Set active embedding service"
+            subcommands:
+              "<model_id>":
+                description: "Model ID"
+                subcommands: null
+          remove:
+            description: "Remove embedding service"
+            subcommands:
+              "<model_id>":
+                description: "Model ID"
+                subcommands: null
+      check:
+        description: "Check model availability"
+        subcommands:
+          "[model_id]":
+            description: "Optional model ID"
+            subcommands: null
