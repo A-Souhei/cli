@@ -222,3 +222,7 @@ node_modules/
 out/
 build/
 dist/
+
+# Ignore directory
+__ignore__/*
+!__ignore__/.gitkeep
