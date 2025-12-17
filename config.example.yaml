@@ -34,6 +34,14 @@ chat:
   temperature: 0.7
   stream: true
 
+# Tabular GMD (Gaussian Multinomial Diffusion) configuration
+# Service for generating synthetic tabular data using diffusion models
+# The generate_fake_data_with_ddpm tool will try this endpoint first,
+# then fall back to local numpy implementation if unavailable
+tabular_gmd:
+  url: "http://192.168.31.23:15432"  # Change to your tabular-gmd service URL
+  timeout: 300  # 5 minutes - synthetic data generation can take time
+
 ---
 
 # Migration note:

@@ -58,11 +58,20 @@ class MCPClient:
 
         try:
             self.debug_print(f"Starting MCP server '{mcp_name}'...", "🚀")
+            
+            # Prepare environment variables - pass MCP_DEBUG if verbose is enabled
+            import os
+            env = os.environ.copy()
+            if self.verbose:
+                env['MCP_DEBUG'] = 'true'
+                self.debug_print(f"Enabling MCP_DEBUG for '{mcp_name}'", "🔍")
+            
             process = await asyncio.create_subprocess_exec(
                 sys.executable, str(server_file),
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
+                env=env
             )
 
             # Send initialize request

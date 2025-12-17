@@ -35,3 +35,6 @@ lightgbm>=4.0.0
 # NLP and code analysis
 transformers>=4.30.0
 torch>=2.0.0
+
+# Synthetic data generation
+faker>=20.0.0
