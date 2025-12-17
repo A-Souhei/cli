@@ -34,6 +34,12 @@ chat:
   temperature: 0.7
   stream: true
 
+# Tabular GMD (Gaussian Multinomial Diffusion) configuration
+# Service for generating synthetic tabular data using diffusion models
+tabular_gmd:
+  url: "http://192.168.31.23:15432"
+  timeout: 300  # 5 minutes - synthetic data generation can take time
+
 # File modification action keywords
 # When these keywords are detected with @file references, the system will
 # automatically instruct the LLM to use MCP tools for file modifications
