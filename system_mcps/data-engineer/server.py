@@ -18,7 +18,7 @@ import ast as python_ast
 import requests
 import yaml
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 # Constants
 DEBUG_MODE = os.getenv('MCP_DEBUG', 'false').lower() == 'true'
@@ -457,7 +457,9 @@ def try_api_generation(
         Dict with results if successful, None if API is unavailable or fails
     """
     import pandas as pd
+    import time
     
+    fn_start = time.time()
     debug_print("[GMD/DDPM] Starting API endpoint detection...")
     
     # Load config to get the tabular-gmd endpoint
@@ -511,30 +513,41 @@ def try_api_generation(
         debug_print(f"[GMD/DDPM] File to upload: {path.name}")
         
         # Upload file and generate
+        req_start = time.time()
         with open(path, 'rb') as f:
             files = {'file': (path.name, f, 'text/csv')}
             debug_print(f"[GMD/DDPM] Sending POST request to {tabular_gmd_url}/quick-generate (timeout={tabular_gmd_timeout}s)")
+            req_post_start = time.time()
             response = requests.post(
                 f"{tabular_gmd_url}/quick-generate",
                 files=files,
                 data=form_data,
                 timeout=tabular_gmd_timeout
             )
+            req_post_end = time.time()
+            debug_print(f"[GMD/DDPM] POST request completed in {req_post_end - req_post_start:.3f}s")
         
         debug_print(f"[GMD/DDPM] API response status: {response.status_code}")
         
+        # Read the entire response content
+        read_start = time.time()
+        response_text = response.text
+        read_end = time.time()
+        debug_print(f"[GMD/DDPM] Response read in {read_end - read_start:.3f}s, size: {len(response_text)} bytes")
+        
         if response.status_code != 200:
             debug_print(f"[GMD/DDPM] API returned error status: {response.status_code}")
-            debug_print(f"[GMD/DDPM] Response content: {response.text[:200]}")
+            debug_print(f"[GMD/DDPM] Response content: {response_text[:200]}")
             return None
         
         debug_print(f"[GMD/DDPM] *** SUCCESS! Generated data via API endpoint ***")
-        debug_print(f"[GMD/DDPM] Response size: {len(response.text)} bytes")
         
         # Parse CSV response
         from io import StringIO
-        synthetic_data = pd.read_csv(StringIO(response.text))
-        debug_print(f"[GMD/DDPM] Parsed {len(synthetic_data)} rows from API response")
+        parse_start = time.time()
+        synthetic_data = pd.read_csv(StringIO(response_text))
+        parse_end = time.time()
+        debug_print(f"[GMD/DDPM] Parsed {len(synthetic_data)} rows in {parse_end - parse_start:.3f}s")
         
         # Save to output path if specified
         saved_path = None
@@ -573,13 +586,17 @@ def try_api_generation(
                 "num_columns": len(synthetic_data.columns),
                 "columns": synthetic_data.columns.tolist()
             },
-            "data_preview": synthetic_data.head(5).to_dict(orient='records'),
-            "data_full": synthetic_data.to_dict(orient='records')
+            "data_preview": synthetic_data.head(5).to_dict(orient='records')
         }
         
         if saved_path:
             result["output_file"] = saved_path
+        else:
+            # Only include full data if not saved to file (to avoid slow JSON serialization)
+            result["data_full"] = synthetic_data.to_dict(orient='records')
         
+        fn_end = time.time()
+        debug_print(f"[GMD/DDPM] Total API generation time: {fn_end - fn_start:.3f}s")
         return result
         
     except (requests.exceptions.RequestException, Exception) as api_error:
@@ -618,6 +635,9 @@ def generate_synthetic_data_ddpm(
         import pandas as pd
         import sys
         from pathlib import Path
+        import time
+        
+        total_start = time.time()
 
         # Determine full path
         if not os.path.isabs(file_path):
@@ -641,8 +661,13 @@ def generate_synthetic_data_ddpm(
             }
 
         # Try to use the tabular-gmd API endpoint first
+        api_start = time.time()
         api_result = try_api_generation(path, num_samples, epochs, num_timesteps, output_path, working_dir)
+        api_end = time.time()
+        debug_print(f"[GMD/DDPM] try_api_generation() took {api_end - api_start:.3f}s")
         if api_result:
+            total_end = time.time()
+            debug_print(f"[GMD/DDPM] *** TOTAL FUNCTION TIME: {total_end - total_start:.3f}s ***")
             return api_result
         
         # Fallback to local implementation
@@ -776,12 +801,14 @@ def generate_synthetic_data_ddpm(
                 "numerical_features": model.numerical_features,
                 "categorical_features": model.categorical_features
             },
-            "data_preview": synthetic_data.head(5).to_dict(orient='records'),
-            "data_full": synthetic_data.to_dict(orient='records')
+            "data_preview": synthetic_data.head(5).to_dict(orient='records')
         }
 
         if saved_path:
             result["output_file"] = saved_path
+        else:
+            # Only include full data if not saved to file (to avoid slow JSON serialization)
+            result["data_full"] = synthetic_data.to_dict(orient='records')
 
         if n_samples < 50:
             result["warning"] = f"Dataset has only {n_samples} samples (50+ recommended). Quality may be limited."
@@ -1543,6 +1570,8 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 if success:
                     result["output_file"] = output_path
                     result["message"] += f" and saved to {output_path}"
+                    # Remove data_full to avoid slow JSON serialization when file is saved
+                    result.pop("data_full", None)
                 else:
                     result["warning"] = f"Generated data successfully but failed to save: {message}"
             except Exception as e:
@@ -1594,6 +1623,8 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 if success:
                     result["output_file"] = output_path
                     result["message"] += f" and saved to {output_path}"
+                    # Remove data_full to avoid slow JSON serialization when file is saved
+                    result.pop("data_full", None)
                 else:
                     result["warning"] = f"Generated data successfully but failed to save: {message}"
             except Exception as e:
