@@ -522,15 +522,14 @@ def try_api_generation(
                 f"{tabular_gmd_url}/quick-generate",
                 files=files,
                 data=form_data,
-                timeout=tabular_gmd_timeout,
-                stream=True
+                timeout=tabular_gmd_timeout
             )
             req_post_end = time.time()
             debug_print(f"[GMD/DDPM] POST request completed in {req_post_end - req_post_start:.3f}s")
         
         debug_print(f"[GMD/DDPM] API response status: {response.status_code}")
         
-        # Read the entire response content with streaming to avoid blocking
+        # Read the entire response content
         read_start = time.time()
         response_text = response.text
         read_end = time.time()
@@ -1572,7 +1571,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     result["output_file"] = output_path
                     result["message"] += f" and saved to {output_path}"
                     # Remove data_full to avoid slow JSON serialization when file is saved
-                    del result["data_full"]
+                    result.pop("data_full", None)
                 else:
                     result["warning"] = f"Generated data successfully but failed to save: {message}"
             except Exception as e:
@@ -1625,7 +1624,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     result["output_file"] = output_path
                     result["message"] += f" and saved to {output_path}"
                     # Remove data_full to avoid slow JSON serialization when file is saved
-                    del result["data_full"]
+                    result.pop("data_full", None)
                 else:
                     result["warning"] = f"Generated data successfully but failed to save: {message}"
             except Exception as e:
