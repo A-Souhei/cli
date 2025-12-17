@@ -442,6 +442,152 @@ def generate_synthetic_data_ctgan(file_path: str, num_samples: int, working_dir:
         }
 
 
+def try_api_generation(
+    path: Path,
+    num_samples: int,
+    epochs: int,
+    num_timesteps: int,
+    output_path: str,
+    working_dir: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Attempt to generate synthetic data using the tabular-gmd API endpoint.
+    
+    Returns:
+        Dict with results if successful, None if API is unavailable or fails
+    """
+    import pandas as pd
+    
+    debug_print("[GMD/DDPM] Starting API endpoint detection...")
+    
+    # Load config to get the tabular-gmd endpoint
+    config_path = Path(__file__).parent.parent.parent / "config.yaml"
+    debug_print(f"[GMD/DDPM] Config path: {config_path}")
+    tabular_gmd_url = None
+    tabular_gmd_timeout = 300
+    
+    if config_path.exists():
+        debug_print("[GMD/DDPM] Config file exists, loading...")
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+            debug_print(f"[GMD/DDPM] Config loaded. Has tabular_gmd section: {'tabular_gmd' in config if config else False}")
+            if config and 'tabular_gmd' in config:
+                tabular_gmd_url = config['tabular_gmd'].get('url')
+                tabular_gmd_timeout = config['tabular_gmd'].get('timeout', 300)
+                debug_print(f"[GMD/DDPM] Extracted URL: {tabular_gmd_url}, timeout: {tabular_gmd_timeout}")
+    else:
+        debug_print("[GMD/DDPM] Config file does not exist")
+    
+    if not tabular_gmd_url:
+        debug_print("[GMD/DDPM] No tabular_gmd URL configured in config.yaml")
+        return None
+    
+    debug_print(f"[GMD/DDPM] *** Attempting to use API endpoint: {tabular_gmd_url} ***")
+    
+    try:
+        # Check if endpoint is reachable
+        debug_print(f"[GMD/DDPM] Performing health check: {tabular_gmd_url}/health")
+        health_response = requests.get(f"{tabular_gmd_url}/health", timeout=5)
+        debug_print(f"[GMD/DDPM] Health check response status: {health_response.status_code}")
+        
+        if health_response.status_code != 200:
+            debug_print(f"[GMD/DDPM] Health check failed with status: {health_response.status_code}")
+            return None
+        
+        debug_print("[GMD/DDPM] *** API endpoint is HEALTHY, using GPU-accelerated quick-generate ***")
+        
+        # Prepare request data
+        form_data = {
+            'num_samples': num_samples,
+            'num_epochs': epochs,
+            'device': 'auto'
+        }
+        
+        if num_timesteps:
+            form_data['num_timesteps'] = num_timesteps
+            form_data['schedule_type'] = 'cosine'
+        
+        debug_print(f"[GMD/DDPM] Preparing API request with params: {form_data}")
+        debug_print(f"[GMD/DDPM] File to upload: {path.name}")
+        
+        # Upload file and generate
+        with open(path, 'rb') as f:
+            files = {'file': (path.name, f, 'text/csv')}
+            debug_print(f"[GMD/DDPM] Sending POST request to {tabular_gmd_url}/quick-generate (timeout={tabular_gmd_timeout}s)")
+            response = requests.post(
+                f"{tabular_gmd_url}/quick-generate",
+                files=files,
+                data=form_data,
+                timeout=tabular_gmd_timeout
+            )
+        
+        debug_print(f"[GMD/DDPM] API response status: {response.status_code}")
+        
+        if response.status_code != 200:
+            debug_print(f"[GMD/DDPM] API returned error status: {response.status_code}")
+            debug_print(f"[GMD/DDPM] Response content: {response.text[:200]}")
+            return None
+        
+        debug_print(f"[GMD/DDPM] *** SUCCESS! Generated data via API endpoint ***")
+        debug_print(f"[GMD/DDPM] Response size: {len(response.text)} bytes")
+        
+        # Parse CSV response
+        from io import StringIO
+        synthetic_data = pd.read_csv(StringIO(response.text))
+        debug_print(f"[GMD/DDPM] Parsed {len(synthetic_data)} rows from API response")
+        
+        # Save to output path if specified
+        saved_path = None
+        if output_path:
+            if not os.path.isabs(output_path):
+                output_path = os.path.join(working_dir, output_path)
+            
+            output_file = Path(output_path).resolve()
+            
+            # Validate output path is within working directory
+            try:
+                output_file.relative_to(Path(working_dir).resolve())
+            except ValueError:
+                return {
+                    "status": "error",
+                    "message": f"Output path is outside working directory: {output_path}"
+                }
+            
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+            synthetic_data.to_csv(output_file, index=False)
+            saved_path = str(output_file)
+            debug_print(f"[GMD/DDPM] Saved synthetic data to {saved_path}")
+        
+        # Prepare result
+        result = {
+            "status": "success",
+            "message": f"Generated {len(synthetic_data)} synthetic samples using GMD/DDPM API",
+            "model_type": "gmd_ddpm_api",
+            "config": {
+                "epochs": epochs,
+                "num_timesteps": num_timesteps if num_timesteps else "auto",
+                "endpoint": tabular_gmd_url
+            },
+            "data_info": {
+                "num_samples": len(synthetic_data),
+                "num_columns": len(synthetic_data.columns),
+                "columns": synthetic_data.columns.tolist()
+            },
+            "data_preview": synthetic_data.head(5).to_dict(orient='records'),
+            "data_full": synthetic_data.to_dict(orient='records')
+        }
+        
+        if saved_path:
+            result["output_file"] = saved_path
+        
+        return result
+        
+    except (requests.exceptions.RequestException, Exception) as api_error:
+        debug_print(f"[GMD/DDPM] API endpoint exception: {type(api_error).__name__}: {str(api_error)}")
+        debug_print("[GMD/DDPM] >>> Falling back to local numpy implementation <<<")
+        return None
+
+
 def generate_synthetic_data_ddpm(
     file_path: str, 
     num_samples: int, 
@@ -495,136 +641,9 @@ def generate_synthetic_data_ddpm(
             }
 
         # Try to use the tabular-gmd API endpoint first
-        try:
-            debug_print("[GMD/DDPM] Starting API endpoint detection...")
-            # Load config to get the tabular-gmd endpoint
-            config_path = Path(__file__).parent.parent.parent / "config.yaml"
-            debug_print(f"[GMD/DDPM] Config path: {config_path}")
-            tabular_gmd_url = None
-            tabular_gmd_timeout = 300
-            
-            if config_path.exists():
-                debug_print("[GMD/DDPM] Config file exists, loading...")
-                with open(config_path, 'r') as f:
-                    config = yaml.safe_load(f)
-                    debug_print(f"[GMD/DDPM] Config loaded. Has tabular_gmd section: {'tabular_gmd' in config if config else False}")
-                    if config and 'tabular_gmd' in config:
-                        tabular_gmd_url = config['tabular_gmd'].get('url')
-                        tabular_gmd_timeout = config['tabular_gmd'].get('timeout', 300)
-                        debug_print(f"[GMD/DDPM] Extracted URL: {tabular_gmd_url}, timeout: {tabular_gmd_timeout}")
-            else:
-                debug_print("[GMD/DDPM] Config file does not exist")
-            
-            if tabular_gmd_url:
-                debug_print(f"[GMD/DDPM] *** Attempting to use API endpoint: {tabular_gmd_url} ***")
-                
-                # Check if endpoint is reachable
-                try:
-                    debug_print(f"[GMD/DDPM] Performing health check: {tabular_gmd_url}/health")
-                    health_response = requests.get(f"{tabular_gmd_url}/health", timeout=5)
-                    debug_print(f"[GMD/DDPM] Health check response status: {health_response.status_code}")
-                    if health_response.status_code == 200:
-                        debug_print("[GMD/DDPM] *** API endpoint is HEALTHY, using GPU-accelerated quick-generate ***")
-                        
-                        # Prepare request data
-                        form_data = {
-                            'num_samples': num_samples,
-                            'num_epochs': epochs,
-                            'device': 'auto'
-                        }
-                        
-                        if num_timesteps:
-                            form_data['num_timesteps'] = num_timesteps
-                            form_data['schedule_type'] = 'cosine'
-                        
-                        debug_print(f"[GMD/DDPM] Preparing API request with params: {form_data}")
-                        debug_print(f"[GMD/DDPM] File to upload: {path.name}")
-                        
-                        # Upload file and generate
-                        with open(path, 'rb') as f:
-                            files = {'file': (path.name, f, 'text/csv')}
-                            debug_print(f"[GMD/DDPM] Sending POST request to {tabular_gmd_url}/quick-generate (timeout={tabular_gmd_timeout}s)")
-                            response = requests.post(
-                                f"{tabular_gmd_url}/quick-generate",
-                                files=files,
-                                data=form_data,
-                                timeout=tabular_gmd_timeout
-                            )
-                        
-                        debug_print(f"[GMD/DDPM] API response status: {response.status_code}")
-                        
-                        if response.status_code == 200:
-                            debug_print(f"[GMD/DDPM] *** SUCCESS! Generated data via API endpoint ***")
-                            debug_print(f"[GMD/DDPM] Response size: {len(response.text)} bytes")
-                            
-                            # Parse CSV response
-                            from io import StringIO
-                            synthetic_data = pd.read_csv(StringIO(response.text))
-                            debug_print(f"[GMD/DDPM] Parsed {len(synthetic_data)} rows from API response")
-                            
-                            # Save to output path if specified
-                            saved_path = None
-                            if output_path:
-                                if not os.path.isabs(output_path):
-                                    output_path = os.path.join(working_dir, output_path)
-                                
-                                output_file = Path(output_path).resolve()
-                                
-                                # Validate output path is within working directory
-                                try:
-                                    output_file.relative_to(Path(working_dir).resolve())
-                                except ValueError:
-                                    return {
-                                        "status": "error",
-                                        "message": f"Output path is outside working directory: {output_path}"
-                                    }
-                                
-                                output_file.parent.mkdir(parents=True, exist_ok=True)
-                                synthetic_data.to_csv(output_file, index=False)
-                                saved_path = str(output_file)
-                                debug_print(f"[GMD/DDPM] Saved synthetic data to {saved_path}")
-                            
-                            # Prepare result
-                            result = {
-                                "status": "success",
-                                "message": f"Generated {len(synthetic_data)} synthetic samples using GMD/DDPM API",
-                                "model_type": "gmd_ddpm_api",
-                                "config": {
-                                    "epochs": epochs,
-                                    "num_timesteps": num_timesteps if num_timesteps else "auto",
-                                    "endpoint": tabular_gmd_url
-                                },
-                                "data_info": {
-                                    "num_samples": len(synthetic_data),
-                                    "num_columns": len(synthetic_data.columns),
-                                    "columns": synthetic_data.columns.tolist()
-                                },
-                                "data_preview": synthetic_data.head(5).to_dict(orient='records'),
-                                "data_full": synthetic_data.to_dict(orient='records')
-                            }
-                            
-                            if saved_path:
-                                result["output_file"] = saved_path
-                            
-                            return result
-                        else:
-                            debug_print(f"[GMD/DDPM] API returned error status: {response.status_code}")
-                            debug_print(f"[GMD/DDPM] Response content: {response.text[:200]}")
-                            raise Exception(f"API error: {response.status_code}")
-                    else:
-                        debug_print(f"[GMD/DDPM] Health check failed with status: {health_response.status_code}")
-                        raise Exception("Health check failed")
-                        
-                except (requests.exceptions.RequestException, Exception) as api_error:
-                    debug_print(f"[GMD/DDPM] API endpoint exception: {type(api_error).__name__}: {str(api_error)}")
-                    debug_print("[GMD/DDPM] >>> Falling back to local numpy implementation <<<")
-            else:
-                debug_print("[GMD/DDPM] No tabular_gmd URL configured in config.yaml")
-                debug_print("[GMD/DDPM] >>> Using local numpy implementation <<<")
-        
-        except Exception as api_error:
-            debug_print(f"[GMD/DDPM] Outer exception in API approach: {type(api_error).__name__}: {str(api_error)}")
-            debug_print("[GMD/DDPM] >>> Using local fallback <<<")
+        api_result = try_api_generation(path, num_samples, epochs, num_timesteps, output_path, working_dir)
+        if api_result:
+            return api_result
         
         # Fallback to local implementation
         debug_print("[GMD/DDPM] ========================================")
@@ -1432,7 +1451,7 @@ async def list_tools() -> list[Tool]:
             name="generate_fake_data_with_ddpm",
             description=(
                 "Generate synthetic tabular data using Gaussian Multinomial Diffusion (GMD/DDPM). "
-                "This tool first attempts to use the tabular-gmd API endpoint (configured at 192.168.31.23:15432) "
+                "This tool first attempts to use the configured tabular-gmd API endpoint "
                 "which provides GPU-accelerated synthetic data generation. If the API is unreachable, it automatically "
                 "falls back to the local tabular-gmd library using numpy backend. The API uses state-of-the-art "
                 "diffusion models combining Gaussian diffusion for numerical features and Multinomial diffusion "

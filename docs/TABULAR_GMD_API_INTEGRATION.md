@@ -39,7 +39,7 @@ Updated the tool description to inform users about the API endpoint usage:
 
 ```
 Generate synthetic tabular data using Gaussian Multinomial Diffusion (GMD/DDPM). 
-This tool first attempts to use the tabular-gmd API endpoint (configured at 192.168.31.23:15432) 
+This tool first attempts to use the configured tabular-gmd API endpoint 
 which provides GPU-accelerated synthetic data generation. If the API is unreachable, it automatically 
 falls back to the local tabular-gmd library using numpy backend.
 ```
@@ -48,10 +48,10 @@ falls back to the local tabular-gmd library using numpy backend.
 
 ### Health Check
 ```bash
-curl http://192.168.31.23:15432/health
+curl <TABULAR_GMD_URL>/health
 ```
 
-Response:
+Example Response:
 ```json
 {
   "gpu_available": true,
@@ -64,7 +64,7 @@ Response:
 
 ### Quick Generate Endpoint
 ```bash
-POST http://192.168.31.23:15432/quick-generate
+POST <TABULAR_GMD_URL>/quick-generate
 Content-Type: multipart/form-data
 ```
 
@@ -87,10 +87,7 @@ Content-Type: multipart/form-data
 
 ## Testing
 
-The endpoint is currently reachable and operational:
-- URL: `http://192.168.31.23:15432`
-- Status: Healthy
-- GPU: Available (NVIDIA GeForce RTX 2070 with Max-Q Design)
+To test the endpoint configuration, check if it's reachable and operational by running the health check endpoint with the URL configured in `config.yaml`.
 
 ## Usage Example
 
