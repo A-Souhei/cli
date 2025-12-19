@@ -2,13 +2,15 @@
 """
 Data Engineer MCP Server - A Model Context Protocol server for data engineering tasks.
 
-This MCP server provides 6 tools for:
+This MCP server provides 8 tools for:
 1. Synthetic data generation using WGAN - fast generation with good quality
 2. Synthetic data generation using CTGAN - high-quality generation (via transformer service)
 3. Synthetic data generation using GMD/DDPM - research-grade diffusion models (via tabular-gmd)
 4. Abstract Syntax Tree (AST) generation from Python code
 5. Code similarity analysis using CodeBERT embeddings
 6. AST-based code similarity comparison for structural analysis
+7. DDPM-based code comparison using tabular-gmd service
+8. Code fingerprint generation using DDPM embeddings via tabular-gmd service
 """
 
 import os
@@ -1284,6 +1286,273 @@ def compare_ast_similarity(file_path1: str, file_path2: str, working_dir: str, m
         }
 
 
+def get_tabular_gmd_config() -> tuple[Optional[str], int]:
+    """
+    Load tabular-gmd configuration from config.yaml.
+    
+    Returns:
+        Tuple of (url, timeout). Returns (None, 300) if config not found.
+    """
+    config_path = Path(__file__).parent.parent.parent / "config.yaml"
+    
+    if not config_path.exists():
+        debug_print("[TABULAR-GMD] Config file does not exist")
+        return None, 300
+    
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+            if config and 'tabular_gmd' in config:
+                url = config['tabular_gmd'].get('url')
+                timeout = config['tabular_gmd'].get('timeout', 300)
+                debug_print(f"[TABULAR-GMD] Config loaded: URL={url}, timeout={timeout}")
+                return url, timeout
+    except Exception as e:
+        debug_print(f"[TABULAR-GMD] Error loading config: {str(e)}")
+    
+    return None, 300
+
+
+def compare_codes_with_ddpm(file_path1: str, file_path2: str, working_dir: str) -> Dict[str, Any]:
+    """
+    Compare two code files using DDPM-based embeddings via tabular-gmd API.
+    
+    This function uses the tabular-gmd service's /compare-codes endpoint which leverages
+    DDPM (Denoising Diffusion Probabilistic Models) for code comparison. This provides
+    a different comparison approach than CodeBERT, potentially capturing different aspects
+    of code similarity through diffusion-based embeddings.
+    
+    Args:
+        file_path1: Path to first code file
+        file_path2: Path to second code file
+        working_dir: Working directory for file operations
+    
+    Returns:
+        Dict with similarity score and comparison details, or error message
+    """
+    try:
+        # Read both files
+        success1, content1 = read_file_safe(file_path1, working_dir)
+        if not success1:
+            return {
+                "status": "error",
+                "message": f"Error reading first file: {content1}"
+            }
+        
+        success2, content2 = read_file_safe(file_path2, working_dir)
+        if not success2:
+            return {
+                "status": "error",
+                "message": f"Error reading second file: {content2}"
+            }
+        
+        debug_print(f"[DDPM-COMPARE] Comparing {file_path1} and {file_path2}")
+        
+        # Get tabular-gmd configuration
+        tabular_gmd_url, timeout = get_tabular_gmd_config()
+        
+        if not tabular_gmd_url:
+            return {
+                "status": "error",
+                "message": "No tabular_gmd URL configured in config.yaml. Please configure the tabular-gmd service endpoint."
+            }
+        
+        debug_print(f"[DDPM-COMPARE] Using API endpoint: {tabular_gmd_url}")
+        
+        # Check if endpoint is reachable
+        try:
+            health_response = requests.get(f"{tabular_gmd_url}/health", timeout=5)
+            if health_response.status_code != 200:
+                return {
+                    "status": "error",
+                    "message": f"Tabular-gmd API is not healthy (status: {health_response.status_code})"
+                }
+        except requests.exceptions.RequestException as e:
+            return {
+                "status": "error",
+                "message": f"Could not connect to tabular-gmd service at {tabular_gmd_url}: {str(e)}"
+            }
+        
+        # Call the compare-codes endpoint
+        debug_print(f"[DDPM-COMPARE] Calling {tabular_gmd_url}/compare-codes")
+        
+        response = requests.post(
+            f"{tabular_gmd_url}/compare-codes",
+            json={
+                "code1": content1,
+                "code2": content2,
+                "file1": file_path1,
+                "file2": file_path2
+            },
+            timeout=timeout
+        )
+        
+        if response.status_code != 200:
+            return {
+                "status": "error",
+                "message": f"Tabular-gmd API error: {response.status_code}",
+                "details": response.text
+            }
+        
+        result = response.json()
+        
+        if result.get('status') == 'error':
+            return result
+        
+        # Enhance result with file information
+        result['comparison_method'] = 'ddpm'
+        result['file1'] = file_path1
+        result['file2'] = file_path2
+        result['file1_size'] = len(content1)
+        result['file2_size'] = len(content2)
+        result['endpoint'] = f"{tabular_gmd_url}/compare-codes"
+        
+        debug_print(f"[DDPM-COMPARE] Comparison completed successfully")
+        
+        return result
+        
+    except requests.exceptions.ConnectionError:
+        return {
+            "status": "error",
+            "message": f"Could not connect to tabular-gmd service at {tabular_gmd_url}. Make sure the service is running."
+        }
+    except requests.exceptions.Timeout:
+        return {
+            "status": "error",
+            "message": "Request to tabular-gmd service timed out"
+        }
+    except Exception as e:
+        debug_print(f"[DDPM-COMPARE] Error: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Failed to compare codes with DDPM: {str(e)}"
+        }
+
+
+def generate_code_fingerprint(file_path: str, working_dir: str) -> Dict[str, Any]:
+    """
+    Generate a unique fingerprint for a code file using DDPM embeddings via tabular-gmd API.
+    
+    This function uses the tabular-gmd service's /code-fingerprint endpoint which generates
+    a compact, deterministic fingerprint of code using DDPM (Denoising Diffusion Probabilistic
+    Models). The fingerprint can be used for:
+    - Quick code change detection
+    - Code versioning and tracking
+    - Duplicate code detection
+    - Code indexing and retrieval
+    
+    Args:
+        file_path: Path to code file
+        working_dir: Working directory for file operations
+    
+    Returns:
+        Dict with fingerprint and metadata, or error message
+    """
+    try:
+        # Read the file
+        success, content = read_file_safe(file_path, working_dir)
+        if not success:
+            return {
+                "status": "error",
+                "message": f"Error reading file: {content}"
+            }
+        
+        debug_print(f"[CODE-FINGERPRINT] Generating fingerprint for {file_path}")
+        
+        # Get tabular-gmd configuration
+        tabular_gmd_url, timeout = get_tabular_gmd_config()
+        
+        if not tabular_gmd_url:
+            return {
+                "status": "error",
+                "message": "No tabular_gmd URL configured in config.yaml. Please configure the tabular-gmd service endpoint."
+            }
+        
+        debug_print(f"[CODE-FINGERPRINT] Using API endpoint: {tabular_gmd_url}")
+        
+        # Check if endpoint is reachable
+        try:
+            health_response = requests.get(f"{tabular_gmd_url}/health", timeout=5)
+            if health_response.status_code != 200:
+                return {
+                    "status": "error",
+                    "message": f"Tabular-gmd API is not healthy (status: {health_response.status_code})"
+                }
+        except requests.exceptions.RequestException as e:
+            return {
+                "status": "error",
+                "message": f"Could not connect to tabular-gmd service at {tabular_gmd_url}: {str(e)}"
+            }
+        
+        # Detect file type
+        file_ext = Path(file_path).suffix.lower()
+        language_map = {
+            '.py': 'python',
+            '.js': 'javascript',
+            '.java': 'java',
+            '.go': 'go',
+            '.rb': 'ruby',
+            '.cpp': 'cpp',
+            '.c': 'c',
+            '.ts': 'typescript',
+            '.php': 'php',
+            '.rs': 'rust'
+        }
+        language = language_map.get(file_ext, 'unknown')
+        
+        # Call the code-fingerprint endpoint
+        debug_print(f"[CODE-FINGERPRINT] Calling {tabular_gmd_url}/code-fingerprint")
+        
+        response = requests.post(
+            f"{tabular_gmd_url}/code-fingerprint",
+            json={
+                "code": content,
+                "filename": file_path,
+                "language": language
+            },
+            timeout=timeout
+        )
+        
+        if response.status_code != 200:
+            return {
+                "status": "error",
+                "message": f"Tabular-gmd API error: {response.status_code}",
+                "details": response.text
+            }
+        
+        result = response.json()
+        
+        if result.get('status') == 'error':
+            return result
+        
+        # Enhance result with file information
+        result['file'] = file_path
+        result['file_size'] = len(content)
+        result['language'] = language
+        result['endpoint'] = f"{tabular_gmd_url}/code-fingerprint"
+        
+        debug_print(f"[CODE-FINGERPRINT] Fingerprint generated successfully")
+        
+        return result
+        
+    except requests.exceptions.ConnectionError:
+        return {
+            "status": "error",
+            "message": f"Could not connect to tabular-gmd service at {tabular_gmd_url}. Make sure the service is running."
+        }
+    except requests.exceptions.Timeout:
+        return {
+            "status": "error",
+            "message": "Request to tabular-gmd service timed out"
+        }
+    except Exception as e:
+        debug_print(f"[CODE-FINGERPRINT] Error: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Failed to generate code fingerprint: {str(e)}"
+        }
+
+
 @app.list_tools()
 async def list_tools() -> list[Tool]:
     """List available tools."""
@@ -1518,6 +1787,62 @@ async def list_tools() -> list[Tool]:
                     }
                 },
                 "required": ["file_path", "num_samples"]
+            }
+        ),
+        Tool(
+            name="compare_codes_with_ddpm",
+            description=(
+                "Compare two code files using DDPM-based embeddings from the tabular-gmd service. "
+                "This tool uses Denoising Diffusion Probabilistic Models (DDPM) for code comparison, "
+                "providing a different approach than traditional CodeBERT embeddings. DDPM-based comparison "
+                "may capture different aspects of code similarity through diffusion-based representations. "
+                "Useful for advanced code similarity analysis, duplicate detection, and understanding code "
+                "relationships from a diffusion model perspective. Requires the tabular-gmd service to be "
+                "running and configured in config.yaml."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path1": {
+                        "type": "string",
+                        "description": "Path to the first code file"
+                    },
+                    "file_path2": {
+                        "type": "string",
+                        "description": "Path to the second code file"
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Optional working directory. Defaults to current directory."
+                    }
+                },
+                "required": ["file_path1", "file_path2"]
+            }
+        ),
+        Tool(
+            name="code_fingerprint",
+            description=(
+                "Generate a unique fingerprint for a code file using DDPM embeddings from the tabular-gmd service. "
+                "This tool creates a compact, deterministic fingerprint of code using Denoising Diffusion "
+                "Probabilistic Models (DDPM). The fingerprint is useful for quick code change detection, "
+                "code versioning and tracking, duplicate code detection, and code indexing and retrieval. "
+                "Unlike traditional hashing, DDPM-based fingerprints capture semantic code properties, making "
+                "them more robust to minor formatting changes while still being sensitive to meaningful code "
+                "modifications. Requires the tabular-gmd service to be running and configured in config.yaml."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the code file"
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Optional working directory. Defaults to current directory."
+                    }
+                },
+                "required": ["file_path"]
             }
         )
     ]
@@ -1805,6 +2130,53 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
         result = generate_synthetic_data_ddpm(
             file_path, num_samples, epochs, num_timesteps, output_path, working_dir
         )
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "compare_codes_with_ddpm":
+        file_path1 = arguments.get("file_path1")
+        file_path2 = arguments.get("file_path2")
+        working_dir = arguments.get("working_dir", os.getcwd())
+
+        # Validate inputs
+        if not file_path1 or not file_path2:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": "Both file_path1 and file_path2 are required"
+            }, indent=2))]
+
+        # Validate working directory
+        is_valid, error_msg = validate_working_dir(working_dir)
+        if not is_valid:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": error_msg
+            }, indent=2))]
+
+        # Compare codes using DDPM
+        result = compare_codes_with_ddpm(file_path1, file_path2, working_dir)
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "code_fingerprint":
+        file_path = arguments.get("file_path")
+        working_dir = arguments.get("working_dir", os.getcwd())
+
+        # Validate inputs
+        if not file_path:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": "file_path is required"
+            }, indent=2))]
+
+        # Validate working directory
+        is_valid, error_msg = validate_working_dir(working_dir)
+        if not is_valid:
+            return [TextContent(type="text", text=json.dumps({
+                "status": "error",
+                "message": error_msg
+            }, indent=2))]
+
+        # Generate code fingerprint
+        result = generate_code_fingerprint(file_path, working_dir)
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
     else:

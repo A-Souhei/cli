@@ -16,6 +16,12 @@ categories:
       - compare_code_similarity
       - compare_ast_similarity
 
+  ddpm_code_tools:
+    description: "Advanced code analysis tools using DDPM (Denoising Diffusion Probabilistic Models)"
+    tools:
+      - compare_codes_with_ddpm
+      - code_fingerprint
+
   data_engineering:
     description: "All data engineering tools"
     tools:
@@ -25,6 +31,8 @@ categories:
       - generate_ast
       - compare_code_similarity
       - compare_ast_similarity
+      - compare_codes_with_ddpm
+      - code_fingerprint
 
 # Tool metadata with additional information
 tools:
@@ -98,3 +106,41 @@ tools:
       - r
     uses_diffusion_model: true
     library: "tabular-gmd"
+
+  compare_codes_with_ddpm:
+    requires_llm_generation: false
+    requires_file_path: true
+    uses_external_service: true
+    external_service: "tabular-gmd"
+    description: "Compare two code files using DDPM-based embeddings from tabular-gmd service"
+    languages:
+      - python
+      - javascript
+      - java
+      - go
+      - ruby
+      - cpp
+      - c
+      - typescript
+      - php
+      - rust
+    uses_diffusion_model: true
+    
+  code_fingerprint:
+    requires_llm_generation: false
+    requires_file_path: true
+    uses_external_service: true
+    external_service: "tabular-gmd"
+    description: "Generate a unique fingerprint for code using DDPM embeddings from tabular-gmd service"
+    languages:
+      - python
+      - javascript
+      - java
+      - go
+      - ruby
+      - cpp
+      - c
+      - typescript
+      - php
+      - rust
+    uses_diffusion_model: true
