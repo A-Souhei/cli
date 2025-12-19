@@ -107,6 +107,11 @@ from src.utils.custom_prompt import (
     custom_prompt_with_lines,
 )
 
+# Import MCP result formatter
+from src.utils.mcp_result_formatter import (
+    format_mcp_result
+)
+
 # Import CLI modules
 from src.cli.initialization import CLIInitializer
 from src.cli.dispatcher import CommandDispatcher
@@ -585,14 +590,9 @@ Example: {{"file_path": "users.csv", "num_samples": 100, "output_path": "fake_us
                         try:
                             # Display result
                             console.print(f"[green]✓ Tool execution completed[/green] [dim]({elapsed_time:.2f}s)[/dim]\n")
-                            console.print("[bold]Result:[/bold]")
                             
-                            # Try to parse and pretty-print JSON result
-                            try:
-                                result_data = json.loads(result)
-                                console.print(json.dumps(result_data, indent=2))
-                            except (json.JSONDecodeError, ValueError, TypeError):
-                                console.print(result)
+                            # Format and display result using utility function
+                            format_mcp_result(selected_tool, result, coder_client, console, verbose=VERBOSE)
                             
                             console.print()
                             

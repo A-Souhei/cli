@@ -1409,6 +1409,10 @@ def compare_codes_with_ddpm(file_path1: str, file_path2: str, working_dir: str, 
         if result.get('status') == 'error':
             return result
         
+        # Remove verbose fingerprint data to keep output concise
+        result.pop('fingerprint1', None)
+        result.pop('fingerprint2', None)
+        
         # Enhance result with file information
         result['comparison_method'] = 'ddpm'
         result['file1'] = file_path1
