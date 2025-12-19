@@ -1313,7 +1313,7 @@ def get_tabular_gmd_config() -> tuple[Optional[str], int]:
     return None, 300
 
 
-def compare_codes_with_ddpm(file_path1: str, file_path2: str, working_dir: str) -> Dict[str, Any]:
+def compare_codes_with_ddpm(file_path1: str, file_path2: str, working_dir: str, metric: str = "cosine") -> Dict[str, Any]:
     """
     Compare two code files using DDPM-based embeddings via tabular-gmd API.
     
@@ -1326,6 +1326,7 @@ def compare_codes_with_ddpm(file_path1: str, file_path2: str, working_dir: str) 
         file_path1: Path to first code file
         file_path2: Path to second code file
         working_dir: Working directory for file operations
+        metric: Similarity metric (cosine, euclidean, wasserstein, mahalanobis). Default: cosine
     
     Returns:
         Dict with similarity score and comparison details, or error message
@@ -1383,14 +1384,15 @@ def compare_codes_with_ddpm(file_path1: str, file_path2: str, working_dir: str) 
             }
         
         # Call the code/similarity endpoint
-        debug_print(f"[DDPM-COMPARE] Calling {tabular_gmd_url}/code/similarity (language: {language})")
+        debug_print(f"[DDPM-COMPARE] Calling {tabular_gmd_url}/code/similarity (language: {language}, metric: {metric})")
         
         response = requests.post(
             f"{tabular_gmd_url}/code/similarity",
             json={
                 "code1": content1,
                 "code2": content2,
-                "language": language
+                "language": language,
+                "metric": metric
             },
             timeout=timeout
         )
@@ -1812,6 +1814,11 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Path to the second code file"
                     },
+                    "metric": {
+                        "type": "string",
+                        "description": "Similarity metric to use (default: cosine)",
+                        "enum": ["cosine", "euclidean", "wasserstein", "mahalanobis"]
+                    },
                     "working_dir": {
                         "type": "string",
                         "description": "Optional working directory. Defaults to current directory."
@@ -2136,6 +2143,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
     elif name == "compare_codes_with_ddpm":
         file_path1 = arguments.get("file_path1")
         file_path2 = arguments.get("file_path2")
+        metric = arguments.get("metric", "cosine")
         working_dir = arguments.get("working_dir", os.getcwd())
 
         # Validate inputs
@@ -2154,7 +2162,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             }, indent=2))]
 
         # Compare codes using DDPM
-        result = compare_codes_with_ddpm(file_path1, file_path2, working_dir)
+        result = compare_codes_with_ddpm(file_path1, file_path2, working_dir, metric)
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
     elif name == "code_fingerprint":

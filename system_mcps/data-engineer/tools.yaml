@@ -115,16 +115,14 @@ tools:
     description: "Compare two code files using DDPM-based embeddings from tabular-gmd service"
     languages:
       - python
-      - javascript
-      - java
-      - go
-      - ruby
-      - cpp
-      - c
-      - typescript
-      - php
-      - rust
+      - r
     uses_diffusion_model: true
+    metrics:
+      - cosine
+      - euclidean
+      - wasserstein
+      - mahalanobis
+    default_metric: cosine
     
   code_fingerprint:
     requires_llm_generation: false
