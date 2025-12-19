@@ -26,7 +26,7 @@ Compares two code files using DDPM-based embeddings from the tabular-gmd service
 ### Endpoints Used
 
 - Health check: `GET {tabular_gmd_url}/health`
-- Compare codes: `POST {tabular_gmd_url}/compare-codes`
+- Compare codes: `POST {tabular_gmd_url}/code/similarity`
 
 ### Usage
 
@@ -69,7 +69,7 @@ Compare @src/module1.py and @src/module2.py using DDPM
   "file2": "src/module2.py",
   "file1_size": 1234,
   "file2_size": 2345,
-  "endpoint": "http://192.168.31.23:15432/compare-codes",
+  "endpoint": "http://192.168.31.23:15432/code/similarity",
   "similarity": 0.85,
   "interpretation": "Highly similar code"
 }
@@ -101,7 +101,7 @@ Generates a unique fingerprint for a code file using DDPM embeddings from the ta
 ### Endpoints Used
 
 - Health check: `GET {tabular_gmd_url}/health`
-- Fingerprint: `POST {tabular_gmd_url}/code-fingerprint`
+- Fingerprint: `POST {tabular_gmd_url}/code/fingerprint`
 
 ### Usage
 
@@ -132,7 +132,7 @@ Same as compare_codes_with_ddpm (Python, JavaScript, Java, Go, Ruby, C++, C, Typ
   "file": "src/main.py",
   "file_size": 1234,
   "language": "python",
-  "endpoint": "http://192.168.31.23:15432/code-fingerprint",
+  "endpoint": "http://192.168.31.23:15432/code/fingerprint",
   "fingerprint": "a1b2c3d4e5f6...",
   "metadata": {
     "model": "ddpm",

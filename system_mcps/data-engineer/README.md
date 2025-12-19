@@ -147,7 +147,7 @@ Compare two code files using DDPM (Denoising Diffusion Probabilistic Models) emb
 
 **Requirements:**
 - Requires tabular-gmd service to be running and configured in `config.yaml`
-- The service must have the `/compare-codes` endpoint available
+- The service must have the `/code/similarity` endpoint available
 
 ### 8. Code Fingerprint Generation (`code_fingerprint`)
 Generate unique fingerprints for code files using DDPM embeddings via the tabular-gmd service.
@@ -171,7 +171,7 @@ Generate unique fingerprints for code files using DDPM embeddings via the tabula
 
 **Requirements:**
 - Requires tabular-gmd service to be running and configured in `config.yaml`
-- The service must have the `/code-fingerprint` endpoint available
+- The service must have the `/code/fingerprint` endpoint available
 
 **How it differs from traditional hashing:**
 - Traditional hashing (MD5, SHA) is sensitive to any character change, including whitespace and comments
@@ -232,8 +232,8 @@ tabular_gmd:
 
 Tools that require the tabular-gmd service:
 - `generate_fake_data_with_ddpm`: Uses `/quick-generate` endpoint
-- `compare_codes_with_ddpm`: Uses `/compare-codes` endpoint  
-- `code_fingerprint`: Uses `/code-fingerprint` endpoint
+- `compare_codes_with_ddpm`: Uses `/code/similarity` endpoint  
+- `code_fingerprint`: Uses `/code/fingerprint` endpoint
 
 ## Example Workflows
 

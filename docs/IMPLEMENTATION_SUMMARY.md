@@ -17,7 +17,7 @@ Add two new tools to the data-engineer MCP for advanced code analysis using DDPM
 
 **`compare_codes_with_ddpm()`** (lines 1316-1430)
 - Compares two code files using DDPM embeddings
-- Calls `/compare-codes` endpoint on tabular-gmd service
+- Calls `/code/similarity` endpoint on tabular-gmd service
 - Includes:
   - File reading and validation
   - Health check before API call
@@ -27,7 +27,7 @@ Add two new tools to the data-engineer MCP for advanced code analysis using DDPM
 
 **`generate_code_fingerprint()`** (lines 1432-1546)
 - Generates unique semantic fingerprint for code
-- Calls `/code-fingerprint` endpoint on tabular-gmd service
+- Calls `/code/fingerprint` endpoint on tabular-gmd service
 - Includes:
   - File reading and validation
   - Automatic language detection
@@ -160,8 +160,8 @@ Tools are automatically:
 ### API Endpoints
 New tools call these tabular-gmd endpoints:
 - `GET /health` - Health check
-- `POST /compare-codes` - Code comparison
-- `POST /code-fingerprint` - Fingerprint generation
+- `POST /code/similarity` - Code comparison
+- `POST /code/fingerprint` - Fingerprint generation
 
 ## Validation
 
@@ -210,8 +210,8 @@ To use the new tools:
 
 1. **Configure tabular-gmd service** in `config.yaml`
 2. **Start the tabular-gmd service** with endpoints:
-   - `/compare-codes`
-   - `/code-fingerprint`
+   - `/code/similarity`
+   - `/code/fingerprint`
 3. **Use via AI CLI**:
    ```
    Compare @file1.py and @file2.py using DDPM

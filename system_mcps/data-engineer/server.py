@@ -1317,7 +1317,7 @@ def compare_codes_with_ddpm(file_path1: str, file_path2: str, working_dir: str) 
     """
     Compare two code files using DDPM-based embeddings via tabular-gmd API.
     
-    This function uses the tabular-gmd service's /compare-codes endpoint which leverages
+    This function uses the tabular-gmd service's /code/similarity endpoint which leverages
     DDPM (Denoising Diffusion Probabilistic Models) for code comparison. This provides
     a different comparison approach than CodeBERT, potentially capturing different aspects
     of code similarity through diffusion-based embeddings.
@@ -1348,6 +1348,15 @@ def compare_codes_with_ddpm(file_path1: str, file_path2: str, working_dir: str) 
         
         debug_print(f"[DDPM-COMPARE] Comparing {file_path1} and {file_path2}")
         
+        # Detect language from file extension (use first file's extension)
+        file_ext = Path(file_path1).suffix.lower()
+        language_map = {
+            '.py': 'python',
+            '.r': 'r',
+            '.R': 'r'
+        }
+        language = language_map.get(file_ext, 'python')  # Default to python if unknown
+        
         # Get tabular-gmd configuration
         tabular_gmd_url, timeout = get_tabular_gmd_config()
         
@@ -1373,16 +1382,15 @@ def compare_codes_with_ddpm(file_path1: str, file_path2: str, working_dir: str) 
                 "message": f"Could not connect to tabular-gmd service at {tabular_gmd_url}: {str(e)}"
             }
         
-        # Call the compare-codes endpoint
-        debug_print(f"[DDPM-COMPARE] Calling {tabular_gmd_url}/compare-codes")
+        # Call the code/similarity endpoint
+        debug_print(f"[DDPM-COMPARE] Calling {tabular_gmd_url}/code/similarity (language: {language})")
         
         response = requests.post(
-            f"{tabular_gmd_url}/compare-codes",
+            f"{tabular_gmd_url}/code/similarity",
             json={
                 "code1": content1,
                 "code2": content2,
-                "file1": file_path1,
-                "file2": file_path2
+                "language": language
             },
             timeout=timeout
         )
@@ -1405,7 +1413,8 @@ def compare_codes_with_ddpm(file_path1: str, file_path2: str, working_dir: str) 
         result['file2'] = file_path2
         result['file1_size'] = len(content1)
         result['file2_size'] = len(content2)
-        result['endpoint'] = f"{tabular_gmd_url}/compare-codes"
+        result['language'] = language
+        result['endpoint'] = f"{tabular_gmd_url}/code/similarity"
         
         debug_print(f"[DDPM-COMPARE] Comparison completed successfully")
         
@@ -1433,7 +1442,7 @@ def generate_code_fingerprint(file_path: str, working_dir: str) -> Dict[str, Any
     """
     Generate a unique fingerprint for a code file using DDPM embeddings via tabular-gmd API.
     
-    This function uses the tabular-gmd service's /code-fingerprint endpoint which generates
+    This function uses the tabular-gmd service's /code/fingerprint endpoint which generates
     a compact, deterministic fingerprint of code using DDPM (Denoising Diffusion Probabilistic
     Models). The fingerprint can be used for:
     - Quick code change detection
@@ -1484,30 +1493,22 @@ def generate_code_fingerprint(file_path: str, working_dir: str) -> Dict[str, Any
                 "message": f"Could not connect to tabular-gmd service at {tabular_gmd_url}: {str(e)}"
             }
         
-        # Detect file type
+        # Detect file type (API supports python and r)
         file_ext = Path(file_path).suffix.lower()
         language_map = {
             '.py': 'python',
-            '.js': 'javascript',
-            '.java': 'java',
-            '.go': 'go',
-            '.rb': 'ruby',
-            '.cpp': 'cpp',
-            '.c': 'c',
-            '.ts': 'typescript',
-            '.php': 'php',
-            '.rs': 'rust'
+            '.r': 'r',
+            '.R': 'r'
         }
-        language = language_map.get(file_ext, 'unknown')
+        language = language_map.get(file_ext, 'python')  # Default to python if unknown
         
-        # Call the code-fingerprint endpoint
-        debug_print(f"[CODE-FINGERPRINT] Calling {tabular_gmd_url}/code-fingerprint")
+        # Call the code/fingerprint endpoint
+        debug_print(f"[CODE-FINGERPRINT] Calling {tabular_gmd_url}/code/fingerprint (language: {language})")
         
         response = requests.post(
-            f"{tabular_gmd_url}/code-fingerprint",
+            f"{tabular_gmd_url}/code/fingerprint",
             json={
                 "code": content,
-                "filename": file_path,
                 "language": language
             },
             timeout=timeout
@@ -1529,7 +1530,7 @@ def generate_code_fingerprint(file_path: str, working_dir: str) -> Dict[str, Any
         result['file'] = file_path
         result['file_size'] = len(content)
         result['language'] = language
-        result['endpoint'] = f"{tabular_gmd_url}/code-fingerprint"
+        result['endpoint'] = f"{tabular_gmd_url}/code/fingerprint"
         
         debug_print(f"[CODE-FINGERPRINT] Fingerprint generated successfully")
         
