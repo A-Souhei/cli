@@ -182,13 +182,13 @@ test: install ## Run all tests (pytest + unit tests)
 	@$(VENV_DIR)/bin/pytest tests/ -v -m "not slow" || echo "$(YELLOW)Some tests skipped (containers not available)$(NC)"
 	@echo ""
 	@echo "$(YELLOW)2. Running CLI unit tests...$(NC)"
-	@$(VENV_PYTHON) test_cli.py
+	@$(VENV_PYTHON) tests/test_cli.py
 	@echo ""
 	@echo "$(GREEN)✓ Tests completed$(NC)"
 
 test-unit: install ## Run unit tests only (no container dependencies)
 	@echo "$(YELLOW)Running unit tests...$(NC)"
-	@$(VENV_PYTHON) test_cli.py
+	@$(VENV_PYTHON) tests/test_cli.py
 	@$(VENV_DIR)/bin/pytest tests/test_embedding_similarity.py -v
 	@echo "$(GREEN)✓ Unit tests completed$(NC)"
 
@@ -212,7 +212,7 @@ test-spin: install ## Run spin_the_roulette tests (curl + fast pytest)
 
 test-all: install ## Run all tests including slow tests
 	@echo "$(YELLOW)Running all tests (including slow tests)...$(NC)"
-	@$(VENV_PYTHON) test_cli.py
+	@$(VENV_PYTHON) tests/test_cli.py
 	@$(VENV_DIR)/bin/pytest tests/ -v --tb=short
 	@./tests/test_spin_the_roulette.sh
 	@echo "$(GREEN)✓ All tests completed$(NC)"
