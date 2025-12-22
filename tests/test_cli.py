@@ -4,15 +4,16 @@ Simple test script to verify the CLI components work correctly.
 This test doesn't require a running Ollama service.
 """
 
-from src.chat import ChatManager
-from src.config import ConfigManager
 import sys
 from pathlib import Path
-import requests
 import os
 
 # Add the project root to the path
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import requests
+from src.chat import ChatManager
+from src.config import ConfigManager
 
 
 def test_config_manager():
