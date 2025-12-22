@@ -1331,6 +1331,7 @@ def compare_codes_with_ddpm(file_path1: str, file_path2: str, working_dir: str, 
     Returns:
         Dict with similarity score and comparison details, or error message
     """
+    tabular_gmd_url = None  # Initialize to avoid UnboundLocalError in exception handlers
     try:
         # Read both files
         success1, content1 = read_file_safe(file_path1, working_dir)
@@ -1463,6 +1464,7 @@ def generate_code_fingerprint(file_path: str, working_dir: str) -> Dict[str, Any
     Returns:
         Dict with fingerprint and metadata, or error message
     """
+    tabular_gmd_url = None  # Initialize to avoid UnboundLocalError in exception handlers
     try:
         # Read the file
         success, content = read_file_safe(file_path, working_dir)

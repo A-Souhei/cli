@@ -134,7 +134,7 @@ Compare two code files using DDPM (Denoising Diffusion Probabilistic Models) emb
 - DDPM-based code comparison using diffusion model embeddings
 - Different approach than traditional CodeBERT embeddings
 - May capture different aspects of code similarity
-- Support for multiple programming languages
+- Support for Python and R programming languages
 - Integration with tabular-gmd remote service
 - Automatic health checking and error handling
 
@@ -157,7 +157,7 @@ Generate unique fingerprints for code files using DDPM embeddings via the tabula
 - Semantic code fingerprinting (not just traditional hashing)
 - Robust to minor formatting changes
 - Sensitive to meaningful code modifications
-- Support for multiple programming languages
+- Support for Python and R programming languages
 - Integration with tabular-gmd remote service
 - Automatic language detection from file extensions
 

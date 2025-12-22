@@ -49,15 +49,9 @@ Compare @src/module1.py and @src/module2.py using DDPM
 ### Supported Languages
 
 - Python (.py)
-- JavaScript (.js)
-- Java (.java)
-- Go (.go)
-- Ruby (.rb)
-- C++ (.cpp)
-- C (.c)
-- TypeScript (.ts)
-- PHP (.php)
-- Rust (.rs)
+- R (.r, .R)
+
+Note: The implementation only detects Python and R file extensions. Other file types will default to 'python'.
 
 ### Response Format
 
@@ -122,7 +116,7 @@ Generate a fingerprint for @src/main.py
 
 ### Supported Languages
 
-Same as compare_codes_with_ddpm (Python, JavaScript, Java, Go, Ruby, C++, C, TypeScript, PHP, Rust)
+Currently supports Python (.py) and R (.r, .R). Language detection is implemented only for these languages. Other file types will default to 'python'.
 
 ### Response Format
 

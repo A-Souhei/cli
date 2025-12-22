@@ -8,14 +8,14 @@ This PR adds two new advanced code analysis tools to the data-engineer MCP serve
 
 ### 1. compare_codes_with_ddpm
 - **Purpose**: Compare two code files using DDPM-based embeddings
-- **Endpoint**: `POST /compare-codes` on tabular-gmd service
-- **Languages**: Python, JavaScript, Java, Go, Ruby, C++, C, TypeScript, PHP, Rust
+- **Endpoint**: `POST /code/similarity` on tabular-gmd service
+- **Languages**: Python, R
 - **Use Cases**: Advanced similarity analysis, duplicate detection, research applications
 
 ### 2. code_fingerprint
 - **Purpose**: Generate unique semantic fingerprints for code files
-- **Endpoint**: `POST /code-fingerprint` on tabular-gmd service
-- **Languages**: Same as above
+- **Endpoint**: `POST /code/fingerprint` on tabular-gmd service
+- **Languages**: Python, R
 - **Use Cases**: Code versioning, change detection, indexing, cache invalidation
 
 ## Implementation Highlights

@@ -132,13 +132,5 @@ tools:
     description: "Generate a unique fingerprint for code using DDPM embeddings from tabular-gmd service"
     languages:
       - python
-      - javascript
-      - java
-      - go
-      - ruby
-      - cpp
-      - c
-      - typescript
-      - php
-      - rust
+      - r
     uses_diffusion_model: true

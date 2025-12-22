@@ -23,14 +23,14 @@ Add two new tools to the data-engineer MCP for advanced code analysis using DDPM
   - Health check before API call
   - Comprehensive error handling
   - Response enhancement with metadata
-  - Support for 10+ programming languages
+  - Support for Python and R (based on file extension detection)
 
 **`generate_code_fingerprint()`** (lines 1432-1546)
 - Generates unique semantic fingerprint for code
 - Calls `/code/fingerprint` endpoint on tabular-gmd service
 - Includes:
   - File reading and validation
-  - Automatic language detection
+  - Automatic language detection for Python and R files
   - Health check before API call
   - Comprehensive error handling
   - Response enhancement with metadata
@@ -229,7 +229,7 @@ To use the new tools:
 ## Notes
 
 - Tools require tabular-gmd service to be running
-- Service must implement `/compare-codes` and `/code-fingerprint` endpoints
+- Service must implement `/code/similarity` and `/code/fingerprint` endpoints
 - Tools follow the same error handling pattern as existing tabular-gmd integration
 - All file operations are sandboxed to working directory
-- Language detection is automatic based on file extension
+- Language detection is automatic based on file extension (Python and R only)
