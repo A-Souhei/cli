@@ -1087,6 +1087,189 @@ def sum(x, y):
         assert result_data["status"] == "error"
         assert "unknown tool" in result_data["message"].lower()
 
+    @pytest.mark.asyncio
+    async def test_compare_codes_with_ddpm(self, server_path, sample_python_file, sample_python_file2):
+        """Test DDPM-based code comparison."""
+        # This test requires tabular-gmd service to be running
+        
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0.0"}
+                }
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "compare_codes_with_ddpm",
+                    "arguments": {
+                        "file_path1": sample_python_file,
+                        "file_path2": sample_python_file2
+                    }
+                }
+            }
+        ]
+
+        responses = await communicate_with_mcp(server_path, requests, timeout=60.0)
+
+        assert len(responses) == 2
+        tool_response = responses[1]
+        
+        content = tool_response["result"]["content"]
+        result_text = content[0]["text"]
+        result_data = json.loads(result_text)
+        
+        # Check if tabular-gmd service is available
+        if result_data.get("status") == "error":
+            message = result_data.get("message", "")
+            if "tabular_gmd URL" in message or "Could not connect" in message:
+                pytest.skip("Tabular-gmd service not available or not configured")
+        
+        # Verify DDPM comparison was performed
+        if result_data["status"] == "success":
+            assert "comparison_method" in result_data
+            assert result_data["comparison_method"] == "ddpm"
+            assert "file1" in result_data
+            assert "file2" in result_data
+            assert "endpoint" in result_data
+
+    @pytest.mark.asyncio
+    async def test_compare_codes_with_ddpm_missing_file(self, server_path):
+        """Test DDPM-based code comparison with missing file."""
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0.0"}
+                }
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "compare_codes_with_ddpm",
+                    "arguments": {
+                        "file_path1": "/tmp/nonexistent1.py",
+                        "file_path2": "/tmp/nonexistent2.py"
+                    }
+                }
+            }
+        ]
+
+        responses = await communicate_with_mcp(server_path, requests, timeout=30.0)
+
+        assert len(responses) == 2
+        tool_response = responses[1]
+        
+        content = tool_response["result"]["content"]
+        result_text = content[0]["text"]
+        result_data = json.loads(result_text)
+        
+        # Should return error for missing file
+        assert result_data["status"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_code_fingerprint(self, server_path, sample_python_file):
+        """Test code fingerprint generation."""
+        # This test requires tabular-gmd service to be running
+        
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0.0"}
+                }
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "code_fingerprint",
+                    "arguments": {
+                        "file_path": sample_python_file
+                    }
+                }
+            }
+        ]
+
+        responses = await communicate_with_mcp(server_path, requests, timeout=60.0)
+
+        assert len(responses) == 2
+        tool_response = responses[1]
+        
+        content = tool_response["result"]["content"]
+        result_text = content[0]["text"]
+        result_data = json.loads(result_text)
+        
+        # Check if tabular-gmd service is available
+        if result_data.get("status") == "error":
+            message = result_data.get("message", "")
+            if "tabular_gmd URL" in message or "Could not connect" in message:
+                pytest.skip("Tabular-gmd service not available or not configured")
+        
+        # Verify fingerprint was generated
+        if result_data["status"] == "success":
+            assert "file" in result_data
+            assert "language" in result_data
+            assert "endpoint" in result_data
+            assert result_data["language"] == "python"
+
+    @pytest.mark.asyncio
+    async def test_code_fingerprint_missing_file(self, server_path):
+        """Test code fingerprint generation with missing file."""
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0.0"}
+                }
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "code_fingerprint",
+                    "arguments": {
+                        "file_path": "/tmp/nonexistent.py"
+                    }
+                }
+            }
+        ]
+
+        responses = await communicate_with_mcp(server_path, requests, timeout=30.0)
+
+        assert len(responses) == 2
+        tool_response = responses[1]
+        
+        content = tool_response["result"]["content"]
+        result_text = content[0]["text"]
+        result_data = json.loads(result_text)
+        
+        # Should return error for missing file
+        assert result_data["status"] == "error"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

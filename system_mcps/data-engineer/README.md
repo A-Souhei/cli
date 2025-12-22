@@ -4,6 +4,8 @@ A Model Context Protocol (MCP) server that provides advanced data engineering an
 
 ## Features
 
+This MCP server now provides **8 tools** for data engineering and code analysis tasks.
+
 ### 1. Fast Synthetic Data Generation (`generate_fake_data`)
 Generate synthetic data quickly from real data files using WGAN (Wasserstein GAN) via ydata-synthetic.
 
@@ -125,6 +127,58 @@ Generate synthetic data using Gaussian Multinomial Diffusion (GMD/DDPM) via the 
 - **GMD/DDPM (this tool)**: Research-grade quality using cutting-edge diffusion models
 - Processing time depends on epochs, timesteps, and data size (typically 1-5 minutes)
 
+### 7. DDPM-Based Code Comparison (`compare_codes_with_ddpm`)
+Compare two code files using DDPM (Denoising Diffusion Probabilistic Models) embeddings via the tabular-gmd service.
+
+**Capabilities:**
+- DDPM-based code comparison using diffusion model embeddings
+- Different approach than traditional CodeBERT embeddings
+- May capture different aspects of code similarity
+- Support for Python and R programming languages
+- Integration with tabular-gmd remote service
+- Automatic health checking and error handling
+
+**Use Cases:**
+- Advanced code similarity analysis with diffusion models
+- Comparing code from a diffusion model perspective
+- Duplicate code detection using alternative embeddings
+- Understanding code relationships through DDPM
+- Research on code similarity with novel approaches
+
+**Requirements:**
+- Requires tabular-gmd service to be running and configured in `config.yaml`
+- The service must have the `/code/similarity` endpoint available
+
+### 8. Code Fingerprint Generation (`code_fingerprint`)
+Generate unique fingerprints for code files using DDPM embeddings via the tabular-gmd service.
+
+**Capabilities:**
+- Compact, deterministic fingerprint generation using DDPM
+- Semantic code fingerprinting (not just traditional hashing)
+- Robust to minor formatting changes
+- Sensitive to meaningful code modifications
+- Support for Python and R programming languages
+- Integration with tabular-gmd remote service
+- Automatic language detection from file extensions
+
+**Use Cases:**
+- Quick code change detection
+- Code versioning and tracking
+- Duplicate code detection across projects
+- Code indexing and retrieval systems
+- Semantic code fingerprinting for databases
+- Build system cache invalidation
+
+**Requirements:**
+- Requires tabular-gmd service to be running and configured in `config.yaml`
+- The service must have the `/code/fingerprint` endpoint available
+
+**How it differs from traditional hashing:**
+- Traditional hashing (MD5, SHA) is sensitive to any character change, including whitespace and comments
+- DDPM-based fingerprints capture semantic code properties
+- More robust to formatting changes while detecting meaningful code modifications
+- Better suited for semantic code tracking and similarity detection
+
 ## Installation
 
 The MCP server is automatically installed as part of the AI CLI setup. Dependencies are managed separately for this MCP:
@@ -165,6 +219,21 @@ pip install -e .
 
 - `TRANSFORMER_URL`: URL for transformer service (default: http://localhost:16050)
 - `MCP_DEBUG`: Enable debug logging (default: false)
+
+## Configuration
+
+The tabular-gmd service endpoint is configured in `config.yaml`:
+
+```yaml
+tabular_gmd:
+  url: "http://192.168.31.23:15432"  # Change to your tabular-gmd service URL
+  timeout: 300  # 5 minutes - for DDPM operations
+```
+
+Tools that require the tabular-gmd service:
+- `generate_fake_data_with_ddpm`: Uses `/quick-generate` endpoint
+- `compare_codes_with_ddpm`: Uses `/code/similarity` endpoint  
+- `code_fingerprint`: Uses `/code/fingerprint` endpoint
 
 ## Example Workflows
 
@@ -235,6 +304,25 @@ pip install -e .
 }
 ```
 
+### Compare Codes with DDPM
+```python
+# User prompt: "Compare @file1.py and @file2.py using DDPM"
+# Tool: compare_codes_with_ddpm
+{
+    "file_path1": "file1.py",
+    "file_path2": "file2.py"
+}
+```
+
+### Generate Code Fingerprint
+```python
+# User prompt: "Generate a fingerprint for @my_script.py"
+# Tool: code_fingerprint
+{
+    "file_path": "my_script.py"
+}
+```
+
 ## Architecture
 
 The data-engineer MCP follows the same architecture as other system MCPs:
@@ -268,11 +356,12 @@ pytest tests/test_data_engineer_mcp.py -v
   - CTGAN: minimum 50 samples for meaningful results
   - GMD/DDPM: minimum 10 samples (50+ recommended for good quality)
 - AST generation only supports Python code
-- Code similarity requires transformer service to be running
+- Code similarity (CodeBERT) requires transformer service to be running
+- DDPM-based code tools require tabular-gmd service to be running and configured
 - CTGAN training is computationally intensive (several minutes depending on data size and epochs)
 - WGAN is faster but may not capture complex relationships as well as CTGAN
 - GMD/DDPM provides research-grade quality but training time depends on epochs and timesteps
-- GMD/DDPM requires tabular-gmd submodule to be installed
+- GMD/DDPM (local) requires tabular-gmd submodule to be installed
 
 ## Contributing
 
